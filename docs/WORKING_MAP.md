@@ -92,7 +92,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle replay-keep SESSION   # keep, parse and build the capture's replay
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only ally_icon --from cache --ally-processes K
 .\.venv\Scripts\python.exe -m reticle domain --check
-.\.venv\Scripts\python.exe -m reticle mechanics-sheet build|ask|status|import [--write]
+.\.venv\Scripts\python.exe -m reticle mechanics-sheet build|ask|status|import|supersede [--write]
 .\.venv\Scripts\python.exe -m reticle ownership [QUESTION] [--module M] [--check]
 .\.venv\Scripts\python.exe -m reticle.architecture [--graph]
 .\.venv\Scripts\python.exe -m reticle.quoted [--uncited]

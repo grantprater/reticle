@@ -3761,6 +3761,142 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
     return 0
 
 
+#: Truth samples per lost drawing's window, after its last fix.
+IN_VIEW_SAMPLES = 4
+
+
+def point_seen(M, t_rep: np.ndarray, wx: float, wy: float) -> np.ndarray:
+    """Truth, per replay time: whether a living capture-team player of `M`
+    saw the world point (`wx`, `wy`), T1d's sight asked of a point
+    (`episodes.frustum`, `occ.blocked`, the smoke spheres `draw.smoke_filter`
+    blocks with). The minimap's light is flat, so the ray runs level at the
+    seer's eye and the frustum reads yaw alone; a point on another floor is
+    read at the seer's height."""
+    from reticle import episodes as ep
+    from reticle.line_of_sight import EYE_ABOVE_CENTRE_CM
+    from .draw import seg_sphere
+    t_rep = np.asarray(t_rep, float)
+    smp = M.tl0.sample(t_rep)
+    ci = M.ci
+    alive = np.asarray(smp["alive"], bool)[ci]                                  # (C, T)
+    eye = np.stack([smp["x"][ci], smp["y"][ci], smp["z"][ci] + EYE_ABOVE_CENTRE_CM], -1)
+    tgt = np.stack([np.full(eye.shape[:2], wx), np.full(eye.shape[:2], wy), eye[..., 2]], -1)
+    ok = alive & ep.frustum(smp["yaw"][ci], np.zeros_like(smp["yaw"][ci]), tgt - eye,
+                            ep.PARAMS["HFOV_DEG"])
+    pi, ti = np.nonzero(ok)
+    if pi.size:
+        clear = ~M.occ.blocked(eye[pi, ti], tgt[pi, ti])
+        for on, off, x, y, z, r in getattr(M, "smokes", np.zeros((0, 6))):
+            live = (t_rep[ti] >= on) & (t_rep[ti] <= off)
+            if live.any():
+                clear[live] &= ~seg_sphere(eye[pi, ti][live], tgt[pi, ti][live], np.array([x, y, z]), r)
+        ok[pi, ti] = clear
+    return ok.any(axis=0)
+
+
+def run_in_view(sessions: list[str], tag: str, record: bool) -> int:
+    """`in-view`: the child owner's in-view estimate for every lost drawing
+    (`ability_child` rows' `drawing_loss.view`, `team_vision.StoredVision`)
+    against replay truth (`point_seen`) at `IN_VIEW_SAMPLES` instants inside
+    the same window. A diagnostic of the estimate, never its input: the
+    estimate is built from stored observations alone, and this reads it
+    back. Truth is in view where every sample saw the point, out where none
+    did, and `changed` otherwise. Reports the estimate's unknown share and,
+    where both decided, its accuracy with a round-bootstrap interval."""
+    from reticle import entity_events as ee
+    from reticle.store import Store
+    from . import clock as rt
+    from . import draw as tdr
+    st = Store(STORE)
+    out_dir = OUT / "in_view" / tag
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pooled = defaultdict(list)
+    for sid in sessions:
+        _refuse(sid)
+        rows = [r for r in _ability_child_rows(sid) if (r.get("drawing_loss") or {}).get("view")]
+        if not rows:
+            print(f"{sid}: no lost drawing with a stored view", flush=True)
+            continue
+        M = tdr.RealDrawMatch(sid, rule="T1d")
+        to_cm = _to_cm(sid)
+        starts = [float(r["t_start_ms"]) for r in ee.round_rows(st, sid)]
+        items = []
+        for r in rows:
+            v = r["drawing_loss"]["view"]
+            lo, hi = v["window_ms"]
+            truth, why = None, None
+            if v.get("x") is None:
+                why = "no_position"
+            else:
+                wx, wy = to_cm([v["x"]], [v["y"]])
+                t_cap = lo + (hi - lo) * np.arange(1, IN_VIEW_SAMPLES + 1) / IN_VIEW_SAMPLES
+                seen = point_seen(M, M.to_rep(t_cap, rt.REMOTE_LAG_MS), float(wx[0]), float(wy[0]))
+                truth = "in_view" if seen.all() else "out_of_view" if not seen.any() else "changed"
+            items.append({"child_id": r["child_id"], "node": r["node"], "side": r.get("slot_side"),
+                          "round": r["round"], "estimate": v["status"], "reason": v.get("reason"),
+                          "truth": truth, "truth_reason": why})
+        rk = [int(np.searchsorted(starts, float(r["drawing_loss"]["t_ms"]), side="right")) for r in rows]
+        for it, k in zip(items, rk):
+            it["round_k"] = k
+        pooled["items"] += [{**it, "sid": sid} for it in items]
+        doc = in_view_summary(items)
+        (out_dir / f"{sid}.json").write_text(json.dumps({"session": sid, "version": VERSION, **doc,
+                                                         "items": items}, indent=1, default=str),
+                                             encoding="utf-8")
+        print(f"{sid}: {json.dumps({k: doc[k] for k in ('n', 'estimate', 'unknown_share', 'accuracy', 'accuracy_ci', 'confusion')}, default=str)}",
+              flush=True)
+    if not pooled["items"]:
+        return 1
+    doc = in_view_summary(pooled["items"])
+    (out_dir / "pooled.json").write_text(json.dumps({"sessions": sessions, "version": VERSION, **doc},
+                                                    indent=1, default=str), encoding="utf-8")
+    print(f"pooled: {json.dumps(doc, default=str)}", flush=True)
+    if record:
+        from reticle.metrics import record as rec
+        vals = {"n": doc["n"], "unknown_share": doc["unknown_share"], "accuracy": doc["accuracy"],
+                "decided": doc["decided"], "in_view_share": doc["estimate_share"].get("in_view"),
+                "out_of_view_share": doc["estimate_share"].get("out_of_view")}
+        rec("question_acceptance", part=f"in_view/{tag}", session=_pool_name(sessions), values=vals,
+            ci={"accuracy": doc["accuracy_ci"]} if doc["accuracy_ci"] else {},
+            deps={"version": VERSION, "samples": IN_VIEW_SAMPLES},
+            context={"sessions": sorted(sessions)},
+            note="the child owner's in-view estimate of each lost drawing against replay truth "
+                 "sight of its place (a diagnostic, never an input)")
+    return 0
+
+
+def in_view_summary(items: list[dict]) -> dict:
+    """Counts, the estimate's unknown share and its accuracy where both the
+    estimate and truth decided, with a bootstrap over (session, round)."""
+    n = len(items)
+    est = Counter(it["estimate"] for it in items)
+    dec = [it for it in items if it["estimate"] in ("in_view", "out_of_view")
+           and it["truth"] in ("in_view", "out_of_view")]
+    conf = Counter(f"{it['estimate']}|{it['truth']}" for it in items)
+    acc_ = round(sum(it["estimate"] == it["truth"] for it in dec) / len(dec), 4) if dec else None
+    ci = None
+    if dec:
+        rng = np.random.default_rng(0)
+        groups = defaultdict(list)
+        for it in dec:
+            groups[(it.get("sid"), it.get("round_k"))].append(it["estimate"] == it["truth"])
+        keys = list(groups)
+        hits = np.array([sum(groups[k]) for k in keys], float)
+        tot = np.array([len(groups[k]) for k in keys], float)
+        idx = rng.integers(0, len(keys), (2000, len(keys)))
+        bs = hits[idx].sum(1) / np.maximum(tot[idx].sum(1), 1)
+        ci = [round(float(np.quantile(bs, 0.025)), 4), round(float(np.quantile(bs, 0.975)), 4)]
+    return {"n": n, "estimate": dict(est),
+            "estimate_share": {k: round(v / n, 4) for k, v in est.items()} if n else {},
+            "unknown_share": round(est.get("unknown", 0) / n, 4) if n else None,
+            "unknown_reasons": dict(Counter(str(it["reason"]).split(":")[0] for it in items
+                                            if it["estimate"] == "unknown")),
+            "truth": dict(Counter(str(it["truth"]) for it in items)),
+            "decided": len(dec), "accuracy": acc_, "accuracy_ci": ci, "confusion": dict(conf),
+            "by_node": {k: dict(Counter(it["estimate"] for it in items if it["node"] == k))
+                        for k in ("instance", "object")}}
+
+
 def main(argv=None) -> int:
     """The harness's subcommands (`commands.add_parsers`) for the old
     `prototypes/question_acceptance.py` command line."""

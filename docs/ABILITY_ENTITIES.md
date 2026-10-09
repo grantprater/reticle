@@ -749,6 +749,35 @@ ones, open falsely at [metric:question_acceptance/ability_lane/step3-r2@066741de
 [metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#enemy_all_recall=0.1026], possible-node recall
 [metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_possible_all_recall=0.0838].
 
+The player answered the sheet's question with one rule on 2026-10-09
+[domain:abilities/drawing-loss-in-view-ends-object]: a drawing that
+disappears in view means the object has ended; out of view the loss says
+nothing. Sheet 0.4.3 drops `drawing_loss`. ability-child-0.4.0 asks the
+vision owner whether a lost drawing's last place lay in the team's stored
+vision through the loss (`team_vision.StoredVision.in_view`, three-valued),
+on every side: in view ends the node; out of view leaves it open with
+`drawing_lost_out_of_view`; unknown stores its reason. Prediction
+`drawing-loss-in-view-20261009-B1` failed on the three 2026-10-07 replay
+captures: opens did not move, but every end-cause agreement fell; witnessed
+objects from
+[metric:question_acceptance/ability_lane/dl-base-20261009@new3#objects_all_end_cause_agreement=0.8667]
+to
+[metric:question_acceptance/ability_lane/dl-inview-20261009@new3#objects_all_end_cause_agreement=0.7333],
+enemy children to
+[metric:question_acceptance/ability_lane/dl-inview-20261009@new3#enemy_all_end_cause_agreement=0.5882].
+Of the lost drawings,
+[metric:question_acceptance/in_view/dl-inview-20261009@new3#in_view_share=0.1523]
+lay in view,
+[metric:question_acceptance/in_view/dl-inview-20261009@new3#out_of_view_share=0.4636]
+out of view and
+[metric:question_acceptance/in_view/dl-inview-20261009@new3#unknown_share=0.3841]
+unknown, mostly beside an icon that cast no cone. Where it decides, the
+estimate agrees with replay truth sight (`reticle acceptance in-view`, a
+diagnostic) at
+[metric:question_acceptance/in_view/dl-inview-20261009@new3#accuracy=0.8771].
+The view holds; the loss itself is the suspect: check by eye whether the
+glyph verify lost drawings still drawn in view.
+
 **Step 5. Kits for every slot.** `adjudication.ability_state` reads stored
 children as cast witnesses for allies and enemies and holds their charges
 as intervals (ABILITY_STATE_MODEL steps 4 and 5); the `ability_tray` lane

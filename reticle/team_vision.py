@@ -98,6 +98,7 @@ Owns [owns:team-vision].
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -866,3 +867,150 @@ def compare_rows(computed: list[dict], stored: list[dict]) -> dict:
         if not same_masks:
             got["differ_at_ms"].append(float(r["t_ms"]))
     return got
+
+
+# --- a map point in the team's vision, read back from the stored product
+
+#: point-in-view-0.1.0 (2026-10-09): whether a widget point lay inside the
+#: stored `observable` through a window, three-valued (`StoredVision.in_view`).
+POINT_IN_VIEW_VERSION = "point-in-view-0.1.0"
+#: A frame holds the point in view when the observable covers at least this
+#: share of the disc round it: the one cut, at the decision. Half, because the
+#: disc's centre is the fit and a point on the light's edge is a coin toss.
+#: Chosen, not fitted.
+IN_VIEW_SHARE = 0.5
+#: The three answers.
+IN_VIEW, OUT_OF_VIEW, VIEW_UNKNOWN = "in_view", "out_of_view", "unknown"
+_T_MS = re.compile(rb'"t_ms":\s*(-?[0-9.eE+-]+)')
+
+
+class StoredVision:
+    """The stored `team_vision` product, asked whether a widget point lay in
+    the team's adjudicated vision through a window of time.
+
+    Reads only the stored rows (`reticle vision`); computes no cone and reads
+    no pixel, so a consumer asks this owner rather than restating the mask
+    lookup. A row is parsed only when a window asks for it.
+
+    The answer is three-valued (`in_view`). Per frame inside the window, the
+    observable's share of the disc of radius `r_px` round the point is the
+    soft score, cut once at `IN_VIEW_SHARE`. A frame below the cut is out of
+    view only where every eligible icon cast its cone: this product
+    under-claims, since an icon with no facing casts nothing (`RING_FALLBACK`),
+    so a point outside the light beside such an icon stays undecided. A frame
+    with no stored mask (a stale, absent or `ally_unread` widget) is unread.
+    The window is in view where every frame is in view, out of view where
+    every frame is out, and unknown otherwise, with the reason. The vision
+    over-claims behind smokes, whose rays it does not yet stop (`not_for` in
+    ownership.toml); that error stays in the answer.
+    """
+
+    def __init__(self, lines: dict, hz: float | None, version: str | None,
+                 reason: str | None = None):
+        self._lines = lines
+        self._t = np.asarray(sorted(lines), float)
+        self.hz, self.version, self.reason = hz, version, reason
+        self._rows: dict[float, dict] = {}
+        self._masks: dict[float, np.ndarray] = {}
+
+    @classmethod
+    def from_store(cls, store_root, session_id: str) -> "StoredVision":
+        from pathlib import Path
+        path = Path(store_root) / "events" / "team_vision" / f"{session_id}.jsonl"
+        if not path.is_file():
+            return cls({}, None, None, reason="no_team_vision: `reticle vision` stored nothing")
+        return cls.from_lines(path.read_bytes().splitlines())
+
+    @classmethod
+    def from_rows(cls, rows: list[dict]) -> "StoredVision":
+        """From rows in memory, as `from_lines` reads them (tests)."""
+        import json
+        return cls.from_lines([json.dumps(r, separators=(",", ":")).encode() for r in rows])
+
+    @classmethod
+    def from_lines(cls, lines) -> "StoredVision":
+        import json
+        frames, hz, version = {}, None, None
+        for ln in lines:
+            ln = ln.encode() if isinstance(ln, str) else ln
+            if not ln.strip():
+                continue
+            if b'"kind":"coverage"' in ln or b'"kind": "coverage"' in ln:
+                head = json.loads(ln)
+                hz, version = head.get("cache_hz"), head.get("team_vision_version")
+                continue
+            m = _T_MS.search(ln)
+            if m is not None:
+                frames[float(m.group(1))] = ln
+        return cls(frames, hz, version)
+
+    def _row(self, t: float) -> dict:
+        import json
+        if t not in self._rows:
+            self._rows[t] = json.loads(self._lines[t])
+        return self._rows[t]
+
+    def _mask(self, t: float, row: dict) -> np.ndarray:
+        if t not in self._masks:
+            self._masks[t] = lighting.unpack_mask(row["observable"])
+        return self._masks[t]
+
+    def frame_state(self, t: float, x: float, y: float,
+                    r_px: float) -> tuple[str, float | None, str | None]:
+        """(state, share, reason) of one stored frame: `in`, `out`,
+        `out_or_unread` (below the cut beside an eligible icon that cast
+        nothing) or `unread`."""
+        row = self._row(t)
+        if row.get("observable") is None:
+            return "unread", None, f"widget_{row.get('widget')}"
+        m = self._mask(t, row)
+        h, w = m.shape
+        x0, x1 = max(0, int(np.floor(x - r_px))), min(w, int(np.ceil(x + r_px)) + 1)
+        y0, y1 = max(0, int(np.floor(y - r_px))), min(h, int(np.ceil(y + r_px)) + 1)
+        if x0 >= x1 or y0 >= y1:
+            return "unread", None, "point_off_widget"
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        disc = (xx - x) ** 2 + (yy - y) ** 2 <= r_px * r_px
+        if not disc.any():
+            return "unread", None, "point_off_widget"
+        share = float(m[y0:y1, x0:x1][disc].mean())
+        if share >= IN_VIEW_SHARE:
+            return "in", share, None
+        if any(ic.get("eligible") and not ic.get("casts") for ic in row.get("icons") or ()):
+            return "out_or_unread", share, "ally_cone_unread"
+        return "out", share, None
+
+    def in_view(self, x: float | None, y: float | None, lo_ms: float, hi_ms: float,
+                r_px: float) -> dict:
+        """Whether the widget point (`x`, `y`) lay in the team's vision through
+        every stored frame with lo_ms < t <= hi_ms: {"status": `IN_VIEW`,
+        `OUT_OF_VIEW` or `VIEW_UNKNOWN`, "reason", "frames", "share_min",
+        "share_max", the window and the stamps}."""
+        out = {"status": VIEW_UNKNOWN, "reason": None, "frames": 0, "share_min": None,
+               "share_max": None, "window_ms": [float(lo_ms), float(hi_ms)],
+               "x": None if x is None else float(x), "y": None if y is None else float(y),
+               "r_px": float(r_px),
+               "team_vision_version": self.version, "rule_version": POINT_IN_VIEW_VERSION}
+        if self.reason is not None:
+            return {**out, "reason": self.reason}
+        if x is None or y is None:
+            return {**out, "reason": "no_position: the drawing has no fixed place"}
+        i0, i1 = np.searchsorted(self._t, [lo_ms, hi_ms], side="right")
+        ts = self._t[i0:i1]
+        if ts.size == 0:
+            return {**out, "reason": "no_vision_frame: no stored frame inside the window"}
+        got = [self.frame_state(float(t), float(x), float(y), r_px) for t in ts]
+        shares = [s for _st, s, _r in got if s is not None]
+        out.update(frames=int(ts.size), share_min=round(min(shares), 3) if shares else None,
+                   share_max=round(max(shares), 3) if shares else None)
+        states = {st for st, _s, _r in got}
+        if states == {"in"}:
+            return {**out, "status": IN_VIEW}
+        if states == {"out"}:
+            return {**out, "status": OUT_OF_VIEW}
+        if "unread" in states:
+            why = next(r for st, _s, r in got if st == "unread")
+            return {**out, "reason": f"vision_unread: {why}"}
+        if "in" in states:
+            return {**out, "reason": "vision_changed_in_window: the place entered or left the light"}
+        return {**out, "reason": "ally_cone_unread: below the cut while an eligible icon cast no cone"}

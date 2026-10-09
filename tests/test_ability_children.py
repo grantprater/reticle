@@ -50,10 +50,34 @@ def _cast(slot, t):
             "before": {"t_ms": float(t) - 100.0}, "claims": [], "agreed": ["tray"]}
 
 
+def _vision(lit=None, uncast=False, frames=None):
+    """The team's stored vision as the owner reads it back
+    (`team_vision.StoredVision`): a 100 x 100 widget lit where `lit` (a
+    (y0, y1, x0, x1) box) says, at every 15 Hz frame; no stream when `lit`
+    is None. `uncast` adds an eligible icon that cast no cone."""
+    from reticle import lighting
+    from reticle.team_vision import StoredVision
+    if lit is None:
+        return StoredVision({}, None, None, reason="no_team_vision: `reticle vision` stored nothing")
+    import numpy as np
+    m = np.zeros((100, 100), bool)
+    y0, y1, x0, x1 = lit
+    m[y0:y1, x0:x1] = True
+    icons = [{"role": "self", "eligible": True, "casts": True}]
+    if uncast:
+        icons.append({"role": "ally", "eligible": True, "casts": False})
+    rows = [{"kind": "coverage", "team_vision_version": "team-vision-test", "cache_hz": 15.0}]
+    for t in frames if frames is not None else [i * 1000.0 / 15.0 for i in range(0, 15 * 120)]:
+        rows.append({"kind": "frame", "t_ms": float(t), "widget": "drawn",
+                     "observable": lighting.pack_mask(m), "icons": icons})
+    return StoredVision.from_rows(rows)
+
+
 def _build(monkeypatch, streams: dict, allies=None, enemies=None, tree=None, kits=None,
-           loss=None) -> dict:
+           vision=None) -> dict:
     """`build_abilities` over synthetic stored rows: the player is Sova in
-    ally slot 0; `allies` and `enemies` name the other slots' agents."""
+    ally slot 0; `allies` and `enemies` name the other slots' agents;
+    `vision` is the team's stored vision (none by default)."""
     head = {"kind": "coverage", "kit": KIT, "ability_state_version": "kit-test",
             "parameters": {"E": {"max_charges": 2}}}
     data = {**streams, "ability_state": [head] + streams.get("ability_state", [])}
@@ -68,8 +92,9 @@ def _build(monkeypatch, streams: dict, allies=None, enemies=None, tree=None, kit
     monkeypatch.setattr(ss, "lineup_slots", lambda sid, root: {"slots": slots, "player_slot": 0,
                                                                "enemy_slots": enemy})
     monkeypatch.setattr(ss, "ability_objects", lambda root: {"tree": tree or {},
-                                                             "drawing_loss": loss or {},
                                                              "stamp": {"version": "test"}})
+    vis = vision if vision is not None else _vision()
+    monkeypatch.setattr(ss, "_stored_vision", lambda root, sid: vis)
     monkeypatch.setattr(ss, "_kit_of", lambda agent, root: dict((kits or {}).get(agent, {})))
     return ss.build_abilities(SID, facts=_facts())
 
@@ -203,7 +228,7 @@ def _obj(part, parent, owner_death, ends_on, textures=()):
             "cells": {"parent": (parent, "sheet", None), "lifecycle_class": ("deployed", "sheet", None),
                       "lifetime_s": no("lifetime_s"), "owner_death": (owner_death, "sheet", None),
                       "ends_on": (ends_on, "sheet", None), "effects": no("effects"),
-                      "destructible": no("destructible"), "drawing_loss": no("drawing_loss")}}
+                      "destructible": no("destructible")}}
 
 
 def _glyph(eid, t, last, key="Cypher:E", texture="TX_UI_Minimap_Cypher_E_Default"):
@@ -225,7 +250,7 @@ def _track(eid, end, xy, fixes=None):
             "fix": {"cx": [p[0] for p in fx], "cy": [p[1] for p in fx]}}
 
 
-def _cypher_build(monkeypatch, extra=None, loss=None):
+def _cypher_build(monkeypatch, extra=None, vision=None):
     tree = {("cypher", "E"): [_obj(CAMERA, "ability", "persists", ["destroyed", "round_end"],
                                    ["TX_UI_Minimap_Cypher_E_Default"]),
                               _obj(DART, CAMERA, "destroyed", ["owner_death", "round_end"])]}
@@ -238,7 +263,7 @@ def _cypher_build(monkeypatch, extra=None, loss=None):
         "death_identity": [_resolved("identity:d-cy", "Cypher")],
         **(extra or {})}
     return _build(monkeypatch, streams, allies=["Cypher", None, None, None], tree=tree,
-                  kits={"Cypher": CYPHER_KIT}, loss=loss)
+                  kits={"Cypher": CYPHER_KIT}, vision=vision)
 
 
 def test_spycam_camera_and_dart_are_two_nodes_and_the_dart_ends_at_owner_death(monkeypatch):
@@ -321,7 +346,7 @@ def test_nothing_crosses_a_round_for_any_side(monkeypatch):
         assert inst["round"] == node["round"]
 
 
-def _found_again(monkeypatch, loss=None):
+def _found_again(monkeypatch, vision=None):
     return _cypher_build(monkeypatch, {
         "ability_glyph_name": [_glyph("g1", 10_000, 20_000), _glyph("g2", 22_000, 40_000),
                                _glyph("g3", 23_000, 40_000)],
@@ -329,37 +354,109 @@ def _found_again(monkeypatch, loss=None):
         "ability_disc_track": [_track("g1", "verify_lost", (10.0, 10.0), [(10.0, 10.0), (11.0, 11.0)]),
                                _track("g2", "verify_lost", (12.0, 12.0)),
                                _track("g3", "verify_lost", (80.0, 80.0))],
-        "death": []}, loss=loss)
+        "death": []}, vision=vision)
+
+
+def _two_cameras(B):
+    """The first camera (g1 found again as g2, lost at (12, 12)) and the
+    second (g3, lost at (80, 80)), each with its camera object node."""
+    team = sorted((c for c in _children(B) if c["slot_side"] == "team"),
+                  key=lambda c: c["open"]["hi_ms"])
+    objs = sorted((o for o in _objects(B) if o["object"] == CAMERA and o["exists"] == "witnessed"),
+                  key=lambda o: o["open"]["hi_ms"])
+    return team, objs
 
 
 def test_a_glyph_found_again_at_its_place_joins_its_child(monkeypatch):
-    B = _found_again(monkeypatch, {("cypher", "E"): ("yes", "player answer Cypher:E:drawing_loss", None)})
-    team = sorted((c for c in _children(B) if c["slot_side"] == "team"),
-                  key=lambda c: c["open"]["hi_ms"])
+    B = _found_again(monkeypatch, _vision(lit=(0, 50, 0, 50)))
+    team, _objs = _two_cameras(B)
     # g2 finds g1's drawing again; g3, far away, is a second camera.
     assert len(team) == 2
     assert [w["id"] for w in team[0]["witnesses"]] == ["g1", "g2"]
-    # The sheet answers that Spycam has ended when its drawing goes: the
-    # last loss is an observed end.
-    assert team[0]["end"]["basis"] == "observed_end" and team[0]["end"]["lo_ms"] == 40_000.0
-    assert team[0]["drawing_loss"]["answer"] == "yes"
 
 
-@pytest.mark.parametrize("cell", [None, ("ask", "player answer Cypher:E:drawing_loss", None),
-                                  ("no", "player answer Cypher:E:drawing_loss", None)])
-def test_a_drawing_loss_ends_nothing_unless_the_sheet_says_so(monkeypatch, cell):
-    B = _found_again(monkeypatch, {("cypher", "E"): cell} if cell else None)
-    first = min((c for c in _children(B) if c["slot_side"] == "team"), key=lambda c: c["open"]["hi_ms"])
-    # The loss is stored with the answer or its reason, and ends nothing.
-    assert first["end"]["basis"] == "round_barrier"
-    dl = first["drawing_loss"]
-    assert dl["t_ms"] == 40_000.0
-    if cell is None:
-        assert dl["answer"] is None and dl["reason"] == "no-fact:cypher:E:None:drawing_loss"
-    elif cell[0] == "ask":
-        assert dl["answer"] is None and dl["reason"].startswith("ask:cypher:E")
-    else:
-        assert dl["answer"] == "no" and dl["reason"] is None
+def test_a_drawing_lost_in_view_ends_its_node(monkeypatch):
+    # The team's light covers (12, 12) through the loss and not (80, 80).
+    B = _found_again(monkeypatch, _vision(lit=(0, 50, 0, 50)))
+    team, objs = _two_cameras(B)
+    for node in (team[0], objs[0]):
+        assert node["end"]["basis"] == "observed_end" and node["end"]["lo_ms"] == 40_000.0
+        dl = node["drawing_loss"]
+        assert dl["view"]["status"] == "in_view" and dl["ends"] and dl["reason"] is None
+        assert dl["rule"] == ss.DRAWING_LOSS_RULE
+        assert dl["view"]["window_ms"] == [40_000.0, 40_000.0 + ss.GLYPH_STEP_MS]
+        assert dl["view"]["frames"] == 7 and dl["view"]["share_min"] == 1.0
+
+
+def test_a_drawing_lost_out_of_view_leaves_its_node_open(monkeypatch):
+    B = _found_again(monkeypatch, _vision(lit=(0, 50, 0, 50)))
+    team, objs = _two_cameras(B)
+    for node in (team[1], objs[1]):
+        assert node["end"]["basis"] == "round_barrier"
+        dl = node["drawing_loss"]
+        assert dl["view"]["status"] == "out_of_view" and not dl["ends"]
+        assert dl["reason"] == ss.DRAWING_LOST_OUT_OF_VIEW == "drawing_lost_out_of_view"
+    head = next(r for r in B["child_rows"] if r["kind"] == "coverage")
+    assert head["drawing_loss"]["by_view"] == {"instance:in_view": 1, "instance:out_of_view": 1,
+                                               "object:in_view": 1, "object:out_of_view": 1}
+    assert head["inputs"]["team_vision"] == "team-vision-test"
+
+
+@pytest.mark.parametrize("vision, reason", [
+    (None, "view_unknown: no_team_vision"),
+    ("uncast", "view_unknown: ally_cone_unread"),
+    ("edge", "view_unknown: vision_changed_in_window"),
+    ("gap", "view_unknown: no_vision_frame"),
+])
+def test_an_unknown_view_stores_its_reason_and_ends_nothing(monkeypatch, vision, reason):
+    v = {None: None, "uncast": _vision(lit=(0, 50, 0, 50), uncast=True),
+         "gap": _vision(lit=(0, 50, 0, 50), frames=[0.0, 39_000.0, 41_000.0])}.get(vision)
+    if vision == "edge":
+        # the light covers (80, 80) for the window's first frames only
+        from reticle import lighting
+        from reticle.team_vision import StoredVision
+        import numpy as np
+        lit, dark = np.ones((100, 100), bool), np.zeros((100, 100), bool)
+        rows = [{"kind": "coverage", "team_vision_version": "t", "cache_hz": 15.0}] + [
+            {"kind": "frame", "t_ms": 40_000.0 + i * 1000.0 / 15.0, "widget": "drawn",
+             "observable": lighting.pack_mask(lit if i < 4 else dark), "icons": []}
+            for i in range(1, 8)]
+        v = StoredVision.from_rows(rows)
+    B = _found_again(monkeypatch, v)
+    team, objs = _two_cameras(B)
+    for node in (team[1], objs[1]):
+        assert node["end"]["basis"] == "round_barrier"
+        dl = node["drawing_loss"]
+        assert dl["view"]["status"] == "unknown" and not dl["ends"]
+        assert dl["reason"].startswith(reason)
+
+
+def test_no_replay_input_reaches_the_in_view_estimate():
+    """The estimate reads the stored team vision alone: neither `slot_state`'s
+    drawing-loss rule nor the vision owner's query imports or names a replay
+    module or stream (replays are evaluation truth only)."""
+    import ast
+    import inspect
+    from reticle import team_vision as tv
+    banned = ("replay", "vrf", "harness", "acceptance")
+    for fn in (ss._drawing_lost, ss._stored_vision, tv.StoredVision):
+        tree = ast.parse(inspect.getsource(fn))
+        docs = {id(n.body[0].value) for n in ast.walk(tree)
+                if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.body
+                and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [a.name for a in node.names] + [getattr(node, "module", None) or ""]
+                assert not any(b in n.lower() for n in names for b in banned), (fn, names)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs:
+                assert "replay" not in node.value.lower(), (fn, node.value)
+    tv_src = inspect.getsource(tv)
+    mod = ast.parse(tv_src)
+    imported = {n.module for n in ast.walk(mod) if isinstance(n, ast.ImportFrom) and n.module} | \
+        {a.name for n in ast.walk(mod) if isinstance(n, ast.Import) for a in n.names}
+    assert not any(b in m.lower() for m in imported for b in banned), imported
+    # The stream the builder opens for the view is the vision owner's alone.
+    assert ss._stored_vision.__code__.co_names.count("StoredVision") == 1
 
 
 def test_every_claim_names_the_owner_slots_stored_verdict(monkeypatch):

@@ -8057,3 +8057,36 @@ class defaults; a blueprint may change a value at run time. What starts the
 values = { count = { max_stars = 5 }, timing = { recharge_s = 15.0 } }
 see = ["abilities/astra-stars-placed-and-picked-up", "abilities/astra-stars-shared",
        "abilities/game-files-outrank-player-quantities"]
+
+[drawing-loss-in-view-ends-object]
+claim = """
+An ability object whose minimap drawing disappears while the object's place is
+in view has ended. A drawing that disappears while the place is out of view
+says nothing about the object.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "abilities"
+source = """
+the player, 2026-10-09 (chat), answering the mechanics sheet's per-object
+drawing_loss question ("when its minimap drawing disappears, has the object
+ended?"): "I don't know how to interpret that. If it's in view and the object
+disappears, yes the object has ended."
+"""
+use = """
+the child owner ends a node at a lost drawing only where the team's vision
+covers the drawing's last place through the loss (`team_vision.StoredVision`);
+out of view the node stays open, and an undecided view stores its reason. The
+sheet no longer asks drawing_loss per object
+"""
+exceptions = """
+the player stated the rule in view only. Whether a team-owned object is drawn
+out of view is a separate question, which
+[domain:minimap/ability-drawings-both-sides] answers for the team's entities
+and this fact does not extend; whether an enemy-owned ability's drawing
+lingers after its place leaves vision is open
+[domain:minimap/vision-trailing-persistence]
+"""
+see = ["minimap/vision-gate", "minimap/ability-drawings-both-sides",
+       "minimap/vision-trailing-persistence", "abilities/ability-rules-are-unique"]

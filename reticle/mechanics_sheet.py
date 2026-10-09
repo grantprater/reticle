@@ -4,6 +4,7 @@
     .\\.venv\\Scripts\\python.exe -m reticle mechanics-sheet ask [--agent A] [--column C] [--reask-unsure]
     .\\.venv\\Scripts\\python.exe -m reticle mechanics-sheet status            # counts per column
     .\\.venv\\Scripts\\python.exe -m reticle mechanics-sheet import [--write]  # confirmed rows only
+    .\\.venv\\Scripts\\python.exe -m reticle mechanics-sheet supersede [--write]  # mark retired answers
 
 One row per ability (C, Q, E and X) of every agent the game data names, and
 one row per spawned object where an ability spawns more than one world
@@ -44,12 +45,14 @@ ability-entity plan needs (sections 2.4 and 6, question 4):
 * `engine_states`: the game data's lexical phases per owner. Evidence, never
   a question: game files outrank the player, so the import writes them as the
   fact's `states` unasked.
-* `drawing_loss` (0.4.2): when the object's minimap drawing disappears, has
-  the object ended? yes, no (it can still be there), or ask (the player
-  cannot say in general). Pre-filled only from a game-file fact that states
-  it (`DRAWING_LOSS_FACTS`, none yet); every other cell is `ask`. The child
-  owner reads the answer per node (`slot_state.ability_objects`); the
-  import writes no fact from it, so a row's lifecycle fact never waits on it.
+
+0.4.2 asked `drawing_loss` per object: when its minimap drawing disappears,
+has the object ended? The player answered with a rule over every object on
+2026-10-09 [domain:abilities/drawing-loss-in-view-ends-object]: in view, yes;
+out of view, the loss says nothing. 0.4.3 drops the column, and the child
+owner reads the rule with the team's vision (`slot_state._drawing_lost`).
+`SUPERSEDED_COLUMNS` names the column and the fact; `supersede --write`
+appends a marker after each stored answer under it, and deletes none.
 
 One question per agent, `modes`, lists the modes or views the agent enters
 apart from casting one ability: a state of the agent's own slot, never a
@@ -110,7 +113,9 @@ from pathlib import Path
 from . import domain
 
 #: 0.4.2 (2026-10-09): the `drawing_loss` column; earlier answers keep their keys.
-VERSION = "mechanics-sheet-0.4.2"
+#: 0.4.3 (2026-10-09): `drawing_loss` dropped; the player's rule answers it
+#: (`SUPERSEDED_COLUMNS`); every other answer keeps its key.
+VERSION = "mechanics-sheet-0.4.3"
 BUILD = "release-13.06-shipping-18-5590001"
 #: The game-data states table (`prototypes/ability_states_gamedata.py`).
 STATES_TABLE = ("reference/ability-states", "ability-states-gamedata-0.2.0")
@@ -122,10 +127,12 @@ VIEW_ANSWERS = "labels/minimap_glyph_questions/answers.jsonl"
 SLOTS = ("C", "Q", "E", "X")
 COLUMNS = ("parent", "lifecycle_class", "placement", "visible_phases", "lifetime_s",
            "destructible", "owner_death", "ends_on", "effects", "minimap_drawing",
-           "engine_states", "drawing_loss")
-#: Columns a row's `lifecycle` fact needs; `drawing_loss` the child owner
-#: reads from the answers, never from a fact.
-IMPORT_COLUMNS = tuple(c for c in COLUMNS if c != "drawing_loss")
+           "engine_states")
+#: Columns a row's `lifecycle` fact needs.
+IMPORT_COLUMNS = COLUMNS
+#: Columns an earlier sheet asked that a rule now answers: column -> (the
+#: rule's fact, the date). Their stored answers stay; `supersede` marks them.
+SUPERSEDED_COLUMNS = {"drawing_loss": ("abilities/drawing-loss-in-view-ends-object", "2026-10-09")}
 #: Questions asked once per agent, on its own slot rather than an ability.
 AGENT_COLUMNS = ("modes",)
 #: Columns renamed since an earlier sheet: an old answer reads under the new name.
@@ -134,12 +141,6 @@ CLASSES = ("deployed", "instant", "self_buff", "equipped", "movement")
 ENDS = ("lifetime", "destroyed", "owner_death", "recall_or_reactivation", "round_end")
 TARGETS = ("self", "allies", "enemies")
 DRAWINGS = ("icon", "shape", "icon_and_shape", "nothing")
-#: `drawing_loss` answers: the object ended; it can still be there; ask per case.
-DRAWING_LOSS = ("yes", "no", "ask")
-#: Game-file facts that state, for one row subject, whether the object ends
-#: when its minimap drawing disappears: subject -> (answer, fact id). Only a
-#: `game_data/` fact qualifies; none states it yet, so every cell is `ask`.
-DRAWING_LOSS_FACTS: dict[str, tuple[str, str]] = {}
 PLACEMENTS = ("body_relative", "global", "not_applicable")
 assert set(CLASSES) == domain.LIFECYCLE_CLASSES and set(ENDS) == domain.ENDS_ON
 
@@ -564,16 +565,6 @@ def _decide(srcs: dict[str, list[str]], none_basis: str) -> dict:
     return _sheet_cell("confirm", v, src)
 
 
-def _drawing_loss(subject: str, facts: dict) -> dict:
-    """Whether the object ends when its drawing disappears: a game-file fact
-    that states it (`DRAWING_LOSS_FACTS`), else `ask`; never a sibling's
-    answer or a rule over abilities [domain:abilities/ability-rules-are-unique]."""
-    got = DRAWING_LOSS_FACTS.get(subject)
-    if got and got[1].startswith("game_data/") and got[1] in facts:
-        return _sheet_cell("confirm", got[0], [f"[domain:{got[1]}]"])
-    return _sheet_cell("ask", basis="no game-file fact states whether it ends with its drawing")
-
-
 def _destructible(subject: str, evidence: dict, facts: dict) -> dict:
     srcs = {"yes": list(evidence["yes"]), "no": list(evidence["no"])}
     for v, s in _fact_cells(subject, "destructible", facts).items():
@@ -813,7 +804,6 @@ def _row(agent, slot, ab, obj, split, objects, gdata, facts, exports, views, tab
         "visible_phases": _visible(subject, ability_subject, facts),
         "effects": effects,
         "minimap_drawing": _minimap(ab, gd, scope, views, agent, slot, ref),
-        "drawing_loss": _drawing_loss(subject, facts),
     }
     cells["ends_on"] = _ends_on(cells, _recall(subject, ab, scope, facts, ref))
     # Engine state names are evidence for the contract, never a question.
@@ -968,6 +958,32 @@ def append_answer(store_root: Path, row: dict) -> None:
         fh.flush()
 
 
+def _column_of(key: str) -> str | None:
+    """The column an answer key asks, among `SUPERSEDED_COLUMNS`."""
+    parts = key.split(":")
+    return next((c for c in SUPERSEDED_COLUMNS if c in parts[1:]), None)
+
+
+def supersede(store_root: Path, *, write: bool = False) -> list[dict]:
+    """The marker rows for every stored answer under a superseded column
+    (`SUPERSEDED_COLUMNS`) not yet marked: a copy of the answer's last row
+    with `superseded_by` (the rule's fact) and `superseded_on`. `write`
+    appends them; the answers themselves stay, and the last row of each key
+    still carries its answer."""
+    marks = []
+    for key, row in sorted(load_sheet_answers(store_root).items()):
+        col = _column_of(key)
+        if col is None or row.get("superseded_by"):
+            continue
+        fact, date = SUPERSEDED_COLUMNS[col]
+        marks.append({**row, "superseded_by": fact, "superseded_on": date,
+                      "superseded_tool": VERSION, "ts": _now()})
+    if write:
+        for m in marks:
+            append_answer(store_root, m)
+    return marks
+
+
 # ---------------------------------------------------------------------------
 # Plain words: what the player reads
 # ---------------------------------------------------------------------------
@@ -1086,11 +1102,6 @@ def cell_question(row: dict, column: str, answers: dict, sub: str = "") -> tuple
     if column == "effects:targets":
         opts = [(agent, "self"), (f"{agent}'s teammates", "allies"), ("enemies", "enemies")]
         return f"Who does {name}'s {sub} reach? Type every number that applies.", opts, ""
-    if column == "drawing_loss":
-        opts = [("yes, it has ended", "yes"), ("no, it can still be there", "no"),
-                ("I can't say in general: ask me about each case", "ask")]
-        sug = dict((v, w) for w, v in opts).get(value, "") if cell["status"] == "confirm" else ""
-        return f"When {name}'s minimap drawing disappears, has {name} ended?", opts, sug
     if column == "minimap_drawing":
         opts = [("an icon", "icon"), ("a shape or area", "shape"),
                 ("both an icon and a shape", "icon_and_shape"), ("nothing", "nothing")]
@@ -1489,14 +1500,20 @@ def import_rows(store_root: Path, rows: list[dict], *, write: bool = False,
 def main(argv: list[str] | None = None, store_root: Path | None = None) -> int:
     from .store import DEFAULT_STORE
     p = argparse.ArgumentParser(prog="reticle mechanics-sheet")
-    p.add_argument("action", choices=("build", "ask", "status", "import"))
+    p.add_argument("action", choices=("build", "ask", "status", "import", "supersede"))
     p.add_argument("--store", type=Path, default=store_root or DEFAULT_STORE)
     p.add_argument("--agent")
     p.add_argument("--column", choices=COLUMNS + AGENT_COLUMNS)
     p.add_argument("--by", default="player")
     p.add_argument("--reask-unsure", action="store_true")
-    p.add_argument("--write", action="store_true", help="import: append to domain/abilities.toml")
+    p.add_argument("--write", action="store_true",
+                   help="import: append to domain/abilities.toml; supersede: append the markers")
     a = p.parse_args(argv)
+    if a.action == "supersede":
+        marks = supersede(a.store, write=a.write)
+        print(f"{len(marks)} stored answers under {', '.join(SUPERSEDED_COLUMNS)} "
+              f"{'marked' if a.write else 'to mark (dry run; --write appends)'}")
+        return 0
     if a.action == "build":
         path, rows = build(a.store)
         print(f"{len(rows)} rows -> {path}")

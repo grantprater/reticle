@@ -275,7 +275,9 @@ ABILITY_ENTRIES = ("ability-child", "ability-effect", "ability-owner")
 #: 0.2.0 (2026-10-09): every row names the `sides` it can observe and the
 #: `opens_sides` it opens a child on; the assist icon opens on every side.
 #: A change to any row restamps this table, never the player slots.
-ABILITY_CHANNELS_VERSION = "ability-channels-0.2.0"
+#: 0.3.0 (2026-10-09): a glyph track ends its node only where the team's
+#: stored vision covers its place (`team_vision`), on every side.
+ABILITY_CHANNELS_VERSION = "ability-channels-0.3.0"
 
 #: What an input may open: any child, a child of the player's team only, or
 #: either only where no child of that ability is live.
@@ -360,9 +362,11 @@ CHANNELS: tuple[dict, ...] = (
      "owners": ("ability-glyph-name", "ability-disc-track"),
      "readers": ("ability-icon", "ability-glyph"),
      "streams": ("ability_glyph_name", "ability_glyph_identity", "ability_disc_track",
-                 "ability_icon", "ability_glyph"),
+                 "ability_icon", "ability_glyph", "team_vision"),
      "feeds": ("ability-child",),
-     "opens": "any", "joins": True, "ends": "the verify's loss where the disc would show",
+     "opens": "any", "joins": True,
+     "ends": "the verify's loss where the disc would show, while the team's vision "
+             "(`team_vision`) covers its place [domain:abilities/drawing-loss-in-view-ends-object]",
      "kind": "the verdict key", "agent_claim": "channel minimap_glyph",
      "position": "the track", "effect": None},
     {"witness": "shape_fit", "parent": "unknown at the open; bound later",
@@ -457,7 +461,13 @@ ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-eff
 #: row answers `drawing_loss` yes (`_drawing_lost`); an unanswered cell ends
 #: nothing and stores `no-fact`. Claims come from `CHANNELS`, and a
 #: `possible` node publishes none.
-ABILITY_CHILD_VERSION = "ability-child-0.3.0"
+#: 0.4.0 (2026-10-09): the player's rule replaces the per-object
+#: `drawing_loss` question [domain:abilities/drawing-loss-in-view-ends-object]:
+#: a lost drawing of any side ends its node where the team's vision covered
+#: its place through the loss (`team_vision.StoredVision`), leaves it open
+#: with `drawing_lost_out_of_view` where it did not, and stores the unknown
+#: view's reason otherwise (`_drawing_lost`).
+ABILITY_CHILD_VERSION = "ability-child-0.4.0"
 #: ability-effect-0.1.0 (2026-10-09): the player's ability kills and assists,
 #: and any effect an ability's own `effects` fact names.
 #: 0.2.0 (2026-10-09): every slot's; a spawned object's own effects hang
@@ -496,7 +506,14 @@ OTHER_TEAM = {"ally": "enemy", "enemy": "ally"}
 NODE_INSTANCE, NODE_OBJECT = "instance", "object"
 #: The sheet columns an object node's lifecycle reads (`ability_objects`).
 OBJECT_COLUMNS = ("parent", "lifecycle_class", "lifetime_s", "owner_death", "ends_on", "effects",
-                  "destructible", "drawing_loss")
+                  "destructible")
+#: The rule a lost drawing reads, the player's (2026-10-09).
+DRAWING_LOSS_RULE = "abilities/drawing-loss-in-view-ends-object"
+#: Why a lost drawing out of view leaves its node open.
+DRAWING_LOST_OUT_OF_VIEW = "drawing_lost_out_of_view"
+#: The disc round a drawing's last fix the vision is read over: the fit
+#: error (`minimap.FIT_ERR_PX`).
+VIEW_DISC_PX = FIT_ERR_PX
 
 
 def _subject_key(subject: str) -> tuple[str, str]:
@@ -669,18 +686,11 @@ def ability_objects(store_root: Path = DEFAULT_STORE) -> dict:
     try:
         rows = ms.load_prefill_rows(root)
     except SystemExit as e:
-        return {"tree": {}, "drawing_loss": {},
-                "stamp": {"version": None, "reason": f"sheet_unread: {e}"}}
+        return {"tree": {}, "stamp": {"version": None, "reason": f"sheet_unread: {e}"}}
     answers = ms.load_sheet_answers(root)
     tree: dict = defaultdict(list)
-    loss: dict = {}
     for r in rows:
-        if ms.is_agent_row(r):
-            continue
-        if not r.get("part"):
-            if "drawing_loss" in (r.get("cells") or {}):
-                loss[(agent_key(r["agent"]), r["slot"])] = _sheet_value(
-                    r, "drawing_loss", answers, ms.cell_key)
+        if ms.is_agent_row(r) or not r.get("part"):
             continue
         if all((r["cells"].get(c) or {}).get("status") in ms.NOT_ASKED for c in OBJECT_COLUMNS):
             continue
@@ -691,7 +701,7 @@ def ability_objects(store_root: Path = DEFAULT_STORE) -> dict:
             "ability": r["ability"], "cells": cells,
             "textures": sorted(t for t, v in tex.items() if (v or {}).get("owner") == r["part"])})
     p = root / ms.ANSWERS
-    return {"tree": dict(tree), "drawing_loss": loss, "stamp": {
+    return {"tree": dict(tree), "stamp": {
         "version": ms.VERSION, "answers_sha": (ms._file_sha(p) if p.is_file() else "no_rows"),
         "reason": None}}
 
@@ -775,23 +785,38 @@ def _nearest_child(cands: list[dict], t: float) -> dict | None:
     return min(cands, key=lambda c: (abs(t - c["open"]["hi_ms"]), c["open"]["hi_ms"])) if cands else None
 
 
-def _drawing_lost(c: dict, g: dict, cell: tuple | None, tag: str, gver) -> None:
-    """A team-owned drawing's verify loss (`GLYPH_LOST`), read through the
-    node's own sheet row: `drawing_loss` yes makes the loss the node's
-    observed end; no stores the loss and ends nothing; ask, or an unanswered
-    cell, stores the loss with its `no-fact` reason and ends nothing. No rule
-    carries one ability's answer to another
-    [domain:abilities/ability-rules-are-unique]."""
+def _stored_vision(root: Path, sid: str):
+    """The team's stored vision, asked through its owner (ownership entry
+    `team-vision`, `team_vision.StoredVision`)."""
+    from .team_vision import StoredVision
+    return StoredVision.from_store(root, sid)
+
+
+def _drawing_lost(c: dict, g: dict, xy: tuple | None, vision, gver) -> None:
+    """A drawing's verify loss (`GLYPH_LOST`) under the player's rule
+    [domain:abilities/drawing-loss-in-view-ends-object]: the loss falls after
+    the track's last fix and by the next glyph step, so the team's vision
+    owner (`team_vision.StoredVision.in_view`) is asked whether the last
+    fix's place lay in view through that window. In view, the loss is the
+    node's observed end; out of view, the node stays open with
+    `DRAWING_LOST_OUT_OF_VIEW`; unknown stores the view's reason and ends
+    nothing. Replay truth never reaches this rule."""
+    from .team_vision import IN_VIEW, OUT_OF_VIEW
     e = g["last_ms"]
-    v, src, why = cell if cell is not None else (None, None, f"no-fact:{tag}:drawing_loss")
-    if v == "ask":
-        why = f"ask:{tag}:drawing_loss ({src})"
-    c["drawing_loss"] = {"t_ms": e, "answer": v if v in ("yes", "no") else None, "source": src,
-                         "reason": None if v in ("yes", "no") else why,
-                         "evidence": _evidence("ability_glyph_name", g["entity_id"], gver, e)}
-    if v == "yes":
+    ev = _evidence("ability_glyph_name", g["entity_id"], gver, e)
+    x, y = xy if xy is not None else (None, None)
+    view = vision.in_view(x, y, e, e + GLYPH_STEP_MS, VIEW_DISC_PX)
+    st = view["status"]
+    c["drawing_loss"] = {
+        "t_ms": e, "rule": DRAWING_LOSS_RULE, "view": view,
+        "ends": st == IN_VIEW,
+        "reason": (None if st == IN_VIEW else DRAWING_LOST_OUT_OF_VIEW if st == OUT_OF_VIEW
+                   else f"view_unknown: {view['reason']}"),
+        "evidence": [ev, {"stream": "team_vision", "id": None,
+                          "version": view["team_vision_version"], "t_ms": e}]}
+    if st == IN_VIEW:
         c["observed_end"] = {"lo_ms": e, "hi_ms": e + GLYPH_STEP_MS, "basis": "observed_end",
-                             "evidence": _evidence("ability_glyph_name", g["entity_id"], gver, e)}
+                             "evidence": ev}
 
 
 def _okey(owner: dict | None):
@@ -1399,17 +1424,17 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             bx, by_ = birth_xy(r["entity_id"])
             c["position"] = {"x": round(float(bx), 1), "y": round(float(by_), 1), "t_ms": t,
                              "source": "ability_disc_track"}
-    # A drawing's loss: only a team-owned one is read, since every entity the
-    # player's team owns always shows, so its loss is no loss of sight; an
-    # enemy's shows only inside the team's vision
-    # [domain:minimap/ability-drawings-both-sides] [domain:minimap/vision-gate].
+    # A drawing's loss, every side: the team's vision at its last place
+    # decides whether it ends the node
+    # [domain:abilities/drawing-loss-in-view-ends-object]; a drawing outside
+    # the team's vision says nothing [domain:minimap/vision-gate].
     tree_doc = ability_objects(root)
+    vision = _stored_vision(root, sid)
+    stamps["team_vision"] = vision.version
     for c in B.items:
         g = c["glyphs"][-1] if c["glyphs"] else None
-        if g and c["observed_end"] is None and g["end"] == GLYPH_LOST and c["side"] in (SIDE_SELF, SIDE_TEAM):
-            key = (agent_key(c["agent"]), c["slot"]) if c["agent"] and c["slot"] else None
-            _drawing_lost(c, g, tree_doc["drawing_loss"].get(key),
-                          f"{key[0]}:{key[1]}:None" if key else "unbound", gver)
+        if g and c["observed_end"] is None and g["end"] == GLYPH_LOST:
+            _drawing_lost(c, g, last_fix(g["entity_id"]), vision, gver)
 
     # Effects: ability kills and assists (every side).
     deaths = [r for r in _stored(st, "death", sid) if r.get("kind") == "death_verdict"]
@@ -1606,10 +1631,9 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
                  "observed_end": None, "owner_death": None, "position": None, "over_bound": False,
                  "surprises": [], "glyphs": seen, "depends": [], "life": life}
             B.predict(n)
-            # a team-owned object's drawing loss, read as the instance's above
-            if seen and seen[-1]["end"] == GLYPH_LOST and inst["side"] in (SIDE_SELF, SIDE_TEAM):
-                _drawing_lost(n, seen[-1], o["cells"]["drawing_loss"],
-                              f"{agent_key(o['agent'])}:{o['slot']}:{o['part']}", gver)
+            # an object's drawing loss, read as the instance's above
+            if seen and seen[-1]["end"] == GLYPH_LOST:
+                _drawing_lost(n, seen[-1], last_fix(seen[-1]["entity_id"]), vision, gver)
             made[o["part"]] = n
             objects.append(n)
             return n
@@ -1780,10 +1804,20 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             "candidate_reasons": dict(Counter(f"{x['witness']}:{x['reason']}" for x in candidates)),
             "dead_ruse_reason": None if dead_ruse is None else dead_ruse["reason"],
             "spawn_tree": tree_doc["stamp"],
+            # Every lost drawing by the view its place had, and why a view
+            # stayed unknown [domain:abilities/drawing-loss-in-view-ends-object].
+            "drawing_loss": {
+                "rule": DRAWING_LOSS_RULE,
+                "by_view": dict(Counter(f"{c['node']}:{c['drawing_loss']['view']['status']}"
+                                        for c in children if c.get("drawing_loss"))),
+                "unknown_reasons": dict(Counter(
+                    str(c["drawing_loss"]["view"]["reason"]).split(":")[0] for c in children
+                    if c.get("drawing_loss") and c["drawing_loss"]["view"]["status"] == "unknown"))},
             # The stored inputs `plan` declares are recorded by the writer
             # (`plan.record_inputs`); a dead Clove's gate only where it was read.
-            "inputs": ({"dead_ruse_gate": stamps["dead_ruse_gate"]}
-                       if "dead_ruse_gate" in stamps else {})}
+            "inputs": {"team_vision": stamps["team_vision"],
+                       **({"dead_ruse_gate": stamps["dead_ruse_gate"]}
+                          if "dead_ruse_gate" in stamps else {})}}
     ehead = {"session_id": sid, "ability_effect_version": ABILITY_EFFECT_VERSION,
              "kind": "coverage", "agent": agent,
              "effects": len(eff_rows), "by_effect": dict(Counter(e["effect"] for e in eff_rows)),

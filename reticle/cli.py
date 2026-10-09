@@ -7364,13 +7364,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("mechanics-sheet", help="the ability mechanics sheet, pre-filled "
                        "from the game files, for the player to confirm")
-    s.add_argument("action", choices=("build", "ask", "status", "import"))
+    s.add_argument("action", choices=("build", "ask", "status", "import", "supersede"))
     s.add_argument("--agent")
     s.add_argument("--column")
     s.add_argument("--by", default="player")
     s.add_argument("--reask-unsure", action="store_true")
     s.add_argument("--write", action="store_true",
-                   help="import: append the confirmed rows to domain/abilities.toml")
+                   help="import: append the confirmed rows to domain/abilities.toml; "
+                        "supersede: append the markers to the answers")
     s.set_defaults(func=cmd_mechanics_sheet)
 
     s = sub.add_parser("domain-hypothesis", help="review a pinned stored-data domain proposal")

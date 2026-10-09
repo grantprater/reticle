@@ -180,15 +180,36 @@ class SpawnTreeTest(unittest.TestCase):
         self.assertEqual(cam["cells"]["effects"]["status"], "ask")
         self.assertNotEqual(ms.cell_key(cam, "parent"), ms.cell_key(dart, "parent"))
 
-    def test_drawing_loss_is_asked_per_object_unless_a_game_file_fact_states_it(self):
+    def test_drawing_loss_is_no_question_since_the_players_rule_answers_it(self):
         cam, dart = ms.build_rows(SPYCAM, {}, self.exports, {})
         for row in (cam, dart):
-            self.assertEqual(row["cells"]["drawing_loss"]["status"], "ask")
-        text, opts = ms.cell_question(dart, "drawing_loss", {})[:2]
-        self.assertIn("minimap drawing disappears, has Spycam's tracking dart ended?", text)
-        self.assertEqual([v for _w, v in opts], list(ms.DRAWING_LOSS))
-        # a row's lifecycle fact never waits on it
-        self.assertNotIn("drawing_loss", ms.IMPORT_COLUMNS)
+            self.assertNotIn("drawing_loss", row["cells"])
+        self.assertNotIn("drawing_loss", ms.COLUMNS)
+        self.assertFalse([q for q in ms.questions([cam, dart], {}) if q[1] == "drawing_loss"])
+        fact, date = ms.SUPERSEDED_COLUMNS["drawing_loss"]
+        self.assertEqual((fact, date), ("abilities/drawing-loss-in-view-ends-object", "2026-10-09"))
+        self.assertIn(fact, domain.load())
+
+    def test_supersede_marks_old_drawing_loss_answers_and_deletes_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            old = {"key": "Cypher:E:GameObject_RemovableObject_GumshoeTrackingDart:drawing_loss",
+                   "answer": "yes", "unsure": False, "by": "player", "ts": "t0"}
+            keep = {"key": "Cypher:E:owner_death", "answer": "disabled", "unsure": False,
+                    "by": "player", "ts": "t0"}
+            for r in (old, keep):
+                ms.append_answer(root, r)
+            self.assertEqual(len(ms.supersede(root)), 1)          # a dry run writes nothing
+            self.assertEqual(len((root / ms.ANSWERS).read_text().splitlines()), 2)
+            (mark,) = ms.supersede(root, write=True)
+            lines = (root / ms.ANSWERS).read_text().splitlines()
+            self.assertEqual(len(lines), 3)
+            self.assertEqual(json.loads(lines[0]), old)            # the answer stays
+            got = ms.load_sheet_answers(root)[old["key"]]
+            self.assertEqual((got["answer"], got["superseded_by"]),
+                             ("yes", "abilities/drawing-loss-in-view-ends-object"))
+            self.assertNotIn("superseded_by", ms.load_sheet_answers(root)[keep["key"]])
+            self.assertEqual(ms.supersede(root, write=True), [])  # marked once
 
     def test_prompts_use_plain_words_never_class_names(self):
         _cam, dart = ms.build_rows(SPYCAM, {}, self.exports, {})
