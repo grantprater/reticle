@@ -43,6 +43,7 @@ READERS = {
     """,
 }
 LEGACY = {"rate": "15 Hz", "converts": "BACKLOG 1"}
+SEED = frozenset({"reticle/grid.py::GridReader"})
 
 
 class ConvertTests(unittest.TestCase):
@@ -54,21 +55,23 @@ class ConvertTests(unittest.TestCase):
         self.assertEqual([s for s, m in found if "GridReader" in m], [ERROR])
 
     def test_a_listed_reader_warns_with_its_rate_and_item(self):
-        found = ratchets.convert_findings(self.root, legacy={"reticle/grid.py::GridReader": LEGACY})
+        found = ratchets.convert_findings(self.root, legacy={"reticle/grid.py::GridReader": LEGACY},
+                                          seed=SEED)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0][0], WARN)
         self.assertIn("15 Hz", found[0][1])
         self.assertIn("BACKLOG 1", found[0][1])
 
     def test_a_gated_reader_and_a_protocol_pass(self):
-        found = ratchets.convert_findings(self.root, legacy={"reticle/grid.py::GridReader": LEGACY})
+        found = ratchets.convert_findings(self.root, legacy={"reticle/grid.py::GridReader": LEGACY},
+                                          seed=SEED)
         self.assertFalse([m for _s, m in found if "GatedReader" in m or "proto.py" in m])
 
     def test_a_stale_entry_is_reported(self):
         legacy = {"reticle/grid.py::GridReader": LEGACY,
                   "reticle/gated.py::GatedReader": LEGACY,
                   "reticle/gone.py::GoneReader": LEGACY}
-        found = ratchets.convert_findings(self.root, legacy=legacy)
+        found = ratchets.convert_findings(self.root, legacy=legacy, seed=frozenset(legacy))
         stale = [m for s, m in found if s == ERROR and "remove it from the allowlist" in m]
         self.assertEqual(len(stale), 2)
         self.assertTrue(any("GatedReader" in m for m in stale))
@@ -92,8 +95,109 @@ class ConvertTests(unittest.TestCase):
         for key in ratchets.CONVERT_LEGACY:
             self.assertIn(key, warned)
         self.assertNotIn("CloveCircleReader", warned)
-        gated = [k for k, _l, g, ok in ratchets.reader_classes() if g]
+        gated = [r.key for r in ratchets.reader_classes() if r.gated]
         self.assertEqual(gated, ["reticle/clove_circle.py::CloveCircleReader"])
+        self.assertIn("reticle/trial.py::_AbilityGlyphPass",
+                      {r.key for r in ratchets.reader_classes()})
+
+    def test_a_listed_key_outside_the_seed_errors(self):
+        legacy = {"reticle/grid.py::GridReader": LEGACY}
+        found = ratchets.convert_findings(self.root, legacy=legacy, seed=frozenset())
+        self.assertTrue(any(s == ERROR and "CONVERT_SEED" in m for s, m in found))
+
+
+RATES = {
+    "reticle/base.py": """
+        class BaseReader:
+            hz = 2.0
+            def feed(self, smp):
+                pass
+        class Inherited(BaseReader):
+            pass
+        class Prop:
+            @property
+            def hz(self):
+                return 5.0
+            def feed(self, smp):
+                pass
+        class Outside:
+            def feed(self, smp):
+                pass
+        class Driven:
+            def feed(self, smp):
+                pass
+        class Wrapper:
+            def __getattr__(self, k):
+                return 1
+            def feed(self, smp):
+                pass
+        class NotAReader:
+            def feed(self, name, fn, sample):
+                pass
+        def build():
+            r = Outside()
+            r.hz = 4.0
+            return r
+    """,
+}
+
+
+class ReaderRateTests(unittest.TestCase):
+    def test_every_rate_source_is_a_reader(self):
+        got = {r.key.split("::")[1]: r.rate for r in ratchets.reader_classes(_repo(RATES))}
+        self.assertEqual(got, {"BaseReader": "class", "Inherited": "inherited from BaseReader",
+                               "Prop": "property", "Outside": "assigned outside the class",
+                               "Driven": "its driver's grid"})
+
+    def test_an_inherited_reader_needs_its_own_entry(self):
+        found = ratchets.convert_findings(_repo(RATES), legacy={})
+        self.assertEqual(sum(1 for s, _m in found if s == ERROR), 5)
+
+
+FRAME = {
+    "reticle/frame.py": """
+        from .ratchets import Gate
+        class FrameReader:
+            opportunity_gate = Gate(opportunity="o", source="s", kind="frame")
+            hz = 15.0
+            def wants(self, t_ms):
+                return True
+            def feed(self, smp):
+                pass
+        class NoWants:
+            opportunity_gate = Gate("o", "s", "frame")
+            hz = 15.0
+            def feed(self, smp):
+                pass
+    """,
+}
+
+
+class FrameGateTests(unittest.TestCase):
+    def setUp(self):
+        self.root = _repo(FRAME)
+
+    def test_a_frame_gate_converts_nothing_before_the_hook(self):
+        self.assertFalse(ratchets.FRAME_HOOK)
+        found = ratchets.convert_findings(self.root, legacy={})
+        frame = [s for s, m in found if "FrameReader" in m]
+        self.assertEqual(frame, [ERROR])
+
+    def test_a_listed_frame_gated_reader_stays_a_warning(self):
+        found = ratchets.convert_findings(
+            self.root, legacy={"reticle/frame.py::FrameReader": LEGACY},
+            seed=frozenset({"reticle/frame.py::FrameReader"}))
+        self.assertEqual([s for s, m in found if "FrameReader" in m], [WARN])
+
+    def test_a_frame_gate_needs_wants(self):
+        found = ratchets.convert_findings(self.root, legacy={})
+        self.assertTrue(any(s == ERROR and "NoWants" in m and "wants" in m for s, m in found))
+
+    def test_scan_still_warns_for_a_frame_gate(self):
+        cls = type("PingReader", (), {"feed": lambda self, smp: None})
+        cls.__module__ = "reticle.ping"
+        cls.opportunity_gate = Gate("o", "s", "frame")
+        self.assertEqual(len(ratchets.legacy_running([cls()])), 1)
 
     def test_clove_declares_a_spans_gate(self):
         from reticle.clove_circle import CloveCircleReader
@@ -150,6 +254,15 @@ SCOPE = {
                 out.append(len(inside))
             return out
 
+        def by_round_number(rows, rounds):
+            return [len([r for r in rows if r["round"] == rnd["round_no"]]) for rnd in rounds]
+
+        def by_round_loop(rows, rounds):
+            out = []
+            for rnd in rounds:
+                out.append([r for r in rows if r["round"] == rnd["round_no"]])
+            return out
+
         def sliced(frames_by_round, rounds):
             out = []
             for rnd in rounds:
@@ -162,6 +275,14 @@ SCOPE = {
             import numpy as np
             starts = [s["t_start_ms"] for s in span_list]
             return int(np.searchsorted(starts, t_ms))
+
+        def vectorised(span_list, times):
+            import numpy as np
+            starts = np.sort(np.asarray([s["t_start_ms"] for s in span_list]))
+            return np.searchsorted(starts, np.asarray(times))
+
+        def lookups(targets_ms, cache):
+            return [t for t in targets_ms if cache.refusal(t) is None]
 
         class Reader:
             def __init__(self):
@@ -180,45 +301,95 @@ SCOPE = {
 }
 KEYS = {
     "window": "reticle/lane.py::per_round::window_scan",
+    "equality": "reticle/lane.py::by_round_loop::window_scan",
     "index": "reticle/lane.py::stalled::index_rebuilt",
     "accum": "reticle/lane.py::Reader.feed::accumulated_scan",
     "prior": "reticle/lane.py::Reader.feed::carried_prior",
     "query": "reticle/lane.py::Lane.events::session_query",
+    "query_eq": "reticle/lane.py::Lane.events::window_scan",
 }
+
+
+def _seed(legacy=(), bounded=(), unreviewed=(), count=1):
+    out = {k: ("LEGACY", count) for k in legacy}
+    out.update({k: ("BOUNDED", count) for k in bounded})
+    out.update({k: ("UNREVIEWED", count) for k in unreviewed})
+    return out
 
 
 class RoundScopeTests(unittest.TestCase):
     def setUp(self):
         self.root = _repo(SCOPE)
 
-    def test_each_kind_is_found_and_the_slice_is_not(self):
+    def test_each_kind_is_found_and_the_cures_are_not(self):
         keys = {s.key for s in ratchets.roundscope_sites(self.root)}
+        # The comprehension's own generator over `rounds` is the outer loop
+        # of `by_round_number`: its filter's `rnd` is bound by the same
+        # comprehension, so only the statement loop is a scan per round.
         self.assertEqual(keys, set(KEYS.values()))
+        for cure in ("sliced", "vectorised", "lookups"):
+            self.assertFalse([k for k in keys if f"::{cure}::" in k])
 
     def test_an_unlisted_site_errors(self):
-        found = ratchets.roundscope_findings(self.root, legacy={}, bounded={}, unreviewed=())
-        errors = [m for s, m in found if s == ERROR]
-        self.assertEqual(len(errors), len(KEYS))
+        found = ratchets.roundscope_findings(self.root, legacy={}, bounded={}, unreviewed=(),
+                                             seed={})
+        self.assertEqual(len([m for s, m in found if s == ERROR]), len(KEYS))
 
     def test_listed_sites_warn_and_bounded_ones_are_silent(self):
         legacy = {KEYS["window"]: {"audit": (3,), "cited": "lane.py:5", "reason": "slice"}}
         bounded = {KEYS["prior"]: "adjacent frames only"}
-        unreviewed = (KEYS["index"], KEYS["accum"], KEYS["query"])
+        unreviewed = tuple(v for k, v in KEYS.items() if k not in ("window", "prior"))
         found = ratchets.roundscope_findings(self.root, legacy=legacy, bounded=bounded,
-                                             unreviewed=unreviewed)
+                                             unreviewed=unreviewed,
+                                             seed=_seed(legacy, bounded, unreviewed))
         self.assertEqual([s for s, _m in found], [WARN, WARN])
         self.assertIn("audit #3", found[0][1])
-        self.assertIn("3 unreviewed", found[1][1])
+        self.assertIn("5 unreviewed", found[1][1])
 
     def test_a_stale_entry_is_reported(self):
         legacy = {k: {"audit": (1,), "cited": "x", "reason": "y"} for k in KEYS.values()}
         legacy["reticle/lane.py::fixed::window_scan"] = {"audit": (2,), "cited": "x",
                                                         "reason": "y"}
+        gone = ("reticle/lane.py::gone::index_rebuilt",)
         found = ratchets.roundscope_findings(self.root, legacy=legacy, bounded={},
-                                             unreviewed=("reticle/lane.py::gone::index_rebuilt",))
+                                             unreviewed=gone, seed=_seed(legacy, (), gone))
         stale = [m for s, m in found if s == ERROR]
         self.assertEqual(len(stale), 2)
         self.assertTrue(all("remove it from the allowlist" in m for m in stale))
+
+    def test_a_list_cannot_grow_past_its_seed(self):
+        legacy = {KEYS["window"]: {"audit": (3,), "cited": "x", "reason": "y"}}
+        rest = tuple(v for k, v in KEYS.items() if k != "window")
+        # Not in the seed: the list grew.
+        found = ratchets.roundscope_findings(self.root, legacy=legacy, unreviewed=rest,
+                                             bounded={}, seed=_seed((), (), rest))
+        self.assertTrue(any(s == ERROR and "outside the frozen" in m for s, m in found))
+        # Bounded is held to the seed as well.
+        found = ratchets.roundscope_findings(self.root, legacy=legacy, bounded={rest[0]: "x"},
+                                             unreviewed=rest[1:],
+                                             seed=_seed(legacy, (), rest[1:]))
+        self.assertTrue(any(s == ERROR and "outside the frozen" in m for s, m in found))
+        # A key moved from LEGACY to UNREVIEWED trades entries: an error.
+        found = ratchets.roundscope_findings(self.root, legacy={}, bounded={},
+                                             unreviewed=tuple(KEYS.values()),
+                                             seed=_seed(legacy, (), rest))
+        self.assertTrue(any(s == ERROR and "the seed put in ROUNDSCOPE_LEGACY" in m
+                            for s, m in found))
+
+    def test_a_new_site_inside_a_listed_function_errors(self):
+        root = _repo({"reticle/lane.py": SCOPE["reticle/lane.py"].replace(
+            "                out.append(len(inside))",
+            "                late = [f for f in frames if f[\"t_ms\"] > z]\n"
+            "                out.append(len(inside) + len(late))")})
+        keys = tuple(KEYS.values())
+        found = ratchets.roundscope_findings(root, legacy={}, bounded={}, unreviewed=keys,
+                                             seed=_seed((), (), keys))
+        self.assertTrue(any(s == ERROR and "a new site inside a listed function" in m
+                            for s, m in found))
+        # And a fixed one asks the seed's count down.
+        found = ratchets.roundscope_findings(self.root, legacy={}, bounded={}, unreviewed=keys,
+                                             seed=_seed((), (), keys, count=2))
+        self.assertTrue(any(s == ERROR and "lower ROUNDSCOPE_SEED" in m for s, m in found))
 
     def test_the_repository_has_no_unlisted_site(self):
         found = ratchets.roundscope_findings()
@@ -234,11 +405,15 @@ class RoundScopeTests(unittest.TestCase):
         for key in legacy:
             self.assertIn(f"`{key}`", errors)
 
-    def test_the_seed_counts_bound_the_lists(self):
-        self.assertLessEqual(len(ratchets.ROUNDSCOPE_LEGACY), ratchets.SEEDED["ROUNDSCOPE"])
-        self.assertLessEqual(len(ratchets.ROUNDSCOPE_UNREVIEWED),
-                             ratchets.SEEDED["ROUNDSCOPE_UNREVIEWED"])
-        self.assertLessEqual(len(ratchets.CONVERT_LEGACY), ratchets.SEEDED["CONVERT"])
+    def test_the_seed_holds_every_list(self):
+        seed = ratchets.ROUNDSCOPE_SEED
+        for name, keys in (("LEGACY", ratchets.ROUNDSCOPE_LEGACY),
+                           ("BOUNDED", ratchets.ROUNDSCOPE_BOUNDED),
+                           ("UNREVIEWED", ratchets.ROUNDSCOPE_UNREVIEWED)):
+            for k in keys:
+                self.assertIn(k, seed)
+        self.assertLessEqual(set(ratchets.CONVERT_LEGACY), ratchets.CONVERT_SEED)
+        self.assertLessEqual(set(ratchets.PROMOTE_LEGACY), ratchets.PROMOTE_SEED)
 
 
 STEMS = {"pilot_x", "other"}
@@ -252,8 +427,9 @@ def _passed(**kw):
 
 
 def _strict(rows, used=(), modules=(), items=(1,), legacy=None):
+    legacy = {} if legacy is None else legacy
     return ratchets.promote_strict(rows, STEMS, set(used), set(modules), set(items),
-                                   {} if legacy is None else legacy)
+                                   legacy, frozenset(legacy))
 
 
 class PromoteStrictTests(unittest.TestCase):
@@ -298,6 +474,34 @@ class PromoteStrictTests(unittest.TestCase):
         self.assertEqual(len(_strict([decline, _passed()])[0]), 1)
         prose = {"kind": "outcome", "wire": "no", "result": "pilot_x and other ran"}
         self.assertEqual(len(_strict([_passed(), prose])[0]), 1)
+
+    def test_wired_by_a_module_path(self):
+        row = {"kind": "promotion", "prototype": "prototypes/pilot_x.py", "also": ["other"],
+               "wire": "yes", "wired_by": "reticle/slot_state.py (`reticle slot-state`)"}
+        self.assertEqual(_strict([row], modules={"slot_state"}), ([], []))
+        found, unwired = _strict([row])
+        self.assertEqual([s for s, _m in found], [WARN, WARN])
+        self.assertTrue(all("not in this tree" in u for u in unwired))
+
+    def test_prose_neither_names_nor_schedules(self):
+        rows = [_passed(), {"kind": "decision", "note": "pilot_x waits",
+                            "wired_by": "BACKLOG 1"}]
+        self.assertEqual([s for s, _m in _strict(rows)[0]], [ERROR])
+        self.assertEqual(_strict([{"kind": "outcome", "wire": "yes",
+                                   "result": "pilot_x passed"}]), ([], []))
+
+    def test_a_listed_pilot_outside_the_seed_errors(self):
+        found, _ = ratchets.promote_strict([_passed()], STEMS, set(), set(), {1},
+                                           {"pilot_x": "x"}, frozenset())
+        self.assertTrue(any(s == ERROR and "PROMOTE_SEED" in m for s, m in found))
+
+    def test_a_comment_is_no_use(self):
+        text = '"""Ports prototypes/pilot_x.py."""\n# pilot_x lives on\nx = 1\n'
+        self.assertEqual(doctor.prototype_uses(text, STEMS), set())
+        self.assertEqual(doctor.prototype_uses("from .pilot_x import f\n", STEMS), {"pilot_x"})
+        self.assertEqual(doctor.prototype_uses("import other\nother.run()\n", STEMS), {"other"})
+        self.assertEqual(doctor.prototype_uses(
+            'subprocess.run(["python", "prototypes/pilot_x.py"])\n', STEMS), {"pilot_x"})
 
     def test_a_prediction_is_no_pass(self):
         self.assertEqual(_strict([_passed(kind="prediction")]), ([], []))

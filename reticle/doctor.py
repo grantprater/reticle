@@ -332,9 +332,10 @@ def promote_state(rows: list[dict], stems: set[str] | None = None,
     """PROMOTE strict over `rows` (`ratchets.promote_strict`): `(findings,
     unwired)`, reading `reticle/` and `BACKLOG.md` under `root`.
 
-    A pilot is wired when any `reticle/` module but this one and `ratchets`
-    names it, or when its result row names the `reticle` module that took it
-    over; it is scheduled when a ledger row names an open BACKLOG item.
+    A pilot is wired when a `reticle/` module but this one and `ratchets`
+    imports or calls it (`prototype_uses`), or when a ledger row names the
+    `reticle` module that took it over; it is scheduled when a ledger row
+    names an open BACKLOG item.
     """
     root = ROOT if root is None else root
     if stems is None:
@@ -346,13 +347,43 @@ def promote_state(rows: list[dict], stems: set[str] | None = None,
         modules.add(rel.replace("/", "."))
         if f.name in ("doctor.py", "ratchets.py"):
             continue
-        used |= stems.intersection(re.findall(r"\w+", f.read_text(encoding="utf-8",
-                                                                   errors="replace")))
+        used |= prototype_uses(f.read_text(encoding="utf-8", errors="replace"), stems)
     backlog = root / "BACKLOG.md"
     items = backlog_open_items(backlog.read_text(encoding="utf-8")) if backlog.is_file() else None
     open_items = {int(m.group(1)) for line in (items or ())
                   if (m := re.match(r"\W*(\d+)\.", line))}
     return ratchets.promote_strict(rows, stems, used, modules, open_items, legacy)
+
+
+def prototype_uses(text: str, stems: set[str]) -> set[str]:
+    """The stems a module's CODE uses: an import naming one (`import x`,
+    `from .x import y`, `from prototypes import x`), a call through one
+    (`x.run()`), or a call handed its script path (`"prototypes/x.py"` as an
+    argument). A comment or docstring naming a prototype uses nothing."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                out |= stems.intersection(a.name.split("."))
+        elif isinstance(n, ast.ImportFrom):
+            out |= stems.intersection((n.module or "").split("."))
+            out |= stems.intersection(a.name for a in n.names)
+        elif isinstance(n, ast.Call):
+            f = n.func
+            while isinstance(f, ast.Attribute):
+                out |= stems & {f.attr}
+                f = f.value
+            if isinstance(f, ast.Name):
+                out |= stems & {f.id}
+            for a in list(n.args) + [k.value for k in n.keywords]:
+                for c in ast.walk(a):
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str):
+                        out |= {s for s in stems if f"{s}.py" in c.value}
+    return out
 
 
 def ledger_rows(store: Path) -> list[dict]:

@@ -2111,7 +2111,9 @@ evidence = "tests/test_domain.py, `reticle domain --subject`"
 #   the store and decode  store, decode, passes, synth, refine, refinement
 #   provenance            version, metrics, judgement, quoted, artifacts,
 #                         revisions, census, candidate_evidence
-#   the auditors          architecture, ownership, doctor, status, fidelity
+#   the auditors          architecture, ownership, doctor, ratchets (doctor's
+#                         shrinking allowlists and the reader `Gate`), status,
+#                         fidelity
 #   delivery              overlay, review
 #   ability adapters      ability_capture, ability_entities, ability_gallery,
 #                         ability_phases -- commands over stored artifacts, and

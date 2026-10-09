@@ -53,11 +53,29 @@ class Gate:
       spans, so the gate needs no hook.
     - `"frame"`: the reader's `wants(t_ms) -> bool` decides per sample, from
       the gate's belief (`source`). The per-frame gate hook in `passes.run`
-      and `passes.run_cached` (BACKLOG item 1, second step) consumes it; until
-      that hook exists a `"frame"` gate is declared, not applied.
+      and `passes.run_cached` (BACKLOG item 1, second step) consumes it. Until
+      that hook exists (`FRAME_HOOK` is False) a `"frame"` gate converts
+      nothing: CONVERT errors on it unless the reader stays listed, and a
+      `"frame"` gate without a `wants` method always errors.
 
     `opportunity` names the event that opens a read ("an ally Clove's death
     window"); `source` names the stored stream or function the gate reads.
+
+    What the passes-hook step must add to this contract (recorded here, not
+    built):
+
+    - A gate per instance or per ability, not only per class: one ability
+      reader serves many abilities, each with its own opportunity, so the
+      hook reads the gate from the reader object (and its abilities), and
+      `doctor` keeps reading the class declaration as the floor.
+    - Provenance: a gate `version` stamped into each gated stream, the
+      `rests_on` of the belief that opened each read (AGENTS.md: a prior is
+      evidence weighed once), and an audit cadence fixed in advance -- full
+      reads on opportunity-gated samples, stored apart -- until the gate's
+      efficacy is statistically significant.
+    - A gate that feeds `decode.sample_multi` (and `passes.cache_feed`), so a
+      closed gate saves the decode and the crop read, not only the reader's
+      CPU after the frame is already decoded.
     """
 
     opportunity: str
@@ -71,12 +89,23 @@ class Gate:
             raise ValueError("a gate names its opportunity and its source")
 
 
+#: Does `passes.run` apply `"frame"` gates yet? False until BACKLOG item 1's
+#: hook lands; the commit that adds the hook sets it.
+FRAME_HOOK = False
+
+
 def declared_gate(reader) -> Gate | None:
     """The `Gate` a reader declares, through any wrapper; None where it
     declares none (a fixed-grid reader)."""
     inner = _unwrap(reader)
     got = getattr(type(inner), "opportunity_gate", None)
     return got if isinstance(got, Gate) else None
+
+
+def converted(gate: Gate | None) -> bool:
+    """Does `gate` stop a fixed grid today? A `"spans"` gate does; a
+    `"frame"` gate only once `FRAME_HOOK` applies it."""
+    return gate is not None and (gate.kind == "spans" or FRAME_HOOK)
 
 
 def _unwrap(reader):
@@ -146,7 +175,25 @@ CONVERT_LEGACY: dict[str, dict[str, str]] = {
         "rate": "the cache's rate (`--cache-hz`, else `--hz`); gated per instance only "
                 "for the scoreboard, killfeed panel and combat report sets",
         "converts": "BACKLOG 1: the crop cache follows its readers' gates"},
+    "reticle/trial.py::_AbilityGlyphPass": {
+        "rate": "2 Hz: `trial._ability_timeline`'s 0.5 s grid over the minimap cache "
+                "(its driver's grid; the class binds no `hz`)",
+        "converts": "BACKLOG 1: with the ability readers it wraps"},
 }
+
+#: The keys CONVERT_LEGACY held when it was seeded, 2026-10-09. Frozen: doctor
+#: errors on a CONVERT_LEGACY key outside it, so the list cannot grow by an
+#: edit that adds one entry and drops another.
+CONVERT_SEED = frozenset({
+    "reticle/cli.py::_MinimapPass", "reticle/minimap.py::AllyIconReader",
+    "reticle/ping.py::PingReader", "reticle/minimap_dark.py::DarkRegionReader",
+    "reticle/ability_scan.py::AbilityShapeReader", "reticle/ability_icons.py::AbilityIconReader",
+    "reticle/minimap_glyph.py::AbilityGlyphReader", "reticle/hud_reader.py::HudReader",
+    "reticle/killfeed.py::KillfeedPortraitReader", "reticle/roster.py::RosterReader",
+    "reticle/scoreboard.py::ScoreboardReader", "reticle/combat_report.py::CombatReportReader",
+    "reticle/lineup.py::LineupReader", "reticle/roi_cache.py::RoiCacheWriter",
+    "reticle/trial.py::_AbilityGlyphPass",
+})
 
 
 @dataclass(frozen=True)
@@ -187,99 +234,204 @@ def _bound_names(target) -> set[str]:
     return out
 
 
-def reader_classes(base: Path | None = None) -> list[tuple[str, int, bool, bool]]:
-    """`(key, line, gated, gate_ok)` for every reader class in `reticle/`.
+@dataclass(frozen=True)
+class ReaderClass:
+    """One reader class as `doctor` sees it in the source.
 
-    A reader is what `passes.run` drives: a class with a `feed` method that
-    binds `hz` (a class attribute or `self.hz`), the rate `decode.sample_multi`
-    samples at. A `typing.Protocol` is a description, not a reader. `gated` is
-    a class-level `opportunity_gate` binding; `gate_ok` says it is a `Gate(...)`
-    call.
+    `rate` says where its sampling rate comes from: `"class"` (a class
+    attribute or `self.hz`, set from a constructor argument or a module
+    constant), `"property"`, `"inherited from <Base>"`, `"assigned outside
+    the class"` (`r = Reader(...); r.hz = ...`), or `"its driver's grid"`
+    (no `hz` at all; the code that feeds it picks the times). `gate_kind` is the
+    declared gate's `kind` ("spans" where the call does not say).
+    """
+
+    key: str
+    line: int
+    gated: bool
+    gate_ok: bool
+    gate_kind: str | None
+    wants: bool
+    rate: str
+
+
+def _one_arg_feed(fn) -> bool:
+    a = fn.args
+    return (fn.name == "feed" and len(a.posonlyargs) + len(a.args) == 2
+            and a.vararg is None)
+
+
+def _base_names(c: ast.ClassDef) -> list[str]:
+    return [b.id if isinstance(b, ast.Name) else b.attr if isinstance(b, ast.Attribute) else ""
+            for b in c.bases]
+
+
+def _class_facts(c: ast.ClassDef) -> dict:
+    meths = {n.name: n for n in c.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    hz = None
+    for n in ast.walk(c):
+        tg = (n.targets if isinstance(n, ast.Assign)
+              else [n.target] if isinstance(n, ast.AnnAssign) else [])
+        for t in tg:
+            # `self.hz`, a class attribute, or `reader.hz` inside a classmethod
+            if any(x == "hz" or x.endswith(".hz") for x in _bound_names(t)):
+                hz = "class"
+    if "hz" in meths and any(isinstance(d, ast.Name) and d.id == "property"
+                             for d in meths["hz"].decorator_list):
+        hz = "property"
+    gate = None
+    for n in c.body:
+        tg = (n.targets if isinstance(n, ast.Assign)
+              else [n.target] if isinstance(n, ast.AnnAssign) else [])
+        if any(isinstance(t, ast.Name) and t.id == "opportunity_gate" for t in tg):
+            v = n.value
+            ok = (isinstance(v, ast.Call)
+                  and ((isinstance(v.func, ast.Name) and v.func.id == "Gate")
+                       or (isinstance(v.func, ast.Attribute) and v.func.attr == "Gate")))
+            kind = "spans"
+            if ok:
+                for kw in v.keywords:
+                    if kw.arg == "kind" and isinstance(kw.value, ast.Constant):
+                        kind = str(kw.value.value)
+                if len(v.args) >= 3 and isinstance(v.args[2], ast.Constant):
+                    kind = str(v.args[2].value)
+            gate = (ok, kind)
+    return {"node": c, "bases": _base_names(c),
+            "protocol": "Protocol" in _base_names(c),
+            "feed": "feed" in meths and _one_arg_feed(meths["feed"]),
+            "wrapper": "__getattr__" in meths,
+            "wants": "wants" in meths, "hz": hz, "gate": gate}
+
+
+def reader_classes(base: Path | None = None) -> list[ReaderClass]:
+    """Every reader class in `reticle/`.
+
+    A reader is what a pass feeds: a class whose `feed` takes one sample,
+    defined on it or inherited from a base in `reticle/`. Its rate may come
+    from anywhere -- a constructor argument, a module constant, a property,
+    a base class, an assignment outside the class, or the driver's own grid
+    (`trial._AbilityGlyphPass` binds no `hz`) -- so the rate does not decide
+    who is a reader; it is reported. A `typing.Protocol` is a description,
+    and a class defining `__getattr__` is a wrapper (`widget_frame.Normalised`)
+    whose inner reader is checked instead. A gate is inherited as Python
+    inherits it.
     """
     base = ROOT if base is None else base
-    out = []
+    facts: dict[str, list[tuple[str, dict]]] = {}
+    outside_hz: set[str] = set()
     for p in _py_files(base):
         tree = _parse_source(p)
         if tree is None:
             continue
-        for c in ast.walk(tree):
-            if not isinstance(c, ast.ClassDef):
+        rel = _rel(p, base)
+        made: dict[str, str] = {}       # variable -> the class it was built from
+        for n in ast.walk(tree):
+            if isinstance(n, ast.ClassDef):
+                facts.setdefault(n.name, []).append((rel, _class_facts(n)))
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) \
+                    and isinstance(n.value.func, ast.Name):
+                for t in n.targets:
+                    if isinstance(t, ast.Name):
+                        made[t.id] = n.value.func.id
+        for n in ast.walk(tree):
+            for t in (n.targets if isinstance(n, ast.Assign) else []):
+                if isinstance(t, ast.Attribute) and t.attr == "hz" \
+                        and isinstance(t.value, ast.Name) and t.value.id in made:
+                    outside_hz.add(made[t.value.id])
+
+    def lineage(f: dict, seen=()):
+        yield None, f
+        for b in f["bases"]:
+            if b in facts and b not in seen:
+                for _rel_b, fb in facts[b][:1]:
+                    for _who, g in lineage(fb, seen + (b,)):
+                        yield (b if _who is None else _who), g
+
+    out = []
+    for name, entries in sorted(facts.items()):
+        for rel, f in entries:
+            if f["protocol"] or f["wrapper"]:
                 continue
-            if any((isinstance(b, ast.Name) and b.id == "Protocol")
-                   or (isinstance(b, ast.Attribute) and b.attr == "Protocol") for b in c.bases):
+            chain = list(lineage(f))
+            if not any(g["feed"] for _w, g in chain):
                 continue
-            if not any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == "feed"
-                       for n in c.body):
-                continue
-            binds_hz = False
-            for n in ast.walk(c):
-                tg = (n.targets if isinstance(n, ast.Assign)
-                      else [n.target] if isinstance(n, ast.AnnAssign) else [])
-                for t in tg:
-                    names = _bound_names(t)
-                    if "hz" in names or "self.hz" in names:
-                        binds_hz = True
-            if not binds_hz:
-                continue
-            gated, ok = False, False
-            for n in c.body:
-                tg = (n.targets if isinstance(n, ast.Assign)
-                      else [n.target] if isinstance(n, ast.AnnAssign) else [])
-                if any(isinstance(t, ast.Name) and t.id == "opportunity_gate" for t in tg):
-                    gated = True
-                    v = n.value
-                    ok = (isinstance(v, ast.Call)
-                          and ((isinstance(v.func, ast.Name) and v.func.id == "Gate")
-                               or (isinstance(v.func, ast.Attribute) and v.func.attr == "Gate")))
-            out.append((f"{_rel(p, base)}::{c.name}", c.lineno, gated, ok))
-    return out
+            rate = next((g["hz"] if who is None else f"inherited from {who}"
+                         for who, g in chain if g["hz"]), None)
+            if rate is None:
+                rate = ("assigned outside the class" if name in outside_hz
+                        else "its driver's grid")
+            gate = next((g["gate"] for _w, g in chain if g["gate"]), None)
+            out.append(ReaderClass(
+                key=f"{rel}::{name}", line=f["node"].lineno, gated=gate is not None,
+                gate_ok=bool(gate and gate[0]), gate_kind=gate[1] if gate else None,
+                wants=any(g["wants"] for _w, g in chain), rate=rate))
+    return sorted(out, key=lambda r: r.key)
 
 
-def convert_findings(base: Path | None = None,
-                     legacy: dict | None = None) -> list[tuple[str, str]]:
+def convert_findings(base: Path | None = None, legacy: dict | None = None,
+                     seed: frozenset | None = None) -> list[tuple[str, str]]:
     """CONVERT: a reader samples a fixed grid unless it declares a gate.
 
-    A reader that declares no `opportunity_gate` and has no `CONVERT_LEGACY`
-    entry is an ERROR: a new fixed-grid reader. A listed one is a WARN naming
-    its rate and the item that converts it. A listed reader that now declares a
-    gate, or no longer exists, is an ERROR until its entry goes: the list only
-    shrinks. Clove's circle (`clove_circle.CloveCircleReader`) declares a
-    `"spans"` gate, its death windows, and passes.
+    A reader converts when it declares a `"spans"` gate, or a `"frame"` gate
+    once `FRAME_HOOK` applies it. An unconverted reader with no
+    `CONVERT_LEGACY` entry is an ERROR: a new fixed-grid reader. A listed one
+    is a WARN naming its rate and the item that converts it. A `"frame"` gate
+    with no `wants` method is an ERROR. A listed reader that converted, or
+    no longer exists, is an ERROR until its entry goes; a listed key outside
+    the frozen `CONVERT_SEED` is an ERROR, so the list only shrinks. Clove's
+    circle (`clove_circle.CloveCircleReader`) declares a `"spans"` gate, its
+    death windows, and passes.
     """
     legacy = CONVERT_LEGACY if legacy is None else legacy
+    seed = CONVERT_SEED if seed is None else seed
     found = reader_classes(base)
-    keys = {k for k, *_ in found}
+    keys = {r.key for r in found}
     out = []
-    for key, line, gated, ok in found:
-        where = f"`{key}` (line {line})"
-        if gated and not ok:
+    for r in found:
+        where = f"`{r.key}` (line {r.line})"
+        if r.gated and not r.gate_ok:
             out.append((ERROR, f"{where} binds `opportunity_gate` to something other than "
                                "a `ratchets.Gate(...)`"))
-        if gated and key in legacy:
+        if r.gate_kind == "frame" and not r.wants:
+            out.append((ERROR, f"{where} declares a \"frame\" gate and no `wants(t_ms)` "
+                               "method for the hook to call"))
+        done = r.gate_ok and (r.gate_kind == "spans" or FRAME_HOOK)
+        frame_wait = r.gate_kind == "frame" and not FRAME_HOOK
+        if done and r.key in legacy:
             out.append((ERROR, f"{where} declares a gate and still has a CONVERT_LEGACY "
                                "entry -- remove it from the allowlist"))
-        elif not gated and key in legacy:
-            e = legacy[key]
+        elif not done and r.key in legacy:
+            e = legacy[r.key]
             out.append((WARN, f"legacy fixed-grid reader {where}: {e['rate']}; "
-                              f"converts in {e['converts']}"))
-        elif not gated:
-            out.append((ERROR, f"{where} samples a fixed grid and declares no "
-                               "`opportunity_gate` -- declare a `ratchets.Gate`, never "
+                              f"converts in {e['converts']}"
+                              + ("; its \"frame\" gate waits for the passes hook"
+                                 if frame_wait else "")))
+        elif frame_wait:
+            out.append((ERROR, f"{where} declares a \"frame\" gate, which converts nothing "
+                               "until the passes hook applies it (BACKLOG 1) -- the reader "
+                               f"still samples a fixed grid ({r.rate})"))
+        elif not done:
+            out.append((ERROR, f"{where} samples a fixed grid (rate: {r.rate}) and declares "
+                               "no `opportunity_gate` -- declare a `ratchets.Gate`, never "
                                "a new CONVERT_LEGACY entry"))
     for key in sorted(set(legacy) - keys):
         out.append((ERROR, f"CONVERT_LEGACY names `{key}`, which is no reader any more -- "
                            "remove it from the allowlist"))
+    for key in sorted(set(legacy) - set(seed)):
+        out.append((ERROR, f"CONVERT_LEGACY names `{key}`, outside the frozen CONVERT_SEED -- "
+                           "the allowlist only shrinks"))
     return out
 
 
 def legacy_running(readers, legacy: dict | None = None) -> list[str]:
-    """One warning line per running reader that `CONVERT_LEGACY` lists: what
-    `scan` prints before its pass. A warning, never a refusal."""
+    """One warning line per running reader that `CONVERT_LEGACY` lists and
+    no applied gate converts: what `scan` prints before its pass. A warning,
+    never a refusal."""
     legacy = CONVERT_LEGACY if legacy is None else legacy
     out = []
     for r in readers:
         key = convert_key(r)
-        if key in legacy and declared_gate(r) is None:
+        if key in legacy and not converted(declared_gate(r)):
             out.append(f"legacy     {getattr(r, 'name', key)} samples a fixed grid "
                        f"({legacy[key]['rate']}); converts in {legacy[key]['converts']}")
     return out
@@ -368,13 +520,23 @@ def _window_test(test, elem: set[str], varying: set[str]) -> bool:
     varies per call or per outer iteration -- an ordering comparison, or a
     call that takes both, as `in_window(line, r["t_ms"], win)` does?"""
     for n in ast.walk(test):
-        if isinstance(n, ast.Compare) and any(isinstance(o, ORDERING) for o in n.ops):
+        # An ordering keeps a window; an equality on a time or round key
+        # (`r["round"] == rnd`, `r["frame_idx"] == i`) keeps a slice. Both
+        # walk the whole collection to find it.
+        if isinstance(n, ast.Compare) \
+                and any(isinstance(o, ORDERING + (ast.Eq,)) for o in n.ops):
             used = _names(n)
             if used & elem and (used - elem) & varying and _timelike(n):
                 return True
         if isinstance(n, ast.Call) and n.args:
+            # A call keeps a window only when it reads a FIELD of the element
+            # against a varying value (`in_window(line, r["t_ms"], win)`); a
+            # call on the bare element (`self.refusal(t, rois)`) is a
+            # per-element lookup, one pass, not a window.
+            fields = [a for a in n.args if isinstance(a, (ast.Subscript, ast.Attribute))
+                      and _names(a) & elem]
             used = set().union(*(_names(a) for a in n.args))
-            if used & elem and (used - elem) & varying and _timelike(n):
+            if fields and (used - elem) & varying and _timelike(n):
                 return True
     return False
 
@@ -484,14 +646,15 @@ class _FunctionScan:
         varying = set().union(*(b for _l, b in loops)) if loops else set()
         varying |= self.params | self.locals
         varying = {v for v in varying if not _constant(v)} - elem - {base}
-        if any(_window_test(t, elem, varying) for t in _filters(node)):
+        grown = base.startswith("self.") and base[5:] in self.grown and self.per_sample
+        if not grown and any(_window_test(t, elem, varying) for t in _filters(node)):
             ctx = ("loop" if loops else "per_sample" if self.per_sample
                    else "param" if base in self.params or base.startswith("self.") else None)
             if ctx is None:
                 return
             self.sites.append(Site(f"{self.rel}::{self.qual}::window_scan", node.lineno,
                                    f"{base} ({ctx})"))
-        elif base.startswith("self.") and base[5:] in self.grown and self.per_sample:
+        elif grown:
             self.sites.append(Site(f"{self.rel}::{self.qual}::accumulated_scan",
                                    node.lineno, base))
 
@@ -645,8 +808,20 @@ def _session_query(fn, qual: str, rel: str) -> list[Site]:
 
 
 def _index_rebuilt(fn, qual: str, rel: str) -> list[Site]:
-    """`searchsorted` or `bisect` once per call, over a sequence this call
-    built from its arguments or `self`: an index rebuilt for every query."""
+    """ONE scalar query per call -- `bisect`, or `searchsorted` read back as
+    `int(...)`, `float(...)` or `.item()` -- over a sequence this call built
+    from its arguments or `self`: an index rebuilt for every query.
+
+    A vectorised `np.searchsorted(index, queries)` over an index built once
+    in the call is the cure, not the fault, and is not flagged."""
+    scalar: set[int] = set()
+    for n in _FunctionScan._own_nodes(fn):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
+                and n.func.id in ("int", "float") and n.args:
+            scalar.add(id(n.args[0]))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                and n.func.attr == "item" and not n.args:
+            scalar.add(id(n.func.value))
     a = fn.args
     src = {x.arg for x in a.args + a.kwonlyargs + a.posonlyargs} | {"self"}
     assigns = [n for n in _FunctionScan._own_nodes(fn) if isinstance(n, (ast.Assign, ast.AnnAssign))
@@ -676,7 +851,8 @@ def _index_rebuilt(fn, qual: str, rel: str) -> list[Site]:
             name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) \
                 else None
             a0 = n.args[0]
-            if name in INDEX_CALLS and isinstance(a0, ast.Name) and a0.id in built:
+            one = name != "searchsorted" or id(n) in scalar
+            if name in INDEX_CALLS and one and isinstance(a0, ast.Name) and a0.id in built:
                 out.append(Site(f"{rel}::{qual}::index_rebuilt", n.lineno, a0.id))
     return out
 
@@ -694,6 +870,9 @@ ROUNDSCOPE_LEGACY: dict[str, dict] = {
         "audit": (2,), "cited": "round_lifetimes.py:399-468",
         "reason": "each step scans every entity born this round; the could-overlap set is "
                   "the entities seen within the merge or appearance gap, plus self"},
+    "reticle/round_lifetimes.py::RoundLifetimes.step::accumulated_scan": {
+        "audit": (2,), "cited": "round_lifetimes.py:399",
+        "reason": "the same scan: `self.entities` grows all round and each step walks it"},
     "reticle/round_lifetimes.py::RoundLifetimes.step::session_query": {
         "audit": (2,), "cited": "round_lifetimes.py:399",
         "reason": "the same scan, seen as a whole walk of `self.entities` per step"},
@@ -736,12 +915,10 @@ ROUNDSCOPE_LEGACY: dict[str, dict] = {
         "audit": (9,), "cited": "minimap_lifecycle.py:153",
         "reason": "keeps every eligible row of the gap window as an anchor; one belief per "
                   "entity within walk reach would do"},
-    "reticle/minimap_lifecycle.py::Lifecycle._expire::window_scan": {
-        "audit": (9,), "cited": "minimap_lifecycle.py:119",
-        "reason": "expires one anchor per observation, not one per entity"},
     "reticle/minimap_lifecycle.py::Lifecycle._expire::accumulated_scan": {
         "audit": (9,), "cited": "minimap_lifecycle.py:119",
-        "reason": "the same anchors, walked again for the live set"},
+        "reason": "expires one anchor per observation, not one per entity, and walks "
+                  "them again for the live set"},
     "reticle/minimap_lifecycle.py::Lifecycle._expire::session_query": {
         "audit": (9,), "cited": "minimap_lifecycle.py:119",
         "reason": "the same anchors, walked again for the known set"},
@@ -811,19 +988,14 @@ ROUNDSCOPE_UNREVIEWED: tuple[str, ...] = (
     "reticle/ability_timeline.py::_kit_end::window_scan",
     "reticle/ability_timeline.py::build_timeline::window_scan",
     "reticle/ability_timeline.py::dead_ruse_casts::window_scan",
-    "reticle/ability_timeline.py::round_window_of::window_scan",
-    "reticle/adjudication/ability.py::disc_tracks::index_rebuilt",
     "reticle/adjudication/ability.py::onset_groups::window_scan",
     "reticle/adjudication/ability.py::predict_ability_births::window_scan",
-    "reticle/adjudication/ability_audio.py::clip_bounds::index_rebuilt",
-    "reticle/adjudication/ability_audio.py::next_neighbour::index_rebuilt",
-    "reticle/adjudication/ability_glyph.py::adjudicate::index_rebuilt",
     "reticle/adjudication/combat_report.py::_killfeed_name::window_scan",
     "reticle/adjudication/combat_report.py::assign_rounds::window_scan",
     "reticle/adjudication/combat_report.py::episodes::window_scan",
     "reticle/adjudication/combat_report.py::name_rows::window_scan",
-    "reticle/adjudication/combat_report.py::panels::window_scan",
     "reticle/adjudication/combat_report.py::portrait_clusters::window_scan",
+    "reticle/adjudication/combat_report.py::round_counts::window_scan",
     "reticle/adjudication/death.py::_board_interval::window_scan",
     "reticle/adjudication/death.py::_match_shrinks::window_scan",
     "reticle/adjudication/death.py::_portrait_channel::window_scan",
@@ -838,20 +1010,14 @@ ROUNDSCOPE_UNREVIEWED: tuple[str, ...] = (
     "reticle/adjudication/death.py::second_life_death::window_scan",
     "reticle/adjudication/death.py::session_entries::window_scan",
     "reticle/adjudication/death.py::split_second_lives::window_scan",
+    "reticle/adjudication/identity.py::_portrait_scores::window_scan",
     "reticle/adjudication/phases.py::candidate_causes::window_scan",
     "reticle/adjudication/smoke_owner.py::circle_runs::window_scan",
     "reticle/adjudication/smoke_owner.py::circle_verdict::window_scan",
     "reticle/adjudication/smoke_owner.py::tray_verdict::window_scan",
-    "reticle/adjudication/tray_kit.py::own_kit_mask::index_rebuilt",
     "reticle/adjudication/tray_kit.py::spectated_agent::window_scan",
-    "reticle/adjudication/ult_cast.py::adjudicate::window_scan",
-    "reticle/adjudication/ult_cast.py::burst_of::index_rebuilt",
-    "reticle/adjudication/ult_cast.py::nearest_cast::window_scan",
     "reticle/adjudication/weapon.py::bind_entry::window_scan",
-    "reticle/belief.py::resolve::window_scan",
     "reticle/checks.py::merge_split_tracks::window_scan",
-    "reticle/checks.py::panel_slots::index_rebuilt",
-    "reticle/checks.py::track_entries::window_scan",
     "reticle/cli.py::_MinimapPass.feed::carried_prior",
     "reticle/cli.py::_tray_kit_values::window_scan",
     "reticle/cli.py::cmd_kd::window_scan",
@@ -862,42 +1028,32 @@ ROUNDSCOPE_UNREVIEWED: tuple[str, ...] = (
     "reticle/dev_sample.py::new_targets::window_scan",
     "reticle/dev_sample.py::opportunity_rounds::window_scan",
     "reticle/economy.py::EconomyTracker.reset_period::session_query",
-    "reticle/episodes.py::ChildTable.position::index_rebuilt",
+    "reticle/entity_events.py::EntityEvents.coverage::window_scan",
     "reticle/episodes.py::_attempts::window_scan",
     "reticle/episodes.py::_covering::window_scan",
     "reticle/episodes.py::_duels::window_scan",
     "reticle/episodes.py::_engagements::window_scan",
-    "reticle/episodes.py::_execute_retake_lurk::index_rebuilt",
     "reticle/episodes.py::_rotations::window_scan",
-    "reticle/episodes.py::alive_from_events::index_rebuilt",
     "reticle/episodes.py::round_at::window_scan",
     "reticle/fidelity.py::score_killfeed::window_scan",
-    "reticle/frame_join.py::grid_join::index_rebuilt",
-    "reticle/frame_join.py::sampled_state::index_rebuilt",
     "reticle/gametime.py::_schedule_at::index_rebuilt",
     "reticle/gametime.py::build_session_gametime::window_scan",
     "reticle/killfeed.py::EntryAnchors.frame::session_query",
     "reticle/killfeed.py::EntryAnchors.frame::window_scan",
-    "reticle/killfeed.py::plate_colour::index_rebuilt",
     "reticle/menu.py::MenuWitness.at::session_query",
     "reticle/minimap_glyph.py::AbilityGlyphReader._end_all::accumulated_scan",
     "reticle/minimap_glyph.py::AbilityGlyphReader._end_all::carried_prior",
     "reticle/minimap_glyph.py::AbilityGlyphReader.feed::accumulated_scan",
-    "reticle/minimap_glyph.py::AbilityGlyphReader.feed::window_scan",
     "reticle/overlay.py::_state_at::window_scan",
     "reticle/refinement.py::save_refinement::window_scan",
     "reticle/replay_keep.py::overlapping::window_scan",
-    "reticle/replay_source.py::Replay.alive::index_rebuilt",
     "reticle/roi_cache.py::GridPicker._in::window_scan",
-    "reticle/roi_cache.py::RoiCacheUnion.samples::window_scan",
     "reticle/round_entities.py::ally_dead_intervals::window_scan",
     "reticle/round_entities.py::drop_binding_refusal::window_scan",
     "reticle/round_entities.py::player_dead_spans::window_scan",
     "reticle/round_lifetimes.py::RoundLifetimes._record_ambiguous_components::accumulated_scan",
     "reticle/round_lifetimes.py::RoundLifetimes.association_for::accumulated_scan",
-    "reticle/round_lifetimes.py::glyph_coincidence::index_rebuilt",
     "reticle/round_lifetimes.py::seen_after_death::window_scan",
-    "reticle/round_outcome.py::fit_columns::index_rebuilt",
     "reticle/round_outcome.py::fit_columns::window_scan",
     "reticle/round_view.py::_timeline_strip::window_scan",
     "reticle/rounds.py::_reset_after::index_rebuilt",
@@ -908,67 +1064,224 @@ ROUNDSCOPE_UNREVIEWED: tuple[str, ...] = (
     "reticle/stalls.py::spans::window_scan",
     "reticle/tiers.py::check_omen_smokes::window_scan",
     "reticle/track.py::Track.resolved_facing::window_scan",
+    "reticle/track.py::Tracker.principal::window_scan",
     "reticle/tray.py::flag_suspect::window_scan",
     "reticle/tray.py::gold_witness::window_scan",
     "reticle/tray_countdown.py::score_against_returns::window_scan",
-    "reticle/trial.py::targets::index_rebuilt",
     "reticle/view_events.py::Loaded.active::index_rebuilt",
     "reticle/view_events.py::_team_vision::window_scan",
     "reticle/widget_frame.py::WidgetFrame.at::session_query",
     "reticle/widget_frame.py::WidgetFrame.at::window_scan",
-    "reticle/widget_frame.py::drawn_collapse::index_rebuilt",
     "reticle/widget_frame.py::fit_session::window_scan",
     "reticle/widget_frame.py::round_frames::window_scan",
     "reticle/widget_frame.py::snap_switch::window_scan",
 )
 
+#: Every list key when the lists were seeded (2026-10-09, recounted after
+#: review the same day): its list and how many distinct lines the detector
+#: found in its function. Frozen: never add a key or raise a count.
+ROUNDSCOPE_SEED: dict[str, tuple[str, int]] = {
+    "reticle/ability_candidates.py::CandidateSupply._alive::session_query": ("UNREVIEWED", 1),
+    "reticle/ability_candidates.py::CandidateSupply._alive::window_scan": ("UNREVIEWED", 1),
+    "reticle/ability_icons.py::AbilityIconReader.feed::carried_prior": ("LEGACY", 2),
+    "reticle/ability_timeline.py::_admit_lined_x::window_scan": ("LEGACY", 1),
+    "reticle/ability_timeline.py::_kit_end::window_scan": ("UNREVIEWED", 1),
+    "reticle/ability_timeline.py::build_timeline::window_scan": ("UNREVIEWED", 1),
+    "reticle/ability_timeline.py::dead_ruse_casts::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/ability.py::onset_groups::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/ability.py::predict_ability_births::window_scan": ("UNREVIEWED", 2),
+    "reticle/adjudication/combat_report.py::_killfeed_name::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/combat_report.py::_stat::window_scan": ("LEGACY", 1),
+    "reticle/adjudication/combat_report.py::assign_rounds::window_scan": ("UNREVIEWED", 2),
+    "reticle/adjudication/combat_report.py::bind_deaths::window_scan": ("LEGACY", 3),
+    "reticle/adjudication/combat_report.py::episodes::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/combat_report.py::name_rows::window_scan": ("UNREVIEWED", 3),
+    "reticle/adjudication/combat_report.py::portrait_clusters::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/combat_report.py::round_counts::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::_board_interval::window_scan": ("UNREVIEWED", 3),
+    "reticle/adjudication/death.py::_match_shrinks::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::_portrait_channel::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::_roster_before::index_rebuilt": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::_score_unread::index_rebuilt": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::adjudicate_round_deaths::window_scan": ("LEGACY", 2),
+    "reticle/adjudication/death.py::adjudicate_session_deaths::window_scan": ("LEGACY", 4),
+    "reticle/adjudication/death.py::entry_follow_evidence.propose::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::entry_follow_evidence::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::entry_slot_path::window_scan": ("UNREVIEWED", 2),
+    "reticle/adjudication/death.py::match_xmark::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::revive_context::window_scan": ("UNREVIEWED", 4),
+    "reticle/adjudication/death.py::same_entry::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::second_life_death::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::session_entries::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::split_second_lives::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/death.py::xmark_births::window_scan": ("LEGACY", 4),
+    "reticle/adjudication/identity.py::_portrait_scores::window_scan": ("UNREVIEWED", 2),
+    "reticle/adjudication/killstreak.py::bind_rows::window_scan": ("LEGACY", 2),
+    "reticle/adjudication/phases.py::candidate_causes::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/smoke_owner.py::circle_runs::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/smoke_owner.py::circle_verdict::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/smoke_owner.py::tray_verdict::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/spike_carrier.py::check::window_scan": ("LEGACY", 4),
+    "reticle/adjudication/tray_kit.py::spectated_agent::window_scan": ("UNREVIEWED", 1),
+    "reticle/adjudication/weapon.py::bind_entry::window_scan": ("UNREVIEWED", 1),
+    "reticle/checks.py::merge_split_tracks::window_scan": ("UNREVIEWED", 1),
+    "reticle/cli.py::_MinimapPass.feed::carried_prior": ("UNREVIEWED", 1),
+    "reticle/cli.py::_tray_kit_values::window_scan": ("UNREVIEWED", 1),
+    "reticle/cli.py::cmd_kd::window_scan": ("UNREVIEWED", 2),
+    "reticle/clove_circle.py::CloveCircleReader._window_of::window_scan": ("LEGACY", 1),
+    "reticle/clove_circle.py::opportunity_windows::window_scan": ("UNREVIEWED", 2),
+    "reticle/clove_circle.py::self_position_at::index_rebuilt": ("LEGACY", 1),
+    "reticle/coaching.py::attach_event_estimates::window_scan": ("UNREVIEWED", 1),
+    "reticle/combat_report.py::read_flag::window_scan": ("UNREVIEWED", 1),
+    "reticle/decode.py::windows_of::window_scan": ("UNREVIEWED", 1),
+    "reticle/dev_sample.py::new_targets::window_scan": ("UNREVIEWED", 1),
+    "reticle/dev_sample.py::opportunity_rounds::window_scan": ("UNREVIEWED", 1),
+    "reticle/economy.py::EconomyTracker.reset_period::session_query": ("UNREVIEWED", 1),
+    "reticle/enemy_tracks.py::build::window_scan": ("LEGACY", 2),
+    "reticle/entity_events.py::EntityEvents.coverage::session_query": ("LEGACY", 1),
+    "reticle/entity_events.py::EntityEvents.coverage::window_scan": ("UNREVIEWED", 1),
+    "reticle/entity_events.py::EntityEvents.entities::session_query": ("LEGACY", 1),
+    "reticle/entity_events.py::EntityEvents.events::session_query": ("LEGACY", 1),
+    "reticle/entity_events.py::EntityEvents.ledger::session_query": ("LEGACY", 1),
+    "reticle/episodes.py::_attempts::window_scan": ("UNREVIEWED", 5),
+    "reticle/episodes.py::_covering::window_scan": ("UNREVIEWED", 1),
+    "reticle/episodes.py::_duels::window_scan": ("UNREVIEWED", 1),
+    "reticle/episodes.py::_engagements::window_scan": ("UNREVIEWED", 2),
+    "reticle/episodes.py::_rotations::window_scan": ("UNREVIEWED", 1),
+    "reticle/episodes.py::round_at::window_scan": ("UNREVIEWED", 1),
+    "reticle/fidelity.py::score_killfeed::window_scan": ("UNREVIEWED", 3),
+    "reticle/gametime.py::_schedule_at::index_rebuilt": ("UNREVIEWED", 1),
+    "reticle/gametime.py::build_session_gametime::window_scan": ("UNREVIEWED", 1),
+    "reticle/killfeed.py::EntryAnchors.frame::session_query": ("UNREVIEWED", 1),
+    "reticle/killfeed.py::EntryAnchors.frame::window_scan": ("UNREVIEWED", 1),
+    "reticle/menu.py::MenuWitness.at::session_query": ("UNREVIEWED", 1),
+    "reticle/minimap.py::AllyIconReader._stack::accumulated_scan": ("LEGACY", 1),
+    "reticle/minimap_glyph.py::AbilityGlyphReader._end_all::accumulated_scan": ("UNREVIEWED", 1),
+    "reticle/minimap_glyph.py::AbilityGlyphReader._end_all::carried_prior": ("UNREVIEWED", 1),
+    "reticle/minimap_glyph.py::AbilityGlyphReader.feed::accumulated_scan": ("UNREVIEWED", 3),
+    "reticle/minimap_glyph.py::AbilityGlyphReader.feed::carried_prior": ("LEGACY", 1),
+    "reticle/minimap_lifecycle.py::Lifecycle._expire::accumulated_scan": ("LEGACY", 3),
+    "reticle/minimap_lifecycle.py::Lifecycle._expire::session_query": ("LEGACY", 1),
+    "reticle/minimap_lifecycle.py::Lifecycle.step::accumulated_scan": ("LEGACY", 3),
+    "reticle/minimap_lifecycle.py::matching_events::window_scan": ("LEGACY", 1),
+    "reticle/overlay.py::_state_at::window_scan": ("UNREVIEWED", 1),
+    "reticle/ping.py::resolve::window_scan": ("LEGACY", 1),
+    "reticle/primitives.py::PrimitiveExtractor.process::carried_prior": ("BOUNDED", 2),
+    "reticle/primitives.py::PrimitiveExtractor.process::session_query": ("BOUNDED", 1),
+    "reticle/refinement.py::save_refinement::window_scan": ("UNREVIEWED", 1),
+    "reticle/replay_keep.py::overlapping::window_scan": ("UNREVIEWED", 1),
+    "reticle/roi_cache.py::GridPicker._in::window_scan": ("UNREVIEWED", 1),
+    "reticle/round_entities.py::ally_dead_intervals::window_scan": ("UNREVIEWED", 1),
+    "reticle/round_entities.py::drop_binding_refusal::window_scan": ("UNREVIEWED", 1),
+    "reticle/round_entities.py::player_dead_spans::window_scan": ("UNREVIEWED", 1),
+    "reticle/round_entities.py::session_lifetimes::window_scan": ("LEGACY", 1),
+    "reticle/round_lifetimes.py::RoundLifetimes._record_ambiguous_components::accumulated_scan": ("UNREVIEWED", 1),
+    "reticle/round_lifetimes.py::RoundLifetimes.association_for::accumulated_scan": ("UNREVIEWED", 1),
+    "reticle/round_lifetimes.py::RoundLifetimes.step::accumulated_scan": ("LEGACY", 1),
+    "reticle/round_lifetimes.py::RoundLifetimes.step::session_query": ("LEGACY", 1),
+    "reticle/round_lifetimes.py::RoundLifetimes.step::window_scan": ("LEGACY", 1),
+    "reticle/round_lifetimes.py::seen_after_death::window_scan": ("UNREVIEWED", 1),
+    "reticle/round_outcome.py::fit_columns::window_scan": ("UNREVIEWED", 1),
+    "reticle/round_view.py::_timeline_strip::window_scan": ("UNREVIEWED", 1),
+    "reticle/rounds.py::_reset_after::index_rebuilt": ("UNREVIEWED", 2),
+    "reticle/rounds.py::build_rounds::window_scan": ("UNREVIEWED", 1),
+    "reticle/rounds.py::in_round_window::window_scan": ("UNREVIEWED", 1),
+    "reticle/rounds.py::round_containing::window_scan": ("UNREVIEWED", 1),
+    "reticle/self_icon.py::all_alive::index_rebuilt": ("UNREVIEWED", 1),
+    "reticle/stalls.py::spans::window_scan": ("UNREVIEWED", 1),
+    "reticle/stalls.py::stalled_at::index_rebuilt": ("LEGACY", 1),
+    "reticle/teardrop.py::IconPoseReader.read::accumulated_scan": ("LEGACY", 1),
+    "reticle/teardrop.py::IconPoseReader.read::carried_prior": ("LEGACY", 1),
+    "reticle/teardrop.py::IconPoseReader.read::session_query": ("LEGACY", 1),
+    "reticle/tiers.py::check_omen_smokes::window_scan": ("UNREVIEWED", 2),
+    "reticle/track.py::Track.resolved_facing::window_scan": ("UNREVIEWED", 1),
+    "reticle/track.py::Tracker.principal::window_scan": ("UNREVIEWED", 1),
+    "reticle/track.py::Tracker.step::session_query": ("BOUNDED", 1),
+    "reticle/track.py::Tracker.step::window_scan": ("BOUNDED", 1),
+    "reticle/tray.py::flag_suspect::window_scan": ("UNREVIEWED", 1),
+    "reticle/tray.py::gold_witness::window_scan": ("UNREVIEWED", 1),
+    "reticle/tray_countdown.py::score_against_returns::window_scan": ("UNREVIEWED", 1),
+    "reticle/view_events.py::Loaded.active::index_rebuilt": ("UNREVIEWED", 2),
+    "reticle/view_events.py::_team_vision::window_scan": ("UNREVIEWED", 1),
+    "reticle/widget_frame.py::WidgetFrame.at::session_query": ("UNREVIEWED", 1),
+    "reticle/widget_frame.py::WidgetFrame.at::window_scan": ("UNREVIEWED", 1),
+    "reticle/widget_frame.py::fit_session::window_scan": ("UNREVIEWED", 1),
+    "reticle/widget_frame.py::round_frames::window_scan": ("UNREVIEWED", 1),
+    "reticle/widget_frame.py::snap_switch::window_scan": ("UNREVIEWED", 1),
+}
+
 
 def roundscope_findings(base: Path | None = None, legacy: dict | None = None,
                         bounded: dict | None = None, unreviewed=None,
-                        files=None) -> list[tuple[str, str]]:
+                        seed: dict | None = None, files=None) -> list[tuple[str, str]]:
     """ROUNDSCOPE: state outlives a round, or a search walks past the
     could-overlap set.
 
     A site no list names is an ERROR. An audited legacy site is a WARN with its
     case, citation and reason; the unreviewed sites are one WARN that counts
-    them by module; a bounded site is silent. A list key whose site the
-    detector no longer finds is an ERROR until the key goes, so the lists
-    only shrink. The detector is a heuristic (`roundscope_sites`); it must
+    them by module; a bounded site is silent.
+
+    Every list is held to `ROUNDSCOPE_SEED`, frozen when the lists were
+    seeded: a key outside the seed, or listed in another list than the seed
+    put it in, is an ERROR, so no list grows or trades entries. A site key
+    names a function, so the seed also freezes how many distinct lines each
+    listed function holds: one more is a new site inside a listed function,
+    an ERROR; one fewer is a fix, and the seed's count must come down with
+    it. A list key whose site the detector no longer finds is an ERROR until
+    the key goes. The detector is a heuristic (`roundscope_sites`); it must
     find every audited case, which `tests/test_ratchets.py` checks.
     """
     legacy = ROUNDSCOPE_LEGACY if legacy is None else legacy
     bounded = ROUNDSCOPE_BOUNDED if bounded is None else bounded
     unreviewed = set(ROUNDSCOPE_UNREVIEWED if unreviewed is None else unreviewed)
-    lines: dict[str, list[int]] = {}
+    seed = ROUNDSCOPE_SEED if seed is None else seed
+    lines: dict[str, set[int]] = {}
     for s in roundscope_sites(base, files=files):
-        lines.setdefault(s.key, []).append(s.line)
+        lines.setdefault(s.key, set()).add(s.line)
+    lists = {"LEGACY": set(legacy), "BOUNDED": set(bounded), "UNREVIEWED": unreviewed}
     out = []
     pending = []
     for key in sorted(lines):
-        at = ", ".join(str(x) for x in sorted(set(lines[key])))
+        at = ", ".join(str(x) for x in sorted(lines[key]))
         if key in legacy:
             e = legacy[key]
             cases = ", ".join(f"#{c}" for c in e["audit"])
             out.append((WARN, f"legacy `{key}` (lines {at}; audit {cases}, {e['cited']}): "
                               f"{e['reason']}"))
         elif key in bounded:
-            continue
+            pass
         elif key in unreviewed:
             pending.append(key)
         else:
             out.append((ERROR, f"`{key}` (lines {at}) holds state past a round or searches "
                                "past the could-overlap set -- scope it to the round or slice "
                                "by sorted time; never a new allowlist entry"))
+            continue
+        frozen = seed.get(key)
+        if frozen is not None and len(lines[key]) > frozen[1]:
+            out.append((ERROR, f"`{key}` holds {len(lines[key])} sites (lines {at}); the seed "
+                               f"froze {frozen[1]} -- a new site inside a listed function"))
+        elif frozen is not None and len(lines[key]) < frozen[1]:
+            out.append((ERROR, f"`{key}` holds {len(lines[key])} sites, the seed {frozen[1]} -- "
+                               f"lower ROUNDSCOPE_SEED's count to {len(lines[key])}"))
     if pending:
         mods = sorted({k.split("::")[0] for k in pending})
         out.append((WARN, f"{len(pending)} unreviewed legacy sites (found 2026-10-09, outside "
                           f"the audit) in {len(mods)} modules: "
                           + ", ".join(m.removeprefix("reticle/") for m in mods)))
-    for name, keys in (("ROUNDSCOPE_LEGACY", legacy), ("ROUNDSCOPE_BOUNDED", bounded),
-                       ("ROUNDSCOPE_UNREVIEWED", unreviewed)):
-        for key in sorted(set(keys) - set(lines)):
-            out.append((ERROR, f"{name} names `{key}`, which the detector no longer finds -- "
-                               "remove it from the allowlist"))
+    for name, keys in lists.items():
+        for key in sorted(keys):
+            frozen = seed.get(key)
+            if frozen is None:
+                out.append((ERROR, f"ROUNDSCOPE_{name} names `{key}`, outside the frozen "
+                                   "ROUNDSCOPE_SEED -- the allowlists only shrink"))
+            elif frozen[0] != name and not (frozen[0] == "UNREVIEWED" and name == "BOUNDED"):
+                # Review may judge an unreviewed site bounded; nothing else moves.
+                out.append((ERROR, f"ROUNDSCOPE_{name} names `{key}`, which the seed put in "
+                                   f"ROUNDSCOPE_{frozen[0]}"))
+        for key in sorted(keys - set(lines)):
+            out.append((ERROR, f"ROUNDSCOPE_{name} names `{key}`, which the detector no longer "
+                               "finds -- remove it from the allowlist"))
     return out
 
 
@@ -977,29 +1290,48 @@ def roundscope_findings(base: Path | None = None, legacy: dict | None = None,
 # ---------------------------------------------------------------------------
 
 #: Ledger row kinds that record a result rather than a prediction.
-RESULT_KINDS = frozenset({"outcome", "prediction_outcome", "decision", "wire_decision"})
+RESULT_KINDS = frozenset({"outcome", "prediction_outcome", "decision", "wire_decision",
+                          "promotion"})
 #: `wire` values that mean the result is meant for production.
 WIRE_INTENT = frozenset({"yes", "pending"})
 RETICLE_MODULE = re.compile(r"\breticle[/.]((?:adjudication[/.])?\w+)")
 BACKLOG_ITEM = re.compile(r"\bBACKLOG\s+(\d+)\b")
 
 #: Passed pilots meant for production that were neither wired, scheduled nor
-#: declined when the strict check landed: none on 2026-10-09 (`ability_disc`
-#: and `mine_icons` passed, and later rows with their subject declined them).
-#: An entry names a stem and why it waits; it goes when the pilot is wired.
-PROMOTE_LEGACY: dict[str, str] = {}
+#: declined when the strict check landed, 2026-10-09, once a mention in a
+#: comment stopped counting as wiring. (`ability_disc` and `mine_icons` passed,
+#: and later rows with their subject declined them.) An entry names a stem and
+#: why it waits; it goes when the pilot is wired or a ledger row schedules it.
+PROMOTE_LEGACY: dict[str, str] = {
+    "icon_teardrop": "decision row, wire yes (2026-09-29): ported as reticle/teardrop.py "
+                     "under another name; no import, call or `wired_by` row records it",
+    "proposal_audit": "outcome row, wire yes, subject with mine_icons (2026-09-10): the change "
+                      "landed in the prototype tools; later rows decline mine_icons only",
+}
+#: PROMOTE_LEGACY's keys when seeded. Frozen: the list only shrinks.
+PROMOTE_SEED: frozenset[str] = frozenset({"icon_teardrop", "proposal_audit"})
 
 
 def _mentions(stems: set[str], text: str) -> set[str]:
     return stems.intersection(re.findall(r"\w+", text))
 
 
+def _named(stems: set[str], row: dict) -> set[str]:
+    """The prototypes a row names in its `prototype`, `subject` and `also`
+    fields; never its prose."""
+    also = row.get("also") or []
+    text = " ".join([str(row.get("prototype") or ""), str(row.get("subject") or "")]
+                    + [str(x) for x in (also if isinstance(also, list) else [also])])
+    return _mentions(stems, text)
+
+
 def passed_pilots(rows: list[dict], stems: set[str]) -> dict[str, list[dict]]:
     """Prototype stem -> the ledger rows that record a result with `wire`
     "yes" or "pending": a pilot that passed and is meant for production.
 
-    A row names its prototype in `prototype` or `subject` when it has one;
-    otherwise every prototype its text mentions.
+    A row names its prototypes in its `prototype`, `subject` and `also`
+    fields; a row whose fields name none names nothing, whatever its prose
+    mentions.
     """
     out: dict[str, list[dict]] = {}
     for r in rows:
@@ -1007,74 +1339,90 @@ def passed_pilots(rows: list[dict], stems: set[str]) -> dict[str, list[dict]]:
             continue
         if str(r.get("wire", "")).lower() not in WIRE_INTENT:
             continue
-        target = str(r.get("prototype") or r.get("subject") or "")
-        named = _mentions(stems, target) if target else set()
-        if not named:
-            named = _mentions(stems, " ".join(str(v) for v in r.values()))
-        for s in named:
+        for s in _named(stems, r):
             out.setdefault(s, []).append(r)
     return out
 
 
 def promote_strict(rows: list[dict], stems: set[str], used: set[str],
                    modules: set[str], open_items: set[int],
-                   legacy: dict | None = None) -> tuple[list[tuple[str, str]], list[str]]:
+                   legacy: dict | None = None,
+                   seed: frozenset | None = None) -> tuple[list[tuple[str, str]], list[str]]:
     """PROMOTE strict: `(findings, unwired)` for the passed pilots.
 
-    A passed pilot is wired when a `reticle/` module mentions it (`used`), or
-    when its result row's `wire_reason` names an existing `reticle` module
-    (`modules`, dotted names) that took it over. It is scheduled when any
-    ledger row naming it carries `"wired_by": "BACKLOG <n>"` with `n` an open
-    item. A `"wire": "no"` row declines it only when it comes after the
-    pilot's last passing row and names the pilot in its `subject` or
-    `prototype` field.
+    A passed pilot is wired when a `reticle/` module imports or calls it
+    (`used`; a comment or docstring naming it is no wiring), when its result
+    row's `wire_reason` names an existing `reticle` module (`modules`, dotted
+    names) that took it over, or when a row naming it carries a `wired_by`
+    module path (`"reticle/slot_state.py ..."`) that exists. It is scheduled
+    when such a row's `wired_by` names an open item, `"BACKLOG <n>"`. A
+    `wired_by` module this tree lacks is a WARN: the promotion lives on a
+    branch not merged here. A row names a pilot in its `prototype`, `subject`
+    or `also` field only; prose names nothing. A `"wire": "no"` row declines
+    it only when it comes after the pilot's last passing row and names it.
 
     Anything else is an ERROR, or a WARN where `PROMOTE_LEGACY` lists it; a
     listed pilot now wired, scheduled or declined is an ERROR until its entry
-    goes. The loopholes this closes: the loose check only warned, so a result
-    row saying "wire: yes" could sit unwired with no item named for it; and a
-    decline without a subject retired every prototype its prose mentioned,
-    a passed pilot included. `unwired` lists the passed pilots neither wired
-    nor declined, scheduled ones with their item, for `status`.
+    goes, and a listed stem outside the frozen `PROMOTE_SEED` is an ERROR. The
+    loopholes this closes: the loose check only warned, so a result row saying
+    "wire: yes" could sit unwired with no item named for it; a decline
+    without a subject retired every prototype its prose mentioned; a mention
+    in a comment counted as wiring. `unwired` lists the passed pilots neither
+    wired nor declined, scheduled ones with their item, for `status`.
     """
     legacy = PROMOTE_LEGACY if legacy is None else legacy
+    seed = PROMOTE_SEED if seed is None else seed
     pilots = passed_pilots(rows, stems)
     last_pass = {s: max(i for i, r in enumerate(rows) if any(r is p for p in ps))
                  for s, ps in pilots.items()}
     declined: set[str] = set()
-    scheduled: dict[str, int] = {}
+    scheduled: dict[str, str] = {}
+    wired_by: set[str] = set()
+    absent: dict[str, str] = {}
     bad_item: dict[str, str] = {}
     for i, r in enumerate(rows):
-        subject = str(r.get("subject") or r.get("prototype") or "")
-        if str(r.get("wire", "")).lower() == "no" and subject:
-            declined |= {s for s in _mentions(stems, subject) if i > last_pass.get(s, -1)}
-        if r.get("wired_by"):
-            named = _mentions(stems, subject) if subject else \
-                _mentions(stems, " ".join(str(v) for v in r.values()))
-            m = BACKLOG_ITEM.search(str(r["wired_by"]))
-            for s in named:
-                if m and int(m.group(1)) in open_items:
-                    scheduled[s] = int(m.group(1))
-                else:
-                    bad_item[s] = str(r["wired_by"])
+        named = _named(stems, r)
+        if str(r.get("wire", "")).lower() == "no":
+            declined |= {s for s in named if i > last_pass.get(s, -1)}
+        if not r.get("wired_by"):
+            continue
+        how = str(r["wired_by"])
+        item = BACKLOG_ITEM.search(how)
+        mods = {m.group(1).replace("/", ".") for m in RETICLE_MODULE.finditer(how)}
+        for s in named:
+            if mods & modules:
+                wired_by.add(s)
+            elif mods:
+                absent[s] = how
+            elif item and int(item.group(1)) in open_items:
+                scheduled[s] = f"BACKLOG {item.group(1)}"
+            else:
+                bad_item[s] = how
     out, unwired = [], []
     for s in sorted(pilots):
         if s in declined:
             continue
-        reasons = " ".join(str(r.get("wire_reason") or "") for r in pilots[s])
+        # The module that took it over, named in the result's reason or in
+        # its subject (`reticle/adjudication/identity.py load_identity_gallery`).
+        reasons = " ".join(str(r.get(k) or "") for r in pilots[s]
+                           for k in ("wire_reason", "subject"))
         took = {m.group(1).replace("/", ".") for m in RETICLE_MODULE.finditer(reasons)}
-        wired = s in used or bool(took & modules)
-        if wired:
+        if s in used or s in wired_by or took & modules:
             continue
         if s in scheduled:
-            unwired.append(f"{s} (BACKLOG {scheduled[s]})")
+            unwired.append(f"{s} ({scheduled[s]})")
+            continue
+        if s in absent:
+            unwired.append(f"{s} ({absent[s].split()[0]}, not in this tree)")
+            out.append((WARN, f"`prototypes/{s}.py` is wired by `{absent[s]}`, a module this "
+                              "tree lacks -- merge the branch that promotes it"))
             continue
         unwired.append(s)
         tag = str(pilots[s][0].get("id") or pilots[s][0].get("date")
                   or pilots[s][0].get("ts") or "")[:40]
         if s in bad_item:
-            out.append((ERROR, f"`prototypes/{s}.py` names `{bad_item[s]}` as its wiring item, "
-                               "which is no open BACKLOG item"))
+            out.append((ERROR, f"`prototypes/{s}.py` names `{bad_item[s]}` as its wiring, "
+                               "which is neither an open BACKLOG item nor a reticle module"))
         elif s in legacy:
             out.append((WARN, f"legacy passed pilot `prototypes/{s}.py`"
                               + (f" ({tag})" if tag else "")
@@ -1091,6 +1439,9 @@ def promote_strict(rows: list[dict], stems: set[str], used: set[str],
     for s in sorted((set(legacy) & set(pilots)) - live):
         out.append((ERROR, f"PROMOTE_LEGACY names `{s}`, which is now wired, scheduled or "
                            "declined -- remove it from the allowlist"))
+    for s in sorted(set(legacy) - set(seed)):
+        out.append((ERROR, f"PROMOTE_LEGACY names `{s}`, outside the frozen PROMOTE_SEED -- "
+                           "the allowlist only shrinks"))
     return out, unwired
 
 
@@ -1098,20 +1449,19 @@ def promote_strict(rows: list[dict], stems: set[str], used: set[str],
 # Progress, for `status`
 # ---------------------------------------------------------------------------
 
-#: The allowlists' sizes when they were seeded, 2026-10-09.
-SEEDED = {"CONVERT": 14, "ROUNDSCOPE": 31, "ROUNDSCOPE_UNREVIEWED": 114}
-
-
 def progress(base: Path | None = None) -> dict:
-    """Conversion progress per ratchet: readers gated against legacy, audited
-    sites fixed against legacy, unreviewed sites left."""
+    """Conversion progress per ratchet, against the frozen seeds: readers
+    converted against legacy, audited sites fixed against legacy, unreviewed
+    sites left."""
     readers = reader_classes(base)
+    seeded = lambda name: {k for k, (lst, _n) in ROUNDSCOPE_SEED.items() if lst == name}
     return {
-        "convert": {"gated": sum(1 for _k, _l, g, _o in readers if g),
+        "convert": {"gated": sum(1 for r in readers if r.gate_ok and
+                                 (r.gate_kind == "spans" or FRAME_HOOK)),
                     "legacy": len(CONVERT_LEGACY)},
-        "roundscope": {"fixed": SEEDED["ROUNDSCOPE"] - len(ROUNDSCOPE_LEGACY),
+        "roundscope": {"fixed": len(seeded("LEGACY") - set(ROUNDSCOPE_LEGACY)),
                        "legacy": len(ROUNDSCOPE_LEGACY),
-                       "reviewed": SEEDED["ROUNDSCOPE_UNREVIEWED"] - len(ROUNDSCOPE_UNREVIEWED),
+                       "reviewed": len(seeded("UNREVIEWED") - set(ROUNDSCOPE_UNREVIEWED)),
                        "unreviewed": len(ROUNDSCOPE_UNREVIEWED)},
     }
 
