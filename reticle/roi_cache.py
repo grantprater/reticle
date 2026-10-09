@@ -31,10 +31,13 @@ writer keeps ffmpeg's default group of 12 frames: only every twelfth frame
 coder's adapted state from the one before, so reading frame n decodes every
 frame from the key frame at or before n. cadaadeb2d8b's minimap video lists
 its [metric:roi_cache_seek/profile@cadaadeb2d8b#cued_key_frames=1543] key frames
-in the Matroska cues, 12 frames apart. `samples` reads
-an FFV1 cache through PyAV (`_Ffv1Video`): it seeks straight to the cued
-key frame and decodes forward only from there, or from where it stands
-when that is nearer. OpenCV's seek starts 16 frames before the target and
+in the Matroska cues, 12 frames apart. `samples` chooses its decoder per
+read by the gap (`_Ffv1Rect`): a read at most `GRAB_MAX` frames ahead
+stays on the decoder that stands there, OpenCV's threaded capture on a
+dense pass; a longer or backward gap goes to PyAV (`_Ffv1Video`), which
+seeks straight to the cued key frame and decodes forward only from there,
+or from where it stands when that is nearer. OpenCV's seek starts 16
+frames before the target and
 decodes up to 27 frames for a read; on one round of cadaadeb2d8b's gated
 ally times that cost [metric:roi_cache_seek/profile@cadaadeb2d8b#opencv_gated_cpu_ms=70.7]
 ms of CPU a frame against
@@ -224,8 +227,9 @@ SCOREBOARD_GATE_RULE = "on"
 SCOREBOARD_GATE_VERDICTS = ("present", "unreadable")
 
 #: The longest forward skip in an FFV1 cache that `samples` decodes through
-#: rather than seeks, where the video lists no key frames (`_Ffv1Video`);
-#: with the cues it seeks only where the key frame lies past its position.
+#: on the decoder that stands there (`_Ffv1Rect`); a longer or backward gap
+#: seeks through PyAV, which with the cues seeks only where the key frame
+#: lies past its position, and without them seeks past this skip.
 #: Measured 2026-09-28 on c40d950031bb's minimap cache: an OpenCV seek cost
 #: 38 ms a sample and a sequential read 5.7 ms a frame.
 GRAB_MAX = 8
@@ -237,9 +241,17 @@ GRAB_MAX = 8
 #: frame threads (AUTO) 9.3 and
 #: [metric:roi_cache_seek/profile@cadaadeb2d8b#pyav_auto_gated_cpu_ms=52.1],
 #: since a seek discards the frames decoded ahead; OpenCV's capture 8.3
-#: and 70.7. One thread lengthens a grid frame's wall
-#: time from OpenCV's 1.3 ms to 8.5 ms, beside the readers' tens.
+#: and 70.7. One thread lengthens a grid frame's wall time from OpenCV's
+#: 1.3 ms to 8.5 ms, so a dense pass stays on OpenCV (`_Ffv1Rect`): on the
+#: same round the grid reads at
+#: [metric:roi_cache_seek/dual@cadaadeb2d8b#grid_cpu_ms=8.0] ms CPU and
+#: [metric:roi_cache_seek/dual@cadaadeb2d8b#grid_wall_ms=1.7] ms wall a
+#: frame, the gated times at
+#: [metric:roi_cache_seek/dual@cadaadeb2d8b#gated_cpu_ms=24.3] ms CPU.
 FFV1_THREADS = ("NONE", 1)
+#: Dense reads in a row after which a run PyAV began hands over to OpenCV's
+#: threaded capture: one OpenCV seek, paid once a run looks sequential.
+DENSE_HANDOVER = 48
 
 #: How each set's crops are stored: "png" per crop, or "ffv1" video per rect.
 #: The scoreboard region is FFV1 for size alone: over one decoded minute of
@@ -1397,7 +1409,7 @@ class RoiCache:
             yield t
 
     def _video_samples(self, targets_ms, keep, w, h):
-        """`samples` for an FFV1 cache: one `_Ffv1Video` per rect, read by
+        """`samples` for an FFV1 cache: one `_Ffv1Rect` per rect, read by
         frame number."""
         vids = {}
         try:
@@ -1409,9 +1421,9 @@ class RoiCache:
                 for i in got:
                     k, n = int(self.rect[i]), int(self.offset[i])
                     if k not in vids:
-                        vids[k] = _Ffv1Video((self.video_paths or {}).get(k) or
-                                             self.blob.with_name(self.blob.name.replace(
-                                                 ".bin", f".r{k}.mkv")))
+                        vids[k] = _Ffv1Rect((self.video_paths or {}).get(k) or
+                                            self.blob.with_name(self.blob.name.replace(
+                                                ".bin", f".r{k}.mkv")))
                     x0, y0, x1, y1 = self.record["rects"][k]
                     frame[y0:y1, x0:x1] = vids[k].read(n)
                 yield Sample(frame_idx=int(self.frame_idx[got[0]]), t_ms=float(t), frame=frame)
@@ -1437,6 +1449,70 @@ class RoiCache:
             return None, "the sets were written at different rates: " + ", ".join(
                 f"{n} {p.record['hz']} Hz" for n, p in zip(names, parts))
         return RoiCacheUnion(parts), None
+
+
+class _Ffv1Rect:
+    """One rect's FFV1 cache video, read by frame number, the decoder chosen
+    per read by the gap from the last read.
+
+    A read at most `GRAB_MAX` frames ahead stays on the decoder that stands
+    there: OpenCV's capture (threaded, as `samples` always read a dense
+    pass) grabs through the skip; PyAV decodes forward. A longer or backward
+    gap goes to PyAV (`_Ffv1Video`), which seeks to the cued key frame. A
+    run PyAV began hands over to OpenCV after `DENSE_HANDOVER` dense reads
+    in a row, paying one OpenCV seek. Both decoders yield the same bytes
+    (`tests/test_ffv1_random_access.py`)."""
+
+    def __init__(self, path):
+        self.path = str(path)
+        self._cv = None
+        self._cv_pos = 0
+        self._av = None
+        #: The decoder that read last ("cv" or "av"), and the frame number
+        #: after that read.
+        self.active = "cv"
+        self.pos = 0
+        self._dense = 0
+        #: Reads each decoder served, and OpenCV seeks (handovers).
+        self.served = {"cv": 0, "av": 0}
+        self.cv_seeks = 0
+
+    def _cv_read(self, n: int) -> np.ndarray:
+        if self._cv is None:
+            self._cv = cv2.VideoCapture(self.path)
+            self._cv_pos = 0
+        if self._cv_pos < n <= self._cv_pos + GRAB_MAX:
+            for _ in range(n - self._cv_pos):
+                self._cv.grab()
+        elif self._cv_pos != n:
+            self._cv.set(cv2.CAP_PROP_POS_FRAMES, n)
+            self.cv_seeks += 1
+        ok, crop = self._cv.read()
+        if not ok:
+            raise ValueError(f"cache video ended before frame {n} ({self.path})")
+        self._cv_pos = n + 1
+        return crop
+
+    def read(self, n: int) -> np.ndarray:
+        n = int(n)
+        dense = self.pos <= n <= self.pos + GRAB_MAX
+        self._dense = self._dense + 1 if dense else 0
+        if dense and (self.active == "cv" or self._dense >= DENSE_HANDOVER):
+            use = "cv"
+        else:
+            use = "av"
+            if self._av is None:
+                self._av = _Ffv1Video(self.path)
+        crop = self._cv_read(n) if use == "cv" else self._av.read(n)
+        self.served[use] += 1
+        self.active, self.pos = use, n + 1
+        return crop
+
+    def close(self) -> None:
+        if self._cv is not None:
+            self._cv.release()
+        if self._av is not None:
+            self._av.close()
 
 
 class _Ffv1Video:
