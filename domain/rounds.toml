@@ -789,3 +789,18 @@ use = """
 the witness `episodes` lacks for "on site" (docs/EPISODES.md, Q7): export the
 marker meshes and read each zone's footprint
 """
+
+[no-ability-crosses-round-barrier]
+claim = """
+No ability object, buff or effect carries across the round barrier. Every
+one, whatever its own lifetime, has ended by the next round's buy phase;
+nothing an ability placed or applied in one round exists in the next.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+use = """
+the ability child owner (docs/ABILITY_ENTITIES.md) closes every live child
+and effect at the barrier and searches for a join only within one round
+"""
+see = ["rounds/post-round-period", "abilities/deployed-ability-ends"]

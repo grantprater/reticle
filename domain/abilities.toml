@@ -7739,3 +7739,32 @@ transform it spawns from is not serialized
 use = "bind a Stealth Drone birth to the ally whose icon it leaves"
 see = ["abilities/tejo-stealth-drone-piloted", "abilities/minimap-textures-tejo",
        "game_data/tejo-stealth-drone-game-data", "abilities/ability-rules-are-unique"]
+
+[deployed-ability-ends]
+claim = """
+A deployed ability ends by a set of causes, never by one. With no explicit
+lifetime it lasts until the enemy destroys it or the round ends. With an
+explicit lifetime it ends at expiry, and some such abilities can also be
+destroyed by the enemy before then; Miks's heal and concuss throwables are
+two. When its owner dies, a deployed ability is disabled: the same object
+stays, in a disabled state. Round end ends every one. All of this holds for
+enemy devices as for the team's. Which causes apply to one ability is that
+ability's own fact.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "abilities:deployed"
+use = """
+the ability child owner (docs/ABILITY_ENTITIES.md) stores each child's
+`ends_on` as a set drawn from lifetime expiry, destroyed by the enemy, owner
+death (disabled), round end and recall or reactivation, with round end
+always present; the per-ability facts and the mechanics sheet decide the
+other members. Between sightings a deployed child stays `live_assumed` at
+its placement, never ended for want of a drawing.
+"""
+see = ["rounds/no-ability-crosses-round-barrier", "abilities/device-destroyed-sounds",
+       "abilities/deployed-pickup-returns-charge", "minimap/device-dim-on-deactivation",
+       "abilities/killjoy-turret-recall-cooldown", "abilities/cypher-spycam-pickup-cooldown",
+       "abilities/deadlock-sonic-sensor-persists-after-death",
+       "abilities/ability-rules-are-unique"]
