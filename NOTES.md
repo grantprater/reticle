@@ -17,7 +17,7 @@
 ### Open decisions for the player
 
 - **Turn the ally gate on** (`scan --ally-gate on`) after scoring the held-out match cea8ecbc94ab once.
-- **Rewrite the crop caches with every frame a key frame** (`-g 1`). A gated fetch would fall from [metric:roi_cache_seek/dual@cadaadeb2d8b#gated_cpu_ms=24.3] ms toward the dense [metric:roi_cache_seek/dual@cadaadeb2d8b#grid_cpu_ms=8.0] ms, but every cache would go stale.
+- **Rewrite old crop caches with every frame a key frame** (optional). New caches already key every frame (ffv1-writer-0.2.0, merged 2026-10-09): on one cadaadeb2d8b round a gated fetch fell from [metric:roi_cache_gop/g1@cadaadeb2d8b#g12_gated_cpu_ms=18.88] to [metric:roi_cache_gop/g1@cadaadeb2d8b#g1_gated_cpu_ms=8.34] ms CPU, files grew by a factor of [metric:roi_cache_gop/g1@cadaadeb2d8b#size_ratio=1.0225], and pixels stayed byte-identical. Old caches stay current and read as before.
 - **The walk-graph bake** for walk reach: a geometry bake. Run `reticle plan` for the streams it stales, and ask before running it.
 - **Four remote-only branches** on origin: keep, merge or retire each.
 
