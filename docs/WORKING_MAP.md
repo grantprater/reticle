@@ -103,7 +103,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only clove_circle --from cache   # dead Clove's range circle
-.\.venv\Scripts\python.exe -m reticle smokes SESSION     # stored data only
+.\.venv\Scripts\python.exe -m reticle smokes SESSION     # stored data only; masks: scan --only minimap_dark --from cache
 .\.venv\Scripts\python.exe -m reticle ability-audio-fit --gate-in G.json --eval ROOT  # stored log-mel only
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR | match-score --match DIR  # stored detections only
 .\.venv\Scripts\python.exe -m reticle killstreak SESSION    # stored data only

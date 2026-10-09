@@ -560,6 +560,14 @@ remains = "Stage 1 ran as a prototype (prototypes/entity_state.py, held-out cali
 waits_for = "The death or round owner keeping post-round deaths in their own round; the player's answers on disconnects, revive placement, per-ability lifecycle classes, effect queries, pickups and the map's movement edges (section 12)."
 
 [[document]]
+path = "docs/ABILITY_ENTITIES.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-09"
+remains = "Step 0 ran on ability-entities-step0-20261009 (the LAYER allowance ended, minimap_dark's rebuild declared, the unstamped ability stream retired, ability_light kept until step 3); steps 1 to 7: the ABILITY ratchet, the ability and effect kinds in slot_state for the player, the team and the enemy, kits for every slot, gates, and close."
+waits_for = "The ratchet branch (reticle/ratchets.py) for step 1; the promoted harness core for scoring; the pre-filled mechanics-sheet pass for each ability's lifecycle class and states."
+
+[[document]]
 path = "docs/REPLAY_LAYER.md"
 kind = "reference"
 status = "live"

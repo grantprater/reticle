@@ -280,7 +280,7 @@ reverse makes a shipped module depend on something with no version stamp, no
 tests, and no promise to keep working.
 """
 auditor = ["doctor"]
-allow = ["ability_timeline"]
+allow = []
 allow_reason = """
 `doctor` is the auditor and may reach both trees by any spelling -- a checker
 that can only see one side of a fork cannot see a fork. It mostly reads them as
@@ -291,10 +291,10 @@ counts a bare import of a prototype module and not only a
 
 `allow` is NOT a blessing: it excuses plain imports only, `verify` reports each
 on every run, and a `sys.path` change or `importlib` load naming the tree is an
-ERROR for every module but an auditor. `ability_timeline` reaches into
-prototypes because the calibration still lives there, an unfinished promotion
-rather than a design: `materialize_demo_casts` drives `ability_cast` and
-`ability_hud` as readers, triaged in BACKLOG.md under the ability line.
+ERROR for every module but an auditor. The list is empty: its last entry,
+`ability_timeline`, left on 2026-10-09 when `reticle ability-timeline
+--materialize`, which drove `prototypes/ability_cast.py` and `ability_hud.py`
+over the demo sources, was dropped (docs/ABILITY_ENTITIES.md, step 0).
 `lineup` sat here too, inserting the prototypes directory on `sys.path` for
 `minimap_portrait.composition`, and the allowance silenced the check; the
 histogram moved to `appearance.portrait_composition` (2026-10-04).

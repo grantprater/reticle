@@ -29,7 +29,8 @@ Four checks, and each is a fault this repo has actually had
 4. **The tree direction.** `reticle/` must not import `prototypes/`. A shipped
    module depending on something with no version stamp and no tests is the
    fault `doctor`'s own docstring claims is protected, and
-   `ability_timeline.materialize_demo_casts` has been violating it unreported.
+   `ability_timeline.materialize_demo_casts` violated it unreported until
+   its removal on 2026-10-09.
    A `sys.path` change or an `importlib` load naming the tree is an ERROR
    for every module but a declared auditor (`trees.auditor`); `trees.allow`
    excuses only plain imports, and reports each one on every run.

@@ -1215,6 +1215,91 @@ class NeverRunTests(unittest.TestCase):
             derived = stale(_current_store(Path(d)), ["s"], never_run=False)["s"]["derived"]
             self.assertEqual(derived, [])
 
+    def test_a_never_run_minimap_dark_is_named_with_its_command(self):
+        """`minimap_dark` is owed wherever the minimap pass ran
+        (`NEVER_RUN_READERS`), and a never-run reader moves nothing."""
+        from reticle.plan import NEVER_RUN
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            del store.events["minimap_dark"]
+            p = stale(store, ["s"])["s"]
+            dark = [x for x in p["decode"] if x["stream"] == "minimap_dark"]
+            self.assertEqual([x["inputs_moved"] for x in dark], [[NEVER_RUN]])
+            self.assertNotIn("minimap_dark", p["absent"])
+            text = render({"s": p})
+            self.assertIn("decode   minimap_dark: minimap_dark never run on 1 sessions", text)
+            self.assertIn("accept reticle scan <sid> --only minimap_dark   for s", text)
+            # The smoke stream it feeds is not moved by a stream not yet written.
+            self.assertNotIn("minimap_dark", [m for x in p["derived"] if x["stream"] == "smoke"
+                                              for m in x["inputs_moved"]])
+            # Turned off, it stays absent only.
+            off = stale(store, ["s"], never_run=False)["s"]
+            self.assertIn("minimap_dark", off["absent"])
+            self.assertEqual(off["decode"], [])
+
+    def test_no_minimap_pass_owes_no_minimap_dark(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            del store.events["minimap_dark"]
+            os.remove(store.minimap_path("s", None))
+            p = stale(store, ["s"])["s"]
+            self.assertNotIn("minimap_dark", [x["stream"] for x in p["decode"]])
+            self.assertIn("minimap_dark", p["absent"])
+
+    def test_ability_light_is_work_only_where_a_candidate_exists(self):
+        """`reticle ability-light` reads the light at ability candidates'
+        instants alone (`adjudication.ability.light_applies`)."""
+        from reticle.plan import NEVER_RUN
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            p = stale(store, ["s"])["s"]
+            self.assertNotIn("ability_light", [x["stream"] for x in p["derived"]])
+            nap = [x for x in p["not_applicable"] if x["stream"] == "ability_light"]
+            self.assertEqual([x["status"] for x in nap], ["not_applicable"])
+            self.assertTrue(nap[0]["why"].startswith("no_ability_candidates"))
+            folder = Path(d) / "labels" / "ability_candidates"
+            folder.mkdir(parents=True)
+            (folder / "s.jsonl").write_text('{"t_ms": 1000, "x": 1, "y": 2}\n', encoding="utf-8")
+            light = [x for x in stale(store, ["s"])["s"]["derived"]
+                     if x["stream"] == "ability_light"]
+            self.assertEqual([x["inputs_moved"] for x in light], [[NEVER_RUN]])
+
+    def test_a_retired_stream_is_named_and_never_work(self):
+        """The `ability` stream's rows stay; `plan` names the retirement."""
+        from reticle.plan import RETIRED_STREAMS, UNSTAMPED
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            (Path(d) / "events" / "ability").mkdir(parents=True)
+            (Path(d) / "events" / "ability" / "s.jsonl").write_text("{}\n", encoding="utf-8")
+            p = stale(store, ["s"])["s"]
+            self.assertEqual(p["unchecked"], [{"stream": "ability",
+                                               "why": RETIRED_STREAMS["ability"]}])
+            self.assertNotIn("ability", UNSTAMPED)
+            self.assertNotIn("ability", [x["stream"] for x in p["decode"] + p["derived"]])
+
+    def test_a_cache_fed_minimap_dark_rereads_the_crop_cache(self):
+        """Where the minimap crop cache holds its ROI, the reread is
+        `scan --from cache`, which decodes nothing (`CACHE_FED_READERS`)."""
+        from unittest import mock
+
+        import reticle.plan as plan_mod
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            del store.events["minimap_dark"]
+            base = store.read_manifest
+            store.read_manifest = lambda sid: {**base(sid), "source_profile": "valorant-16x9"}
+            with mock.patch.object(plan_mod, "_channel_cache",
+                                   return_value=("minimap", "holds its ROIs")):
+                p = stale(store, ["s"])["s"]
+            dark = [x for x in p["decode"] if x["stream"] == "minimap_dark"]
+            self.assertEqual([x.get("cache_fed") for x in dark], ["minimap"])
+            text = render({"s": p})
+            self.assertIn("reread   minimap_dark: minimap_dark never run on 1 sessions", text)
+            self.assertIn("accept reticle scan <sid> --only minimap_dark --from cache   (reads "
+                          "the stored minimap crop cache, no decode) for s", text)
+            self.assertNotIn("accept reticle scan <sid> --only minimap_dark   for", text)
+
 
 class EmptyRunTests(unittest.TestCase):
     """An identity stream a run left empty reads as run where the coverage row
