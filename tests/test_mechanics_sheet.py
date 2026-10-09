@@ -238,11 +238,15 @@ class WalkAndImportTest(unittest.TestCase):
         self.assertEqual(self.target.read_text(encoding="utf-8"), before)
 
     def test_import_writes_a_valid_lifecycle_fact(self):
-        # C: parent y, class y, visible phases typed, lifetime y, destructible
-        # y, owner death d (default), ends_on y, effects y, slow targets 3
-        # (enemies), minimap y. Engine states are never asked.
-        out = self.s.walk(["y", "y", "thrown -> placed -> armed -> gone", "y", "y", "d", "y",
-                           "y", "3", "y", "q"], agent="Zed")
+        # Zed's modes 0 (none); C: parent y, class y, placement 2 (within
+        # reach), visible phases typed, lifetime y, destructible y, owner
+        # death d (default), ends_on y, effects y, slow targets 3 (enemies),
+        # minimap y. Engine states are never asked.
+        self.s.rows += ms.build_agent_rows(STATES, self.s.facts)
+        out = self.s.walk(["0", "y", "y", "2", "thrown -> placed -> armed -> gone", "y", "y",
+                           "d", "y", "y", "3", "y", "q"], agent="Zed")
+        self.assertEqual(self.answers()["Zed:modes"]["answer"], [])
+        self.assertEqual(self.answers()["Zed:C:placement"]["answer"], "body_relative")
         self.assertNotIn("engine_states", out)
         self.assertEqual(self.answers()["Zed:C:owner_death"]["how"], "default")
         self.assertEqual(self.answers()["Zed:C:visible_phases"]["answer"],
@@ -254,6 +258,7 @@ class WalkAndImportTest(unittest.TestCase):
         f = facts["abilities/zed-trap-lifecycle"]
         self.assertEqual((f.kind, f.known, f.subject), ("lifecycle", "player", "zed:trap"))
         self.assertEqual(f.lifecycle_class, "deployed")
+        self.assertIn("Placement: body-relative.", " ".join(f.claim.split()))
         self.assertEqual(f.ends_on, ("lifetime", "destroyed", "round_end"))
         self.assertEqual((f.destructible, f.owner_death), ("yes", "disabled"))
         self.assertEqual(f.effects, ("slow:enemies",))
@@ -285,6 +290,77 @@ lifecycle_class = "projectile"
         msgs = [m for lvl, m in domain.validate(domain.load(self.s.dom), root=self.s.root)
                 if lvl == "ERROR"]
         self.assertTrue(any("lifecycle_class projectile" in m for m in msgs))
+
+
+ASTRA_FACTS = GD + """
+[astra-nebula-global-placement]
+claim = "Astra's smoke placement is global."
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "astra:nebula"
+
+[astra-astral-form-any-time]
+claim = "Astra can enter Astral Form at any time."
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "astra:astral form"
+
+[astra-astral-form-body-stays]
+claim = "In Astral Form, Astra's body stays where she entered the form."
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "astra:astral form"
+"""
+ASTRA = {"agents": {
+    "Astra": {"codename": "Rift", "abilities": {"E": {
+        "ability": "Nebula  / Dissipate", "equippable": "/Game/Characters/Rift/Ability_E",
+        "entities": [{"entity": "/Game/Characters/Rift/GameObject_Rift_E_SmokeZone",
+                      "how": "spawns", "named_by": "/Game/Characters/Rift/Ability_E"}],
+        "states": []}}},
+    "Zed": STATES["agents"]["Zed"]}}
+
+
+class PlacementAndModesTest(unittest.TestCase):
+    """Placement comes from the ability's own fact; modes are asked per agent."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        dom = self.root / "domain"
+        dom.mkdir()
+        (dom / "abilities.toml").write_text(ASTRA_FACTS, encoding="utf-8")
+        self.facts = domain.load(dom)
+        self.rows = ms.build_rows(ASTRA, self.facts, ms.GameExports(self.root), {})
+        self.agents = {r["agent"]: r for r in ms.build_agent_rows(ASTRA, self.facts)}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_global_placement_fact_fills_its_ability_only(self):
+        nebula = next(r for r in self.rows if r["agent"] == "Astra")
+        cell = nebula["cells"]["placement"]
+        self.assertEqual((cell["status"], cell["value"]), ("confirm", "global"))
+        self.assertEqual(cell["sources"], ["[domain:abilities/astra-nebula-global-placement]"])
+        zed = next(r for r in self.rows if r["agent"] == "Zed")
+        self.assertEqual(zed["cells"]["placement"]["status"], "ask")
+        text, _ = ms.render(nebula, "placement", ms.cell_key(nebula, "placement"), {})
+        self.assertIn("Where can Astra put Nebula  / Dissipate?", text)
+        self.assertIn("Suggested: anywhere on the map, wherever Astra stands.", text)
+
+    def test_modes_prefill_from_facts_and_ask_plainly_elsewhere(self):
+        astra, zed = self.agents["Astra"], self.agents["Zed"]
+        self.assertEqual(astra["cells"]["modes"]["value"], ["Astral Form"])
+        self.assertEqual(zed["cells"]["modes"]["status"], "ask")
+        text, _ = ms.render(zed, "modes", ms.cell_key(zed, "modes"), {})
+        self.assertIn("Does Zed have a mode or view they enter, separate from casting one "
+                      "ability? (e.g. Astra's Astral Form)", text)
+        self.assertEqual(ms.cell_key(astra, "modes"), "Astra:modes")
+        qs = ms.questions(self.rows + list(self.agents.values()), {}, agent="Astra")
+        self.assertEqual(qs[0][1], "modes")
+        self.assertEqual(ms.resolve(astra, {})[0], None)
 
 
 if __name__ == "__main__":

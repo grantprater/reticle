@@ -21,6 +21,10 @@ ability-entity plan needs (sections 2.4 and 6, question 4):
   ability, from a spawn in the exports (the states table's `spawns`, or a
   spawn call in the referrer's bytecode); a reference without a spawn is `ask`.
 * `lifecycle_class`: the plan's classes, `domain.LIFECYCLE_CLASSES`.
+* `placement`: body-relative or global (docs/ABILITY_ENTITIES.md, section
+  2.2b), or not applicable; filled only from that ability's own placement
+  fact (`PLACEMENT_FACT_CELLS`, or a fact whose id ends `-global-placement`
+  or `-body-relative-placement`), never from a range field or a sibling.
 * `lifetime_s`: a `life` value of the ability's `*-game-data` fact, read from
   the row's own classes.
 * `destructible`: whether the enemy can destroy it, yes or no.
@@ -35,6 +39,13 @@ ability-entity plan needs (sections 2.4 and 6, question 4):
 * `engine_states`: the game data's lexical phases per owner. Evidence, never
   a question: game files outrank the player, so the import writes them as the
   fact's `states` unasked.
+
+One question per agent, `modes`, lists the modes or views the agent enters
+apart from casting one ability: a state of the agent's own slot, never a
+child (section 2.2b). Astra's and Omen's are pre-filled from their facts
+(`MODE_FACTS`) [domain:abilities/astra-astral-form-any-time]
+[domain:abilities/omen-dark-cover-aim-still]; every other agent is asked.
+The import never writes a mode: each becomes its own fact by hand.
 
 The walk asks one plain question per cell about a thing the player knows,
 named by the ability and the object's words ("Spycam's tracking dart"),
@@ -87,7 +98,7 @@ from pathlib import Path
 
 from . import domain
 
-VERSION = "mechanics-sheet-0.3.0"
+VERSION = "mechanics-sheet-0.4.0"
 BUILD = "release-13.06-shipping-18-5590001"
 #: The game-data states table (`prototypes/ability_states_gamedata.py`).
 STATES_TABLE = ("reference/ability-states", "ability-states-gamedata-0.2.0")
@@ -97,14 +108,18 @@ ANSWERS = "labels/mechanics_sheet/answers.jsonl"
 #: The player's earlier per-view minimap answers (`prototypes/ask_minimap_glyphs.py`).
 VIEW_ANSWERS = "labels/minimap_glyph_questions/answers.jsonl"
 SLOTS = ("C", "Q", "E", "X")
-COLUMNS = ("parent", "lifecycle_class", "visible_phases", "lifetime_s", "destructible",
-           "owner_death", "ends_on", "effects", "minimap_drawing", "engine_states")
+COLUMNS = ("parent", "lifecycle_class", "placement", "visible_phases", "lifetime_s",
+           "destructible", "owner_death", "ends_on", "effects", "minimap_drawing",
+           "engine_states")
+#: Questions asked once per agent, on its own slot rather than an ability.
+AGENT_COLUMNS = ("modes",)
 #: Columns renamed since an earlier sheet: an old answer reads under the new name.
 RENAMED = {"states": "engine_states"}
 CLASSES = ("deployed", "instant", "self_buff", "equipped", "movement")
 ENDS = ("lifetime", "destroyed", "owner_death", "recall_or_reactivation", "round_end")
 TARGETS = ("self", "allies", "enemies")
 DRAWINGS = ("icon", "shape", "icon_and_shape", "nothing")
+PLACEMENTS = ("body_relative", "global", "not_applicable")
 assert set(CLASSES) == domain.LIFECYCLE_CLASSES and set(ENDS) == domain.ENDS_ON
 
 #: The player's rules of 2026-10-09, shown in the header and applied by `d`.
@@ -123,6 +138,24 @@ PLAYER_FACT_CELLS = {
     ("skye:seekers", "destructible"): ("yes", "abilities/skye-seekers-track-and-blind"),
     ("sage:barrier orb", "destructible"): ("yes", "abilities/sage-barrier-orb-segments"),
     ("omen:dark cover", "owner_death"): ("persists", "abilities/omen-dark-cover"),
+}
+
+#: Placement facts named one by one, by the row subject they fill: a star
+#: is Astral Form's markers object, whose facts name it `astra:stars`.
+PLACEMENT_FACT_CELLS = {
+    "astra:astral form / cosmic divide/gameobject_rift_x_markers":
+        ("global", "abilities/astra-stars-origin-global"),
+}
+#: A fact id ending so states one ability's placement for its own subject.
+PLACEMENT_SUFFIXES = (("-global-placement", "global"),
+                      ("-body-relative-placement", "body_relative"))
+
+#: An agent's modes: (agent, the mode in the player's words) -> its facts.
+MODE_FACTS = {
+    ("astra", "Astral Form"): ("abilities/astra-astral-form-any-time",
+                               "abilities/astra-astral-form-body-stays"),
+    ("omen", "aiming Dark Cover in the shadow view of the map"):
+        ("abilities/omen-dark-cover-aim-still",),
 }
 
 #: Effect kinds read from the game's own effect classes (`Buff_*`, `Debuff_*`,
@@ -602,6 +635,32 @@ def _minimap(ab: dict, gd: list, scope: Scope, views: dict, agent: str, slot: st
     return cell
 
 
+def _subject_names(subject: str) -> set[str]:
+    """A subject and, for a joined ability name (`nebula / dissipate`), each part."""
+    norm = _subject_norm(subject)
+    agent, sep, name = norm.partition(":")
+    parts = [x.strip() for x in name.split(" / ")]
+    if sep and len(parts) > 1 and not any("/" in x for x in parts):
+        return {norm} | {f"{agent}:{x}" for x in parts}
+    return {norm}
+
+
+def _placement(subject: str, split: bool, facts: dict) -> dict:
+    """Body-relative or global, only from this row's own placement facts."""
+    srcs: dict[str, list[str]] = {}
+    names = _subject_names(subject)
+    for key, f in facts.items():
+        if not key.startswith("abilities/") or not f.subject:
+            continue
+        for suffix, value in PLACEMENT_SUFFIXES:
+            if key.endswith(suffix) and _subject_norm(f.subject) in names:
+                srcs.setdefault(value, []).append(f"[domain:{key}]")
+    named = PLACEMENT_FACT_CELLS.get(subject)
+    if named and named[1] in facts:
+        srcs.setdefault(named[0], []).append(f"[domain:{named[1]}]")
+    return _decide(srcs, "no placement fact for this ability" + (" object" if split else ""))
+
+
 def _visible(subject: str, ability_subject: str, facts: dict) -> dict:
     """What the player sees, cast to gone: only from a fact that states it.
 
@@ -636,6 +695,29 @@ def build_rows(states_doc: dict, facts: dict, exports: "GameExports", views: dic
     return rows
 
 
+def build_agent_rows(states_doc: dict, facts: dict) -> list[dict]:
+    """One row per agent for the questions asked of its own slot (`AGENT_COLUMNS`)."""
+    rows = []
+    for agent in sorted(states_doc["agents"]):
+        modes = [(m, keys) for (a, m), keys in MODE_FACTS.items()
+                 if a == agent.lower() and all(k in facts for k in keys)]
+        if modes:
+            cell = _sheet_cell("confirm", [m for m, _k in modes],
+                               [f"[domain:{k}]" for _m, keys in modes for k in keys],
+                               basis="the agent's mode facts")
+        else:
+            cell = _sheet_cell("ask", basis="no mode fact for this agent")
+        rows.append({"kind": "agent", "agent": agent, "slot": "", "ability": "",
+                     "object": None, "part": "", "subject": agent.lower(),
+                     "codename": states_doc["agents"][agent].get("codename", ""),
+                     "cells": {"modes": cell}})
+    return rows
+
+
+def is_agent_row(row: dict) -> bool:
+    return row.get("kind") == "agent"
+
+
 def _row(agent, slot, ab, obj, split, objects, gdata, facts, exports, views, table_ref) -> dict:
     ability_subject = subject_of(agent, ab["ability"])
     subject = f"{ability_subject}/{_stem(obj).lower()}" if split else ability_subject
@@ -650,6 +732,7 @@ def _row(agent, slot, ab, obj, split, objects, gdata, facts, exports, views, tab
     cells = {
         "parent": _parent(obj, ab, objects, exports, table_ref),
         "lifecycle_class": _lifecycle_class(gd, ab, scope),
+        "placement": _placement(subject, split, facts),
         "lifetime_s": _lifetime(gd, scope),
         "destructible": _destructible(subject, evidence, facts),
         "owner_death": _owner_death(subject, evidence, facts),
@@ -700,9 +783,10 @@ def _ends_on(cells: dict, recall_src: list[str]) -> dict:
 
 
 def status_counts(rows: list[dict]) -> dict:
-    out = {c: {"confirm": 0, "ask": 0, "conflict": 0, "n/a": 0, "hidden": 0} for c in COLUMNS}
+    out = {c: {"confirm": 0, "ask": 0, "conflict": 0, "n/a": 0, "hidden": 0}
+           for c in COLUMNS + AGENT_COLUMNS}
     for r in rows:
-        for c in COLUMNS:
+        for c in (AGENT_COLUMNS if is_agent_row(r) else COLUMNS):
             out[c][r["cells"][c]["status"]] += 1
     return out
 
@@ -718,6 +802,7 @@ def build(store_root: Path) -> tuple[Path, list[dict]]:
     states_doc = json.loads(table.read_text(encoding="utf-8"))
     facts = domain.load()
     rows = build_rows(states_doc, facts, GameExports(store_root), _view_answers(store_root))
+    rows += build_agent_rows(states_doc, facts)
     out_dir = store_root / PREFILL_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     jl = out_dir / f"{VERSION}.jsonl"
@@ -728,9 +813,18 @@ def build(store_root: Path) -> tuple[Path, list[dict]]:
         w.writerow(["agent", "slot", "ability", "object", "object_class"]
                    + [x for c in COLUMNS for x in (c, f"{c}_status", f"{c}_sources")])
         for r in rows:
+            if is_agent_row(r):
+                continue
             w.writerow([r["agent"], r["slot"], r["ability"], r["object"] or "", r["object_class"] or ""] + [
                 x for c in COLUMNS for x in (r["cells"][c]["display"], r["cells"][c]["status"],
                                              " | ".join(r["cells"][c]["sources"]))])
+    with (out_dir / f"{VERSION}-modes.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["agent", "modes", "modes_status", "modes_sources"])
+        for r in rows:
+            if is_agent_row(r):
+                c = r["cells"]["modes"]
+                w.writerow([r["agent"], c["display"], c["status"], " | ".join(c["sources"])])
     prov = {"version": VERSION, "build": BUILD, "built_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
             "rows": len(rows), "counts": status_counts(rows), "default_rules": DEFAULT_RULES,
             "inputs": {"states_table": [str(table.relative_to(store_root)), _file_sha(table)],
@@ -752,6 +846,8 @@ def load_prefill_rows(store_root: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def cell_key(row: dict, column: str, sub: str = "") -> str:
+    if is_agent_row(row):
+        return f"{row['agent']}:{column}"
     part = f":{row['part']}" if row.get("part") else ""
     return f"{row['agent']}:{row['slot']}{part}:{column}" + (f":{sub}" if sub else "")
 
@@ -812,7 +908,9 @@ def object_words(stem: str, codename: str = "") -> str:
 
 
 def thing_name(row: dict) -> str:
-    """The thing a row asks about: the ability, or `<ability>'s <object>`."""
+    """The thing a row asks about: the agent, the ability, or `<ability>'s <object>`."""
+    if is_agent_row(row):
+        return row["agent"]
     if not row.get("part"):
         return row["ability"]
     return f"{row['ability']}'s {object_words(row['part'], row.get('codename', ''))}"
@@ -862,6 +960,17 @@ def cell_question(row: dict, column: str, answers: dict, sub: str = "") -> tuple
                 (f"a dash or teleport that moves {agent}", "movement")]
         sug = dict((v, w) for w, v in opts).get(value, "") if cell["status"] == "confirm" else ""
         return f"What kind of thing is {name}?", opts, sug
+    if column == "placement":
+        opts = [(f"anywhere on the map, wherever {agent} stands", "global"),
+                (f"only within reach of where {agent} stands", "body_relative"),
+                ("doesn't apply: it isn't put anywhere", "not_applicable")]
+        sug = dict((v, w) for w, v in opts).get(value, "") if cell["status"] == "confirm" else ""
+        return f"Where can {agent} put {name}?", opts, sug
+    if column == "modes":
+        example = "" if agent.lower() == "astra" else " (e.g. Astra's Astral Form)"
+        sug = ", ".join(value or []) if cell["status"] == "confirm" else ""
+        return (f"Does {agent} have a mode or view they enter, separate from casting one "
+                f"ability?{example} Type each one, separated by commas, or 0 for none."), [], sug
     if column == "visible_phases":
         return (f"What does {name} look like on the minimap and on screen, from cast to gone? "
                 f"Type the steps in order, separated by arrows or commas "
@@ -905,6 +1014,8 @@ def cell_question(row: dict, column: str, answers: dict, sub: str = "") -> tuple
 
 def default_for(row: dict, column: str, answers: dict):
     """The player's default rule for a cell, given this ability's answers so far."""
+    if is_agent_row(row):
+        return None
     def got(c):
         a = answers.get(cell_key(row, c))
         return None if a is None or a.get("unsure") else a.get("answer")
@@ -927,21 +1038,24 @@ def default_for(row: dict, column: str, answers: dict):
 NOT_ASKED = ("n/a", "hidden")
 
 
-def questions(rows: list[dict], answers: dict, columns=COLUMNS, agent: str | None = None,
+def questions(rows: list[dict], answers: dict, columns=COLUMNS + AGENT_COLUMNS,
+              agent: str | None = None,
               reask_unsure: bool = False) -> list[tuple[dict, str, str]]:
     """(row, column, key) for every open cell: by agent, ability, object, column.
 
     Effect targets follow the effects cell: one question per effect named.
+    An agent's own questions (`AGENT_COLUMNS`) come before its abilities'.
     """
     order = {s: i for i, s in enumerate(SLOTS)}
     out = []
-    for r in sorted(rows, key=lambda r: (r["agent"].lower(), order.get(r["slot"], 9),
+    for r in sorted(rows, key=lambda r: (r["agent"].lower(), not is_agent_row(r),
+                                         order.get(r["slot"], 9),
                                          bool(r.get("part")) and r["cells"]["parent"].get("value") != "ability",
                                          r.get("part") or "")):
         if agent and r["agent"].lower() != agent.lower():
             continue
         for c in columns:
-            if r["cells"][c]["status"] in NOT_ASKED:
+            if c not in r["cells"] or r["cells"][c]["status"] in NOT_ASKED:
                 continue
             k = cell_key(r, c)
             a = answers.get(k)
@@ -962,6 +1076,8 @@ def _parse_typed(column: str, text: str, cell: dict, opts: list, row: dict, answ
     if t == "y":
         if column == "effects":
             return [d["effect"] for d in cell["value"] or []] or None, "confirm"
+        if column == "modes":
+            return (list(cell["value"]), "confirm") if cell["status"] == "confirm" else None
         if column in ("effects:targets", "visible_phases") or cell["status"] not in ("confirm",) \
                 or cell["value"] is None:
             return None  # nothing suggested: answer the question
@@ -972,10 +1088,11 @@ def _parse_typed(column: str, text: str, cell: dict, opts: list, row: dict, answ
     if column == "visible_phases":
         steps = [s.strip() for s in re.split(r"->|→|,", t) if s.strip()]
         return (steps, "typed") if steps else None
-    if column == "effects":
+    if column in ("effects", "modes"):
         if t == "0":
             return [], "typed"
-        kinds = [s.strip().lower() for s in t.split(",") if s.strip()]
+        kinds = [s.strip() if column == "modes" else s.strip().lower()
+                 for s in t.split(",") if s.strip()]
         return (kinds, "typed") if kinds and not t.isdigit() else None
     if t == "0" and column == "ends_on":
         return ["round_end"], "choose"
@@ -1019,7 +1136,8 @@ def render(row: dict, column: str, key: str, answers: dict, remaining: int | Non
     cell = row["cells"][column.split(":")[0]]
     lines = []
     head = f"[{remaining} left] " if remaining is not None else ""
-    lines.append(f"{head}{row['agent']} -- {thing_name(row)}")
+    lines.append(f"{head}{row['agent']} -- "
+                 f"{'modes and views' if is_agent_row(row) else thing_name(row)}")
     lines.append(f"  {question}")
     for i, (words, _v) in enumerate(opts, 1):
         lines.append(f"    {i} {words}")
@@ -1044,7 +1162,8 @@ def render(row: dict, column: str, key: str, answers: dict, remaining: int | Non
     return "\n".join(lines) + "\n", opts
 
 
-def walk(store_root: Path, rows: list[dict], *, by: str = "player", columns=COLUMNS,
+def walk(store_root: Path, rows: list[dict], *, by: str = "player",
+         columns=COLUMNS + AGENT_COLUMNS,
          agent: str | None = None, reask_unsure: bool = False,
          read=input, out=sys.stdout) -> int:
     """Ask every open cell in turn; append one answer row per answer."""
@@ -1082,7 +1201,7 @@ def walk(store_root: Path, rows: list[dict], *, by: str = "player", columns=COLU
             ans, how = parsed
         append_answer(store_root, {
             "key": key, "column": column, "agent": r["agent"], "slot": r["slot"],
-            "ability": r["ability"], "object": r.get("object"), "answer": ans, "how": how,
+            "ability": r.get("ability", ""), "object": r.get("object"), "answer": ans, "how": how,
             "unsure": how == "unsure", "by": by, "ts": _now(), "tool": VERSION,
             "prefill_version": VERSION,
             "shown": {"status": cell["status"], "display": cell.get("display", ""),
@@ -1113,6 +1232,8 @@ def fact_id(row: dict) -> str:
 def resolve(row: dict, answers: dict) -> tuple[dict | None, list[str]]:
     """The confirmed values of one row, or None and what is still open."""
     got, missing = {}, []
+    if is_agent_row(row):
+        return None, ["an agent's modes: recorded as facts by hand, never imported"]
     if all(row["cells"][c]["status"] in NOT_ASKED for c in COLUMNS):
         return None, ["nothing to confirm: an engine helper"]
     for c in COLUMNS:
@@ -1179,6 +1300,9 @@ def fact_text(row: dict, got: dict, since: str) -> str:
     # The engine's own states stand without a question: game files outrank the player.
     states = _flat_states(row["cells"]["engine_states"].get("value"))
     phases = " -> ".join(got["visible_phases"]["answer"])
+    placed = {"global": "global", "body_relative": "body-relative",
+              "not_applicable": "not applicable"}.get(got["placement"]["answer"],
+                                                      str(got["placement"]["answer"]))
     see = sorted({"abilities/ability-rules-are-unique"} | set(row.get("game_data", [])))
     what = f"{row['agent']}'s {row['ability']} (slot {row['slot']})"
     if row.get("part"):
@@ -1187,7 +1311,7 @@ def fact_text(row: dict, got: dict, since: str) -> str:
                 f"({row['part']}), a child of "
                 f"{'the ability' if parent == 'ability' else parent},")
     claim = (f"{what} is a {cls} ability. The player sees: {phases}. "
-             f"{life_words} It ends on {', '.join(ends)}. Destructible by the enemy: "
+             f"Placement: {placed}. {life_words} It ends on {', '.join(ends)}. Destructible by the enemy: "
              f"{got['destructible']['answer']}. At its owner's death: "
              f"{got['owner_death']['answer']}. Effects: {', '.join(effects) or 'none'}. "
              f"Minimap: {draw_words or 'nothing'}.")
@@ -1239,7 +1363,12 @@ def import_rows(store_root: Path, rows: list[dict], *, write: bool = False,
     answers = load_sheet_answers(store_root)
     existing = set(domain.load(target.parent)) if target.parent.is_dir() else set()
     texts, skipped = [], []
+    modes = 0
     for r in rows:
+        if is_agent_row(r):
+            a = answers.get(cell_key(r, "modes"))
+            modes += bool(a and not a.get("unsure") and a.get("answer"))
+            continue
         got, missing = resolve(r, answers)
         fid = fact_id(r)
         if got is None:
@@ -1259,6 +1388,8 @@ def import_rows(store_root: Path, rows: list[dict], *, write: bool = False,
         out.write(t + "\n")
     for s in skipped:
         out.write(f"skipped {s}\n")
+    if modes:
+        out.write(f"{modes} agent(s) answered modes; record each mode as its own fact by hand\n")
     out.write(f"{len(texts)} confirmed row(s){' written to ' + str(target) if write and texts else ''}; "
               f"{len(skipped)} partly answered row(s) skipped\n")
     return texts, skipped
@@ -1274,7 +1405,7 @@ def main(argv: list[str] | None = None, store_root: Path | None = None) -> int:
     p.add_argument("action", choices=("build", "ask", "status", "import"))
     p.add_argument("--store", type=Path, default=store_root or DEFAULT_STORE)
     p.add_argument("--agent")
-    p.add_argument("--column", choices=COLUMNS)
+    p.add_argument("--column", choices=COLUMNS + AGENT_COLUMNS)
     p.add_argument("--by", default="player")
     p.add_argument("--reask-unsure", action="store_true")
     p.add_argument("--write", action="store_true", help="import: append to domain/abilities.toml")
@@ -1289,11 +1420,12 @@ def main(argv: list[str] | None = None, store_root: Path | None = None) -> int:
         _print_counts(rows)
         answers = load_sheet_answers(a.store)
         left = questions(rows, answers)
-        done = sum(1 for r in rows if resolve(r, answers)[0] is not None)
-        print(f"{len(left)} cells open; {done} of {len(rows)} rows confirmed")
+        ability_rows = [r for r in rows if not is_agent_row(r)]
+        done = sum(1 for r in ability_rows if resolve(r, answers)[0] is not None)
+        print(f"{len(left)} cells open; {done} of {len(ability_rows)} rows confirmed")
         return 0
     if a.action == "ask":
-        cols = (a.column,) if a.column else COLUMNS
+        cols = (a.column,) if a.column else COLUMNS + AGENT_COLUMNS
         return walk(a.store, rows, by=a.by, columns=cols, agent=a.agent,
                     reask_unsure=a.reask_unsure)
     import_rows(a.store, rows, write=a.write, target=domain.DOMAIN_DIR / "abilities.toml")
@@ -1303,6 +1435,6 @@ def main(argv: list[str] | None = None, store_root: Path | None = None) -> int:
 def _print_counts(rows: list[dict]) -> None:
     c = status_counts(rows)
     print(f"{'column':<16} {'pre-filled':>10} {'ask':>5} {'conflict':>8} {'n/a':>5} {'hidden':>6}")
-    for col in COLUMNS:
+    for col in COLUMNS + AGENT_COLUMNS:
         print(f"{col:<16} {c[col]['confirm']:>10} {c[col]['ask']:>5} {c[col]['conflict']:>8}"
               f" {c[col]['n/a']:>5} {c[col]['hidden']:>6}")
