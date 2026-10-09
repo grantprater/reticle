@@ -239,6 +239,207 @@ def spawn_footprints(reg: Regions) -> dict[str, np.ndarray]:
     return out
 
 
+#: pre-round-area-0.1.0 (2026-10-09): the rule `pre_round_areas` draws.
+PRE_ROUND_AREA_VERSION = "pre-round-area-0.1.0"
+PRE_ROUND_AREA_RULE = (
+    "walk_flood: the cells of the 3D table's walk graph reached from the side's Spawn callout "
+    "volumes without entering or crossing a SpawnBarrier box (the segment at the capsule "
+    "centre, the table's body_cm); the area is the convex hull of those cells' squares and the "
+    "side's Spawn volumes. hull (where the flood leaks to the other spawn, or the table "
+    "has no walk graph): the convex hull of the Spawn volumes and the side's barrier footprints")
+
+
+#: Cells of different walk components this near in plan are tested for a
+#: bridge: the table grids only callout volumes, so a doorway or seam between
+#: two volumes can leave a row of cells out (Ascent's A Lobby lies 2 m from
+#: the attackers' spawn cells at the same floor). Two missing cells at the
+#: diagonal is 2 * sqrt(2) grid steps; a placeholder, not a game value.
+BRIDGE_GRID_STEPS = 2.0 * 2 ** 0.5
+
+
+def walk_cells(map_name: str, root=DEFAULT_STORE, bridge: bool = True) -> dict | None:
+    """The standable cells and walk edges of the map's 3D sightline table
+    (`cell_xy`, `cell_z`, `walk_r`, `walk_c`) with its grid step, capsule
+    centre and jump heights; None where the table has no walk graph.
+
+    With `bridge`, cells of different components within
+    `BRIDGE_GRID_STEPS` grid steps in plan whose floors differ by at most the
+    jump height are joined where the segment between them at the capsule
+    centre crosses no Pawn-blocking triangle of the same table
+    (`line_of_sight.Occluders` over the `pawn` set); `bridges` counts them."""
+    path = sightline_table(map_name, root)
+    if path is None:
+        return None
+    with np.load(path, allow_pickle=False) as z:
+        if "walk_r" not in z.files:
+            return None
+        prov = json.loads(str(z["provenance"]))
+        out = {"xy": z["cell_xy"].astype(float), "z": z["cell_z"].astype(float),
+               "r": z["walk_r"].astype(np.int64), "c": z["walk_c"].astype(np.int64),
+               "grid_cm": float(prov.get("grid_cm", 100.0)), "jump_cm": float(prov["jump_cm"]),
+               "body_cm": float(prov["body_cm"]), "table": path.name, "bridges": 0}
+        pawn = z["tris"][z["pawn"]] if bridge else None
+    if bridge:
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import connected_components
+        from scipy.spatial import cKDTree
+
+        from .line_of_sight import Occluders
+        n = len(out["z"])
+        g = coo_matrix((np.ones(len(out["r"]), np.int8), (out["r"], out["c"])), shape=(n, n))
+        _nc, lab = connected_components(g, directed=False)
+        pr = cKDTree(out["xy"]).query_pairs(BRIDGE_GRID_STEPS * out["grid_cm"] + 1e-6,
+                                            output_type="ndarray")
+        pr = pr[(lab[pr[:, 0]] != lab[pr[:, 1]])
+                & (np.abs(out["z"][pr[:, 0]] - out["z"][pr[:, 1]]) <= out["jump_cm"])]
+        if len(pr):
+            p3 = np.column_stack([out["xy"], out["z"] + out["body_cm"]])
+            ok = ~Occluders(map_name, root, tris=pawn).blocked(p3[pr[:, 0]], p3[pr[:, 1]])
+            pr = pr[ok]
+            out["r"] = np.concatenate([out["r"], pr[:, 0]])
+            out["c"] = np.concatenate([out["c"], pr[:, 1]])
+            out["bridges"] = int(len(pr))
+    return out
+
+
+def barrier_frames(placed: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Each barrier box's origin corner (B, 3) and the inverse of its edge
+    matrix (B, 3, 3), so `(p - origin) @ inv` puts a world point in the box's
+    unit cube. The corners are `spawn_barriers.box_corners` order."""
+    C = np.asarray([b["corners"] for b in placed["barriers"] if "corners" in b], float)
+    if not len(C):
+        return np.zeros((0, 3)), np.zeros((0, 3, 3))
+    o = C[:, 0]
+    E = np.stack([C[:, 4] - o, C[:, 2] - o, C[:, 1] - o], axis=1)
+    return o, np.linalg.inv(E)
+
+
+def in_boxes(pts: np.ndarray, frames) -> np.ndarray:
+    """(N,) whether each world point (cm) lies in any barrier box."""
+    o, inv = frames
+    if not len(o):
+        return np.zeros(len(pts), bool)
+    loc = np.einsum("nbj,bji->nbi", pts[:, None, :] - o[None], inv)
+    return ((loc >= 0) & (loc <= 1)).all(-1).any(1)
+
+
+def crosses_boxes(a: np.ndarray, b: np.ndarray, frames) -> np.ndarray:
+    """(E,) whether each segment a -> b (world, cm) meets any barrier box:
+    the slab test in each box's unit cube."""
+    o, inv = frames
+    if not len(o):
+        return np.zeros(len(a), bool)
+    pa = np.einsum("nbj,bji->nbi", a[:, None, :] - o[None], inv)
+    pb = np.einsum("nbj,bji->nbi", b[:, None, :] - o[None], inv)
+    d = pb - pa
+    flat = np.abs(d) < 1e-12
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ta = np.where(flat, -np.inf, (0 - pa) / d)
+        tb = np.where(flat, np.inf, (1 - pa) / d)
+    lo = np.where(flat, np.where((pa >= 0) & (pa <= 1), -np.inf, np.inf), np.minimum(ta, tb))
+    hi = np.where(flat, np.where((pa >= 0) & (pa <= 1), np.inf, -np.inf), np.maximum(ta, tb))
+    t0 = np.maximum(lo.max(-1), 0.0)
+    t1 = np.minimum(hi.min(-1), 1.0)
+    return (t0 <= t1).any(1)
+
+
+def _in_volumes(reg: Regions, k: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    """(N,) whether each point, probed PROBE_CM up, lies in any of volumes k."""
+    if not len(k):
+        return np.zeros(len(pts), bool)
+    h = np.column_stack([pts[:, 0], pts[:, 1], pts[:, 2] + PROBE_CM, np.ones(len(pts))])
+    loc = np.einsum("nj,kji->kni", h, reg.inv[k])[..., :3]
+    return ((loc >= reg.lo[k][:, None, :]) & (loc <= reg.hi[k][:, None, :])).all(-1).any(0)
+
+
+def pre_round_areas(reg: Regions, placed: dict, cells: dict | None = None) -> dict[str, dict]:
+    """Each side's pre-round area, keyed `attack` and `defence`: `polygon`
+    (convex, in plan, game units, (n, 2)), `basis` (`walk_flood` or `hull`),
+    and for a flood the reached cells (`reached`, a mask over `cells`), the
+    seed count and why a flood fell back.
+
+    Before the drop a side may walk anywhere its spawn barriers enclose
+    [domain:rounds/buy-phase-barriers]. The area floods the walk graph of the
+    map's 3D table (`walk_cells`) from the cells inside the side's `Spawn`
+    volumes, never entering a barrier box nor crossing one on the line at the
+    capsule centre; every barrier of the map stops it, whichever side it
+    holds (`spawn_barriers`, from the game files). The polygon is the convex
+    hull of the reached cells' squares and the side's Spawn volumes, so it
+    covers both. Defenders' barriers stand at the attackers' approaches, so a
+    defence area holds the sites. A flood that reaches the other side's spawn
+    has leaked through a gap the barriers do not close; that side, and
+    a map without a walk graph, falls back to the convex hull of its Spawn
+    volumes and its own barriers' footprints. A side with no spawn volume or
+    no barrier is left out."""
+    import cv2
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    from .spawn_barriers import side_footprints
+    fp = spawn_footprints(reg)
+    out: dict[str, dict] = {}
+    flood = {}
+    if cells is not None:
+        frames = barrier_frames(placed)
+        p3 = np.column_stack([cells["xy"], cells["z"] + cells["body_cm"]])
+        blocked = in_boxes(p3, frames)
+        r, c = cells["r"], cells["c"]
+        ok = ~blocked[r] & ~blocked[c] & ~crosses_boxes(p3[r], p3[c], frames)
+        n = len(p3)
+        g = coo_matrix((np.ones(int(ok.sum()), np.int8), (r[ok], c[ok])), shape=(n, n))
+        _nc, lab = connected_components(g, directed=False)
+        floor = np.column_stack([cells["xy"], cells["z"]])
+        seeds = {}
+        for side, sup in SPAWN_SUPER.items():
+            k = np.asarray([i for i, L in enumerate(reg.labels)
+                            if L.get("region") == "Spawn" and L.get("super") == sup], int)
+            seeds[side] = _in_volumes(reg, k, floor) & ~blocked
+        for side in SPAWN_SUPER:
+            other = next(s for s in SPAWN_SUPER if s != side)
+            reached = np.isin(lab, np.unique(lab[seeds[side]])) & ~blocked
+            leak = ["other_spawn"] if (reached & seeds[other]).any() else []
+            flood[side] = {"reached": reached, "seeds": int(seeds[side].sum()),
+                           "cells": int(reached.sum()), "leak": leak}
+    h = (cells or {}).get("grid_cm", 100.0) / 2.0
+    sq = np.array([[-h, -h], [h, -h], [h, h], [-h, h]])
+    for side in SPAWN_SUPER:
+        b = side_footprints(placed, side)
+        if side not in fp or not len(b):
+            continue
+        f = flood.get(side)
+        if f and f["seeds"] and not f["leak"]:
+            # players stand against the barriers' faces, so the side's own
+            # barrier footprints bound the area too
+            pts = np.vstack([(cells["xy"][f["reached"]][:, None, :] + sq[None]).reshape(-1, 2),
+                             fp[side], b])
+            basis = "walk_flood"
+        else:
+            pts = np.vstack([fp[side], b])
+            basis = "hull"
+        poly = cv2.convexHull(pts.astype(np.float32), clockwise=False).reshape(-1, 2).astype(float)
+        out[side] = {"polygon": poly, "basis": basis}
+        if f:
+            out[side].update({k: f[k] for k in ("reached", "seeds", "cells", "leak")})
+            if basis == "hull":
+                out[side]["fallback"] = ("no_seed" if not f["seeds"] else "leak:" + ",".join(f["leak"]))
+        else:
+            out[side]["fallback"] = "no_walk_graph"
+    return out
+
+
+def in_polygon(poly: np.ndarray, pts: np.ndarray, tol: float = 1.0) -> np.ndarray:
+    """(N,) whether each plan point (game units) lies inside a convex polygon
+    given counter-clockwise or clockwise, or within `tol` of its edge (the
+    hull is drawn in float32)."""
+    pts = np.asarray(pts, float).reshape(-1, 2)
+    a = np.asarray(poly, float)
+    e = np.roll(a, -1, axis=0) - a
+    L = np.maximum(np.hypot(e[:, 0], e[:, 1]), 1e-9)
+    cross = (e[None, :, 0] * (pts[:, None, 1] - a[None, :, 1])
+             - e[None, :, 1] * (pts[:, None, 0] - a[None, :, 0])) / L[None, :]
+    return (cross >= -tol).all(1) | (cross <= tol).all(1)
+
+
 def spawn_points(map_name: str, root=DEFAULT_STORE) -> dict[str, np.ndarray]:
     """valorant-api's `Spawn` callout point of each side, keyed `attack` and
     `defence`; a side without one is left out."""
