@@ -195,7 +195,10 @@ from .store import DEFAULT_STORE, Store
 #: promoted; agent spellings compare through `agent_names.agent_key`.
 #: 0.2.0 (2026-10-09): the five enemy slots join the entity axis after the
 #: ally five, fed by the stored `enemy_track` rows; ally rows are unchanged.
-SLOT_STATE_VERSION = "slot-state-0.2.0"
+#: 0.3.0 (2026-10-09): an open slot with no witnessed fix this round holds
+#: `spawn`, its side's spawn disc grown by reach from the barrier drop
+#: (`spawn_anchor`), until that disc would cover the map.
+SLOT_STATE_VERSION = "slot-state-0.3.0"
 #: The enemy binding's own stamp.
 ENEMY_BINDING_VERSION = "enemy-binding-0.1.0"
 #: The binding law's own stamp (unchanged from the prototype).
@@ -207,9 +210,9 @@ PORTED_FROM = {"entity_state": "entity-state-0.3.0", "entity_binding": ENTITY_BI
 KIND_PLAYER = "player"
 
 #: Belief kinds, as stored (u1).
-CLOSED, FIT, CROWD, REACH, UNANCHORED, FIT_UNNAMED = 0, 1, 2, 3, 4, 5
+CLOSED, FIT, CROWD, REACH, UNANCHORED, FIT_UNNAMED, SPAWN = 0, 1, 2, 3, 4, 5, 6
 KINDS = {CLOSED: "closed", FIT: "fit", CROWD: "crowd", REACH: "reach", UNANCHORED: "unanchored",
-         FIT_UNNAMED: "fit_unnamed"}
+         FIT_UNNAMED: "fit_unnamed", SPAWN: "spawn"}
 #: Post-round binding routes (u1): only the first two are witnessed.
 HOW_SELF, HOW_NAMED_RING, HOW_NAMED_STACK, HOW_CONTINUITY = 1, 2, 3, 4
 WITNESSED = (HOW_SELF, HOW_NAMED_RING)
@@ -495,7 +498,7 @@ def contains(B: dict, s: np.ndarray, f: np.ndarray, x: np.ndarray, y: np.ndarray
     d_h = np.hypot(x - B["hx"][s, f], y - B["hy"][s, f])
     R = B["R"][s, f]
     in_fit = np.isin(k, (FIT, FIT_UNNAMED)) & (d_pt <= B["r_fit"] + tol)
-    in_reach = np.isin(k, (REACH, CROWD, FIT_UNNAMED)) & (d_an <= R + tol)
+    in_reach = np.isin(k, (REACH, CROWD, FIT_UNNAMED, SPAWN)) & (d_an <= R + tol)
     in_core = (k == CROWD) & (d_h <= B["rc"] + tol)
     free = (k == UNANCHORED) | ((k == FIT_UNNAMED) & ~np.isfinite(R))
     region = in_fit | in_reach | in_core | free
@@ -531,7 +534,7 @@ def region_area(B: dict, s: np.ndarray, f: np.ndarray) -> np.ndarray:
     du = np.hypot(B["x"][s, f] - B["ax"][s, f], B["y"][s, f] - B["ay"][s, f])
     unnamed = union_area(np.full_like(R, B["r_fit"]), R, np.nan_to_num(du))
     return np.where(k == CROWD, crowd, np.where(k == FIT_UNNAMED, unnamed,
-                    np.where(np.isin(k, (FIT, REACH)), np.pi * R ** 2, np.nan)))
+                    np.where(np.isin(k, (FIT, REACH, SPAWN)), np.pi * R ** 2, np.nan)))
 
 
 def storage_record(B: dict, obs: np.ndarray) -> np.ndarray:
@@ -1429,6 +1432,167 @@ def join_beliefs(Bs: list[dict]) -> dict:
     return out
 
 
+# ----------------------------------------------------------------- the spawn anchor
+
+#: spawn-anchor-0.1.0 (2026-10-09): the anchor law's own stamp.
+SPAWN_ANCHOR_VERSION = "spawn-anchor-0.1.0"
+#: The sides whose slots the spawn anchors.
+SPAWN_ANCHOR_SIDES = ("ally", "enemy")
+#: Side codes for the anchor arrays, in the rounds owner's words
+#: (`rounds.SIDES`); -1 is an unread side.
+SIDE_CODES = ("attack", "defence")
+SPAWN_RESTS_ON = ("callout-region: each side's `Spawn` callout volumes (map_regions.spawn_footprints, "
+                  "the map's own callout actors)",
+                  "round-bounds: rounds.starting_side over the stored spike and spike_carrier rows, "
+                  "then rounds.side_in_round at each round's match_round",
+                  "gametime: each round's barrier drop (t_live_ms) from the stored HUD clock")
+
+
+def spawn_discs(map_name: str, store_root: Path = DEFAULT_STORE) -> dict:
+    """Each side's spawn disc in metres, from the map's callout volumes.
+
+    The callout-region owner names the volumes (`map_regions.spawn_footprints`);
+    the disc is the smallest circle round their plan corners
+    (`cv2.minEnclosingCircle`), and `r_map` the distance from its centre to
+    the farthest corner of any callout volume, so a disc of radius `r_map`
+    covers every place the map names. Returns `discs` (side -> (cx, cy, r,
+    r_map)), `provenance` and `map`, or `{"refused": why}`. Reads no capture."""
+    import cv2
+
+    from . import map_regions
+    try:
+        reg = map_regions.Regions.load(map_name, store_root)
+    except FileNotFoundError:
+        return {"refused": f"no_callout_volumes:{map_name}"}
+    upm = units_per_m()
+    fp = map_regions.spawn_footprints(reg)
+    corners = map_regions.plan_corners(reg).reshape(-1, 2) / upm
+    discs = {}
+    for side in SIDE_CODES:
+        if side not in fp:
+            continue
+        (cx, cy), r = cv2.minEnclosingCircle((fp[side] / upm).astype(np.float32))
+        r_map = float(np.hypot(corners[:, 0] - cx, corners[:, 1] - cy).max())
+        discs[side] = (float(cx), float(cy), float(r), r_map)
+    if not discs:
+        return {"refused": f"no_spawn_volume:{map_name}"}
+    return {"discs": discs, "map": map_name, "provenance": reg.provenance()}
+
+
+def round_sides(S: StoredRows, rounds: list[dict]) -> dict:
+    """Each round's side for the player's team and its barrier drop, from
+    their owners, in `rounds` order (`round_segments`' sorted rounds).
+
+    The side is `rounds.side_in_round` at the round's `match_round`, given
+    `rounds.starting_side` over the stored `spike` and `spike_carrier` rows;
+    the halftime and overtime swaps are that owner's rule. The drop is
+    `gametime`'s `t_live_ms` over the stored HUD clock (which falls back to
+    the round's start where the clock went unread: the disc then grows from
+    the start, a wider region, never a narrower one). Returns `team` (codes
+    into `SIDE_CODES`, -1 unread), `t_live` (ms), `starting_side`, and the
+    reasons."""
+    from .rounds import match_round, side_in_round, starting_side
+    ev = S.root / "events"
+    spike = list(_jsonl(ev / "spike" / f"{S.sid}.jsonl"))
+    carrier = list(_jsonl(ev / "spike_carrier" / f"{S.sid}.jsonl"))
+    st = starting_side(S.rounds, spike or None, carrier or None)
+    team = np.full(len(rounds), -1, np.int64)
+    why = Counter()
+    for i, r in enumerate(rounds):
+        side, reason = side_in_round(match_round(r), st["starting_side"])
+        if side is None:
+            why[reason] += 1
+        else:
+            team[i] = SIDE_CODES.index(side)
+    t_start = np.asarray([float(r["t_start_ms"]) for r in rounds], float)
+    t_live = t_start.copy()
+    store = Store(S.root)
+    date = S.manifest["ingested_at"][:10]
+    if store.hud_path(S.sid, date).is_file() and rounds:
+        from .gametime import build_session_gametime
+        gt = build_session_gametime(S.sid, store.read_hud(S.sid, date), rounds, stall_list=[])
+        live = {float(s.t_start_ms): float(s.t_live_ms) for s in gt.schedules}
+        t_live = np.asarray([live.get(float(t), float(t)) for t in t_start], float)
+    else:
+        why["no_hud_stream"] += len(rounds)
+    why["t_live_at_start"] += int((t_live <= t_start).sum())
+    return {"team": team, "t_live": t_live, "starting_side": st["starting_side"],
+            "starting_side_reason": st["reason"], "votes": len(st["votes"]),
+            "reasons": dict(why)}
+
+
+def spawn_anchor(B: dict, t_ms: np.ndarray, seg: np.ndarray, side: np.ndarray,
+                 t_live: np.ndarray, discs: dict, *, r_fit: float, v_max: float) -> tuple[dict, dict]:
+    """Anchor every open row that has no witnessed fix this round at its
+    side's spawn; return the beliefs and the counts.
+
+    `seg` is each frame's round (-1 before the first), `side` each round's
+    side for these rows (codes into `SIDE_CODES`, -1 unread), `t_live` each
+    round's barrier drop (ms) and `discs` side -> (cx, cy, r, r_map) in
+    metres (`spawn_discs`). The region is a disc round the spawn disc's
+    centre of radius `r + r_fit` until the drop, then grown by `v_max` per
+    second since it: the reach law, from the spawn instead of a fix
+    [domain:rounds/buy-phase-barriers]. An `unanchored` row becomes `spawn`;
+    an unwitnessed fit with no witnessed fix (`fit_unnamed`, reach NaN) takes
+    the spawn disc as its reach. Where the disc would reach `r_map` it covers
+    the map and the row stays as `beliefs` left it, as it does where the
+    side, the drop or the spawn is unread. The first witnessed fix ends the
+    anchor: `beliefs` has then set a reach from that fix."""
+    kind = B["kind"]
+    nr = len(side)
+    D = np.full((len(SIDE_CODES) + 1, 4), np.nan)
+    for i, sd in enumerate(SIDE_CODES):
+        if sd in discs:
+            D[i] = discs[sd]
+    on = seg >= 0
+    sg = np.clip(seg, 0, max(nr - 1, 0))
+    sc = np.where(on & (nr > 0), np.asarray(side, np.int64)[sg] if nr else -1, -1)
+    sc = np.where(sc >= 0, sc, len(SIDE_CODES))
+    cx, cy, r0, r_map = D[sc].T
+    t0 = np.where(on & (nr > 0), np.asarray(t_live, float)[sg] if nr else np.nan, np.nan)
+    dt = np.clip((t_ms - t0) / 1000.0, 0.0, None)
+    Rs = r0 + r_fit + v_max * dt
+    ok = np.isfinite(Rs) & (Rs < r_map)
+    free = (kind == UNANCHORED) | ((kind == FIT_UNNAMED) & ~np.isfinite(B["R"]))
+    a = free & ok[None, :]
+    sp = a & (kind == UNANCHORED)
+    out = dict(B)
+    out["kind"] = np.where(sp, SPAWN, kind).astype(kind.dtype)
+    out["ax"] = np.where(a, cx[None, :], B["ax"])
+    out["ay"] = np.where(a, cy[None, :], B["ay"])
+    out["R"] = np.where(a, Rs[None, :], B["R"])
+    out["dt_s"] = np.where(a, dt[None, :], B["dt_s"])
+    out["x"] = np.where(sp, cx[None, :], B["x"])
+    out["y"] = np.where(sp, cy[None, :], B["y"])
+    has_side = np.isfinite(r0)
+    counts = {"spawn": int(sp.sum()), "fit_unnamed_anchored": int((a & ~sp).sum()),
+              "past_map": int((free & (has_side & ~ok)[None, :]).sum()),
+              "side_unread": int((free & (on & ~has_side)[None, :]).sum())}
+    return out, counts
+
+
+def spawn_context(S: StoredRows, seg_rounds: list[dict], store_root: Path = DEFAULT_STORE) -> dict:
+    """The spawn anchor's inputs for one session: the discs (`spawn_discs`
+    on the geometry's map name), each round's side and drop (`round_sides`)
+    and the stamp; `{"refused": why}` where the map has no spawn volume."""
+    from . import geometry
+    mname = geometry.map_of(S.sid, store_root)
+    D = spawn_discs(mname, store_root)
+    if "refused" in D:
+        return D
+    RS = round_sides(S, seg_rounds)
+    team = RS["team"]
+    other = np.where(team >= 0, 1 - team, -1)
+    stamp = {"spawn_anchor_version": SPAWN_ANCHOR_VERSION, "sides": list(SPAWN_ANCHOR_SIDES),
+             "map": mname, "callout_regions": D["provenance"],
+             "discs_m": {k: [round(v, 2) for v in d] for k, d in D["discs"].items()},
+             "starting_side": RS["starting_side"], "starting_side_reason": RS["starting_side_reason"],
+             "starting_side_votes": RS["votes"], "reasons": RS["reasons"],
+             "rests_on": list(SPAWN_RESTS_ON)}
+    return {"discs": D["discs"], "side": {"ally": team, "enemy": other}, "t_live": RS["t_live"],
+            "stamp": stamp}
+
+
 # ----------------------------------------------------------------- assembly
 
 def stack_entities(blocks: list[dict]) -> dict:
@@ -1505,9 +1669,18 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
     t2e = time.process_time()
     E = stack_entities([ally, enemy])
     # the law runs once per side, so a crowd's host is an icon of the same side
-    B = join_beliefs([beliefs(S.fr_t, b["X"], b["Y"], b["has"], b["open"], life["seg_start"],
-                              r_fit=r_fit, r_icon=r_icon, v_max=v_max, wit=b["wit"])
-                      for b in (ally, enemy)])
+    Bs = [beliefs(S.fr_t, b["X"], b["Y"], b["has"], b["open"], life["seg_start"],
+                  r_fit=r_fit, r_icon=r_icon, v_max=v_max, wit=b["wit"]) for b in (ally, enemy)]
+    # then each side's rows with no witnessed fix this round hold their spawn
+    SP = spawn_context(S, round_segments(S.fr_t, S.rounds)["rounds"], store_root)
+    spawn_stamp = {"refused": SP["refused"]} if "refused" in SP else dict(SP["stamp"], counts={})
+    if "refused" not in SP:
+        for i, side in enumerate(("ally", "enemy")):
+            if side in SPAWN_ANCHOR_SIDES:
+                Bs[i], spawn_stamp["counts"][side] = spawn_anchor(
+                    Bs[i], S.fr_t, life["seg"], SP["side"][side], SP["t_live"], SP["discs"],
+                    r_fit=r_fit, v_max=v_max)
+    B = join_beliefs(Bs)
     t3 = time.process_time()
     rec = storage_record(B, E["obs"])
     F = S.fr_t.size
@@ -1520,7 +1693,8 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
              "rests_on": rests_on(binding, extra.get("spect")), "params": params,
              **({"portrait_references": extra["fits"]["references_version"],
                  "spectate_witness": extra["spect"].get("version")} if binding == "causal" else {}),
-             "enemy": {**en["stamp"], "rests_on": list(ENEMY_RESTS_ON)}}
+             "enemy": {**en["stamp"], "rests_on": list(ENEMY_RESTS_ON)},
+             "spawn_anchor": spawn_stamp}
     return {"session": sid, "rows": E["rows"], "S": S, "L": L, "mf": mf, "to_m": to_m,
             "m_per_px": m_per_px, "t_ms": S.fr_t, "life": life,
             "windows": round_windows(S.fr_t, life["starts"]), "bind": bind, "B": B, "rec": rec,
@@ -1630,7 +1804,7 @@ def region_of_frame(G: dict, f: int, t_ms: float) -> dict:
     x = np.where(point, B["x"][:, f], np.nan)
     y = np.where(point, B["y"][:, f], np.nan)
     R = B["R"][:, f]
-    reach = np.isin(k, (REACH, CROWD, FIT_UNNAMED)) & np.isfinite(R)
+    reach = np.isin(k, (REACH, CROWD, FIT_UNNAMED, SPAWN)) & np.isfinite(R)
     r_re = np.where(reach, R + grow, np.where(k == UNANCHORED, np.inf, np.nan))
     ax = np.where(reach, B["ax"][:, f], np.nan)
     ay = np.where(reach, B["ay"][:, f], np.nan)

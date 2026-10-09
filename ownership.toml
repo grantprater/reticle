@@ -2363,8 +2363,8 @@ owner = "map_regions"
 role = ["assign"]
 status = "partial"
 produces = ["Regions", "MAP_REGIONS_VERSION", "api_callouts", "label_volumes", "SITES",
-            "OFF_SITE", "spawn_points"]
-consumers = ["episodes"]
+            "OFF_SITE", "spawn_points", "SPAWN_SUPER", "plan_corners", "spawn_footprints"]
+consumers = ["episodes", "slot_state"]
 not_for = """
 Minimap pixels: it places world points (cm), not widget pixels, and reads
 the game's callout volumes stored with each 3D sightline table. A volume's
