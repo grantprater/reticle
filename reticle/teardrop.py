@@ -112,6 +112,10 @@ MIN_NCC = 0.5         # below this the shape is not read
 # of pairs against 86-92%).
 PRIOR_PX = 6.0        # a detection's ring centre within this of a prior's (x scale)
 PRIOR_GAP_MS = 200.0  # a prior seen longer ago than this is no prior (three 15 Hz samples)
+#: A reader that sets `reach_px_per_s` (a gated pass, `minimap.AllyIconReader.
+#: bind_gate`) continues a prior seen up to this long ago, its window widened
+#: by the reach law; past it, and on every ungated reader, a gap is a gap.
+PRIOR_GAP_MAX_MS = 500.0
 LOCAL_PX = 3          # local centre half-width at scale 1.0 (`local_px`)
 LOCAL_DEG = 30.0      # local facings: the prior's +- this, in GRID_DEG steps
 NCC_DROP = 0.10       # a local fit this far under its prior's NCC is a surprise
@@ -298,7 +302,8 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
         ths = np.radians(prior[2] + GRID_DEG * np.arange(-k, k + 1, dtype=np.float32))
         with step("prior"):
             sc, x, y, t, on_edge = _grid(obs, keep, x0, y0, prior[0], prior[1],
-                                         local_px(scale), r_in, r_out, L_, edge, ths)
+                                         prior[3] if len(prior) > 3 else local_px(scale),
+                                         r_in, r_out, L_, edge, ths)
 
     # The compass: six probes scored in one broadcast render, the first
     # improving one in probe order taken. Each row is the render a single
@@ -592,8 +597,9 @@ def posed(d: dict, pose: dict, *, ring_facing: bool = True) -> dict:
     out["ring"] = {"cx": d["cx"], "cy": d["cy"], "facing": d.get("facing")}
     out["pose"] = {"origin": pose["origin"], "ncc": pose.get("ncc"), "reason": pose.get("reason"),
                    "facing_reason": pose.get("facing_reason")}
-    # How a prior-driven read searched (`IconPoseReader`), where it did.
-    for k in ("search", "surprise", "rests_on", "audit"):
+    # How a prior-driven read searched (`IconPoseReader`), where it did; a
+    # prior continued across a gated pass's gap names the gap and the window.
+    for k in ("search", "surprise", "rests_on", "audit", "gap_ms", "widened_px"):
         if k in pose:
             out["pose"][k] = pose[k]
     if pose["origin"] == "teardrop":
@@ -879,6 +885,15 @@ class IconPoseReader:
     #: A prior whose NCC lies under this runs the full grid (`surprise`
     #: `weak_prior`); None: every prior is continued. The ally rule has none.
     prior_min_ncc: float | None = None
+    #: The reach law's speed in widget pixels per second (`v_max / m_per_px`),
+    #: set only by a gated pass. With it, a prior seen more than
+    #: `PRIOR_GAP_MS` and at most `PRIOR_GAP_MAX_MS` ago is continued: it binds
+    #: within `PRIOR_PX` plus the reach and is searched over `local_px` plus
+    #: the reach (capped at the full grid's reach round the detection), and
+    #: the read records `gap_ms` and `widened_px`. The facing window and every
+    #: surprise stay as they are, so a turned icon still runs the full grid.
+    #: None (every ungated reader): unchanged.
+    reach_px_per_s: float | None = None
 
     def __init__(self, cls: str = "ally", scale: float = 1.0):
         self.cls, self.scale = cls, scale
@@ -968,11 +983,16 @@ class IconPoseReader:
             elif not p.get("read") and prior["chain"] >= REFUSAL_CHAIN:
                 surprise = "refusal_chain"
             else:
-                local = self._fit_one(cx, cy, prior=(p["x"], p["y"], p["deg"]))
+                widen = self._widen
+                local = self._fit_one(cx, cy, prior=(p["x"], p["y"], p["deg"])
+                                      + ((widen[1],) if widen else ()))
                 surprise = _surprise(local, p)
         if surprise is None:
             entry["fit"] = local
             entry["search"] = {"search": "prior", "surprise": None, "rests_on": prior["ref"]}
+            if self._widen:
+                entry["search"].update(gap_ms=round(self._widen[0], 1),
+                                       widened_px=self._widen[1])
             if not local.get("read"):
                 # One more refusal searched round a refusal.
                 entry["chain"] = prior["chain"] + 1
@@ -997,13 +1017,22 @@ class IconPoseReader:
         None and the surprise (`no_prior`, `gap`). Two detections may
         continue one prior: nearness alone binds them, so the answer does not
         depend on the order they are asked in."""
+        self._widen = None
         if self._prev is None:
             return None, "no_prior"
         t_prev, fits = self._prev
-        if t_prev is None or t_ms is None or t_ms - t_prev > PRIOR_GAP_MS:
+        if t_prev is None or t_ms is None:
             return None, "gap"
+        gap = t_ms - t_prev
+        reach = 0.0
+        if gap > PRIOR_GAP_MS:
+            if self.reach_px_per_s is None or gap > PRIOR_GAP_MAX_MS:
+                return None, "gap"
+            reach = self.reach_px_per_s * gap / 1000.0
+            cap = int(round(SEARCH_PX * self.scale + PRIOR_PX * self.scale))
+            self._widen = (gap, min(cap, local_px(self.scale) + int(math.ceil(reach))))
         for read in (True, False):
-            best, d_best = None, PRIOR_PX * self.scale
+            best, d_best = None, PRIOR_PX * self.scale + reach
             for e in fits:
                 if bool(e["fit"].get("read")) != read:
                     continue

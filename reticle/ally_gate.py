@@ -5,8 +5,8 @@ module holds the runtime gate the hook in `passes` asks before each frame
 of the reader's 15 Hz grid is decoded or fetched from the crop cache. It
 decides when the ally pass reads, never what a read means.
 
-The rule (ally-gate-0.1.0, fixed before its evaluation)
---------------------------------------------------------
+The rule (ally-gate-0.2.0; 0.1.0 was fixed before its evaluation)
+-----------------------------------------------------------------
 The gate reads the slot belief the gated reads themselves built
 (`slot_state.GateBelief`: the reach law, the open teammate count from the
 round table and the death owner's verdicts) and two cues from other
@@ -16,7 +16,7 @@ channels' stored rows. At each instant of the grid, in order:
 2. `unanchored` opens: no read yet in this round, or since a gap in the
    offered frames longer than `RESET_GAP_MS` (the pose prior's gap,
    `teardrop.PRIOR_GAP_MS`), where the belief restarts.
-3. A cue opens a read every `CUE_PERIOD_MS` (5 Hz) while it holds:
+3. A cue opens a read every `CUE_PERIOD_MS` (133 ms) while it holds:
    `cue:death`, a death verdict of either side within the last
    `CUE_HOLD_MS`; `cue:enemy_near`, a stored enemy icon (`minimap_object`)
    within `LOCAL_M` of a teammate icon of the last read, within the last
@@ -25,6 +25,16 @@ channels' stored rows. At each instant of the grid, in order:
    `TOL_M` (an unfixed slot's radius is infinite) and the last read lies at
    least the time the reach takes to grow from `r_fit` to `TOL_M` back;
    otherwise `retry_wait`, `cue_wait` or `within_tolerance` refuses.
+
+0.2.0 keeps the pose prior alive across the gate's gaps, in its owner:
+the cue period falls from 200 ms to 133 ms, below `teardrop.PRIOR_GAP_MS`
+on the real 66.7/83.3 ms grid (at 200 ms the grid put cue reads 216-250 ms
+apart, past the prior's reach), and the gate hands the reader its reach
+speed (`reach_px_per_s`, `v_max / m_per_px`), with which
+`teardrop.IconPoseReader` continues a teammate's prior up to
+`teardrop.PRIOR_GAP_MAX_MS` over a window widened by the reach law instead
+of a full search. On the 0.1.0 reread of cadaadeb2d8b 77% of pose searches
+ran the full grid (21% at 15 Hz), at 166 ms per read frame.
 
 The declared audit cadence (`AUDIT`, applied by the hook) reads every grid
 frame in a 2 s window each 120 s of each span, stored apart.
@@ -42,12 +52,17 @@ from .ratchets import Audit
 from .teardrop import PRIOR_GAP_MS
 
 #: ally-gate-0.1.0 (2026-10-09): the first frame gate (gate-hook-20261009).
-ALLY_GATE_VERSION = "ally-gate-0.1.0"
+#: 0.2.0: the cue period under the pose prior's gap, and the reach speed
+#: handed to the pose prior (`POSE_REACH`).
+ALLY_GATE_VERSION = "ally-gate-0.2.0"
 #: The question's tolerance in metres: a teammate's region wider than this
 #: is worth a read.
 TOL_M = 15.0
-#: Inside a cue, one read per this many milliseconds (5 Hz).
-CUE_PERIOD_MS = 200.0
+#: Inside a cue, one read per this many milliseconds: two steps of the
+#: 15 Hz grid, safely under `teardrop.PRIOR_GAP_MS`.
+CUE_PERIOD_MS = 133.0
+#: Hand the reader the reach speed, so its pose prior survives the gaps.
+POSE_REACH = True
 #: A cue holds this long after its last instant.
 CUE_HOLD_MS = 1000.0
 #: An enemy icon this near a teammate icon of the last read is a cue.
@@ -89,6 +104,8 @@ class AllyGate:
         self.rests_on = tuple(f"{k}: {v}" for k, v in self.sources.items())
         self.version = ALLY_GATE_VERSION
         self.retry_ms = belief.age_for(TOL_M) * 1000.0
+        #: The reach law in widget pixels per second, for the pose prior.
+        self.reach_px_per_s = (belief.v_max / belief.m_per_px) if POSE_REACH else None
         self.local_px = LOCAL_M / belief.m_per_px
         self._t_prev = None
         self._cued = ("belief", "death") + (("enemy",) if self.has_enemy else ())
@@ -134,7 +151,9 @@ class AllyGate:
     def params(self) -> dict:
         return {"tol_m": TOL_M, "cue_period_ms": CUE_PERIOD_MS, "cue_hold_ms": CUE_HOLD_MS,
                 "local_m": LOCAL_M, "reset_gap_ms": RESET_GAP_MS,
-                "retry_ms": round(self.retry_ms, 1), "audit": AUDIT.stamp()}
+                "retry_ms": round(self.retry_ms, 1), "audit": AUDIT.stamp(),
+                "pose_reach_px_per_s": (None if self.reach_px_per_s is None
+                                        else round(self.reach_px_per_s, 3))}
 
 
 def teammate_fits(icons) -> list[tuple[float, float]]:

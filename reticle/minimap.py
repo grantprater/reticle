@@ -1629,6 +1629,19 @@ class AllyIconReader:
         instance's declaration names the priors the gate rests on."""
         self.frame_gate = gate
         self.opportunity_gate = type(self).opportunity_gate.bound(gate.rests_on)
+        self.__dict__.pop("_pose_readers", None)    # rebuilt under the gate's reach
+
+    def _ally_pose(self, sc: float):
+        """The teammate channel's `IconPoseReader`; under a bound gate it
+        continues priors across the gate's gaps by the reach law
+        (`reach_px_per_s`: the gate belief's `v_max / m_per_px`). The self
+        channel keeps the 200 ms rule."""
+        from .teardrop import IconPoseReader
+        r = IconPoseReader("ally", sc)
+        gate = getattr(self, "frame_gate", None)
+        if gate is not None and getattr(gate, "reach_px_per_s", None):
+            r.reach_px_per_s = float(gate.reach_px_per_s)
+        return r
 
     def wants(self, t_ms: float):
         """The bound gate's answer at `t_ms` (`passes.gate_decide` asks)."""
@@ -1694,7 +1707,7 @@ class AllyIconReader:
         from .teardrop import IconPoseReader, SelfConeReader
         x0, _, x1, _ = self.box
         sc = drawn_scale(x1 - x0, getattr(self, "scale", None))
-        readers = {"self": SelfConeReader(sc), "ally": IconPoseReader("ally", sc)}
+        readers = {"self": SelfConeReader(sc), "ally": self._ally_pose(sc)}
         for r in readers.values():
             r.after_gap(t_ms)
         self._pose_readers = (sc, readers)
@@ -1807,7 +1820,7 @@ class AllyIconReader:
             readers = getattr(self, "_pose_readers", None)
             if readers is None or readers[0] != sc:
                 readers = self._pose_readers = (sc, {"self": SelfConeReader(sc),
-                                                     "ally": IconPoseReader("ally", sc)})
+                                                     "ally": self._ally_pose(sc)})
             if frame is None:
                 pose = readers[1][channel].read(crop, f["cx"], f["cy"])
             else:

@@ -13,7 +13,7 @@ from unittest.mock import patch
 import numpy as np
 
 from reticle import passes
-from reticle.ally_gate import AllyGate, teammate_fits
+from reticle.ally_gate import ALLY_GATE_VERSION, AllyGate, teammate_fits
 from reticle.decode import sample_multi
 from reticle.minimap import AllyIconReader
 from reticle.passes import GateDecision, GateLog, gate_decide, run, run_cached
@@ -226,7 +226,7 @@ class AllyGateRuleTests(unittest.TestCase):
         self.assertEqual(g.wants(1000.0 + 1000.0 / 15)[:2], (False, "retry_wait"))
         self.assertEqual(g.belief.at(2000.0)["kind"], "unanchored")
 
-    def test_a_death_opens_a_cue_at_5_hz(self):
+    def test_a_death_opens_a_cue_at_the_cue_period(self):
         g = self._gate(deaths_t=[3000.0])
         g.wants(2900.0)
         g.observed(2900.0, [(0.0, 0.0)] * 4)
@@ -241,7 +241,7 @@ class AllyGateRuleTests(unittest.TestCase):
         cues = [x for x, w in opened if w == "cue:death"]
         self.assertGreaterEqual(len(cues), 4)
         self.assertTrue(all(3000.0 <= x <= 4000.0 for x in cues))
-        self.assertTrue((np.diff(cues) >= 199.0).all())
+        self.assertTrue((np.diff(cues) >= 132.0).all())
 
     def test_an_enemy_near_a_teammate_is_a_cue(self):
         enemy = (np.array([2000.0]), np.array([105.0]), np.array([0.0]))
@@ -313,6 +313,44 @@ class OneRowPerInstantTests(unittest.TestCase):
                          sorted(g.gate_log.audit_t))
 
 
+class PoseReachTests(unittest.TestCase):
+    """`teardrop.IconPoseReader` continues a prior across a gate's gap only
+    with the reach speed set, over a window widened by the reach law."""
+
+    def _reader(self, reach):
+        from reticle.teardrop import IconPoseReader
+        r = IconPoseReader("ally", 1.0)
+        r.reach_px_per_s = reach
+        r._prev = (1000.0, [{"ring": (100.0, 100.0), "fit": {"read": True, "x": 100.0,
+                                                             "y": 100.0, "deg": 0.0},
+                             "ref": "k", "chain": 0}])
+        return r
+
+    def test_an_ungated_reader_keeps_the_gap(self):
+        r = self._reader(None)
+        self.assertEqual(r._prior(102.0, 100.0, 1300.0), (None, "gap"))
+        self.assertIsNotNone(r._prior(102.0, 100.0, 1150.0)[0])
+
+    def test_a_gated_reader_widens_by_the_reach(self):
+        from reticle.teardrop import PRIOR_GAP_MAX_MS, local_px
+        r = self._reader(20.0)
+        prior, why = r._prior(108.0, 100.0, 1300.0)     # 8 px off: inside 6 + 20*0.3
+        self.assertIsNotNone(prior)
+        self.assertIsNone(why)
+        self.assertEqual(r._widen, (300.0, local_px(1.0) + 6))
+        self.assertEqual(r._prior(102.0, 100.0, 1000.0 + PRIOR_GAP_MAX_MS + 1), (None, "gap"))
+        self.assertIsNone(r._widen)
+
+    def test_the_gate_hands_the_reader_its_reach(self):
+        gate = AllyGate(_belief())
+        self.assertAlmostEqual(gate.reach_px_per_s, 7.5 / 0.1)
+        r = AllyIconReader.__new__(AllyIconReader)
+        r.bind_gate(gate)
+        self.assertAlmostEqual(r._ally_pose(1.0).reach_px_per_s, 75.0)
+        r2 = AllyIconReader.__new__(AllyIconReader)
+        self.assertIsNone(r2._ally_pose(1.0).reach_px_per_s)
+
+
 class AllyStreamTests(unittest.TestCase):
     def test_the_audit_is_stored_apart(self):
         head = {"kind": "coverage", "session_id": "s", "frames": 4}
@@ -342,11 +380,11 @@ class AllyStreamTests(unittest.TestCase):
         self.assertEqual(audit[0]["frames"], 2)
         self.assertEqual(gated[0]["gate"]["audit_only"], 1)
         self.assertEqual(gated[0]["gate"]["offered"], 4)
-        self.assertEqual(gated[0]["gate"]["version"], "ally-gate-0.1.0")
+        self.assertEqual(gated[0]["gate"]["version"], ALLY_GATE_VERSION)
 
     def test_the_reader_declares_a_frame_gate(self):
         g = AllyIconReader.opportunity_gate
-        self.assertEqual((g.kind, g.version), ("frame", "ally-gate-0.1.0"))
+        self.assertEqual((g.kind, g.version), ("frame", ALLY_GATE_VERSION))
         self.assertIsNotNone(g.audit)
         r = AllyIconReader.__new__(AllyIconReader)
         self.assertFalse(passes.frame_gated(r))
