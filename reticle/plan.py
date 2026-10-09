@@ -125,6 +125,20 @@ def waiver(stored, current: str, store=None, manifest: dict | None = None,
 #: The command that rereads a channel `scan` does not read.
 ACCEPT = {"audio": "reticle ult-lines <sid>"}
 
+#: Reader streams `plan` lists as work when a session never wrote them, each
+#: with the stored stream that shows its pass can run there: `minimap_dark`
+#: reads the minimap widget through the baked geometry's lighting reference,
+#: so it is owed wherever the `minimap` pass ran. Another absent reader stays
+#: in `absent` only.
+NEVER_RUN_READERS = {"minimap_dark": "minimap"}
+
+#: Reader streams whose `scan --only <channel> --from cache` reads the stored
+#: crop cache set `roi_cache.channel_cache` names, so a reread decodes
+#: nothing. `minimap_dark` reads `frame[box]` of the minimap ROI alone, on its
+#: own grid (`DarkRegionReader.cache_resample`). Where the set is missing or
+#: cannot feed the pass, the command decodes and `plan` says so.
+CACHE_FED_READERS = ("minimap_dark",)
+
 
 def reader_streams() -> list[tuple[str, str, str, str | None]]:
     """(stream, scan channel, current stamp, trial reader or None)."""
@@ -1500,7 +1514,27 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
                     decode.append({"stream": stream, "channel": channel,
                                    "stored": stored_stamp(store, man, stream), "current": now,
                                    "trial": trial, "inputs_moved": [WIDGET_INPUT]})
-        rescanned = {s["stream"] for s in decode}
+        # A reader stream never written where its pass can run is owed
+        # (`NEVER_RUN_READERS`); like a derived stream never run, it moves
+        # nothing downstream until it is written.
+        for stream, channel, now, trial in reader_streams():
+            needs = NEVER_RUN_READERS.get(stream)
+            if (never_run and needs is not None and stream in absent
+                    and stored_stamp(store, man, needs) is not None):
+                absent.remove(stream)
+                decode.append({"stream": stream, "channel": channel, "stored": None,
+                               "current": now, "trial": trial, "inputs_moved": [NEVER_RUN]})
+        # A cache-fed reader's reread reads the stored crop cache, no decode.
+        fed: dict[str, tuple[str | None, str]] = {}
+        for s in decode:
+            if s["stream"] in CACHE_FED_READERS:
+                if s["channel"] not in fed:
+                    fed[s["channel"]] = (_channel_cache(store, man, s["channel"])
+                                         if man.get("source_profile")
+                                         else (None, "no_source_profile"))
+                if fed[s["channel"]][0] is not None:
+                    s["cache_fed"] = fed[s["channel"]][0]
+        rescanned = {s["stream"] for s in decode if s.get("inputs_moved") != [NEVER_RUN]}
         rounds_stale = False
         r = _round_stamps(store, man)
         if r is not None:
@@ -2139,8 +2173,15 @@ def render(plan: dict) -> str:
         streams = sorted({s["stream"] for p in plan.values() for s in p["decode"]
                           if s["channel"] == ch})
         cached = [t for (tch, t) in trials if tch == ch]
-        lines.append(f"{'reread' if cached else 'decode'}   {ch}: {', '.join(streams)} "
-                     f"stale on {len(sids)} sessions")
+        # Never run (`NEVER_RUN_READERS`) and cache-fed (`CACHE_FED_READERS`).
+        never = [sid for sid in sids if any(s.get("inputs_moved") == [NEVER_RUN]
+                                            for s in plan[sid]["decode"] if s["channel"] == ch)]
+        fed = {sid: s["cache_fed"] for sid in sids for s in plan[sid]["decode"]
+               if s["channel"] == ch and s.get("cache_fed") and not s.get("from_cache")}
+        how = ("stale" if not never else f"{NEVER_RUN}" if len(never) == len(sids)
+               else f"stale or {NEVER_RUN} ({NEVER_RUN} on {' '.join(never)})")
+        lines.append(f"{'reread' if cached or (fed and len(fed) == len(sids)) else 'decode'}   "
+                     f"{ch}: {', '.join(streams)} {how} on {len(sids)} sessions")
         for (tch, t), tsids in sorted(trials.items()):
             if tch == ch:
                 lines.append(f"  check  reticle trial {tsids[0]} --reader {t} --from cache"
@@ -2148,7 +2189,14 @@ def render(plan: dict) -> str:
         # A retired session's reread reads the crop cache only (`source_retired`).
         only = [sid for sid in sids if any(s.get("from_cache") for s in plan[sid]["decode"]
                                            if s["channel"] == ch)]
-        rest = [sid for sid in sids if sid not in only]
+        by_set: dict[str, list[str]] = defaultdict(list)
+        for sid, name in fed.items():
+            if sid not in only:
+                by_set[name].append(sid)
+        for name, fsids in sorted(by_set.items()):
+            lines.append(f"  accept reticle scan <sid> --only {ch} --from cache   (reads the "
+                         f"stored {name} crop cache, no decode) for {' '.join(fsids)}")
+        rest = [sid for sid in sids if sid not in only and sid not in fed]
         accept = ACCEPT.get(ch, f"reticle scan <sid> --only {ch}")
         if rest:
             lines.append(f"  accept {accept}   for {' '.join(rest)}"
