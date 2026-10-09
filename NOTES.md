@@ -17,7 +17,7 @@
 ### Open decisions for the player
 
 - **Turn the ally gate on** (`scan --ally-gate on`) after scoring the held-out match cea8ecbc94ab once.
-- **Rewrite old crop caches with every frame a key frame** (optional). New caches already key every frame (ffv1-writer-0.2.0, merged 2026-10-09): on one cadaadeb2d8b round a gated fetch fell from [metric:roi_cache_gop/g1@cadaadeb2d8b#g12_gated_cpu_ms=18.88] to [metric:roi_cache_gop/g1@cadaadeb2d8b#g1_gated_cpu_ms=8.34] ms CPU, files grew by a factor of [metric:roi_cache_gop/g1@cadaadeb2d8b#size_ratio=1.0225], and pixels stayed byte-identical. Old caches stay current and read as before.
+- **Old crop caches: resolved.** The player deleted every crop cache on 2026-10-09: hud, killfeed_panel, minimap and scoreboard, roi-cache-0.1.0, 64 sessions, 75.5 GB. The `roi_cache` row in the store's `retirement/retirements.jsonl` records it. The 55 sessions with retired video have no pixels; the 9 with video rebuild a set by decode, which `reticle plan <sid>` names. New caches key every frame (ffv1-writer-0.2.0).
 - **The walk-graph bake** for walk reach: a geometry bake. Run `reticle plan` for the streams it stales, and ask before running it.
 - **Four remote-only branches** on origin: keep, merge or retire each.
 
