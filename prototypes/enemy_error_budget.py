@@ -113,7 +113,7 @@ from reticle.harness.budget import (  # noqa: E402,F401
     SHIFT_MS, SRC, STACK_R, STORE, TAIL_SPLIT_MS, TASK, TINT, VERDICTS, VERSION)
 
 DEV = tr.DEV
-HELD_OUT = tr.HELD_OUT
+FROZEN_DEV = tr.FROZEN_DEV
 
 
 def main(argv=None) -> int:

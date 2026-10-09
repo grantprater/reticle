@@ -73,6 +73,7 @@ import real_reader_schedule as rrs  # noqa: E402
 import replay_truth as rt  # noqa: E402
 import teardrop_refusals as tr  # noqa: E402
 import entity_state as es  # noqa: E402
+from reticle.dev_set import FROZEN_DEV  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
 # Moved into the acceptance harness (`reticle/harness/sets.py`, task
@@ -83,7 +84,8 @@ from reticle.harness.sets import (  # noqa: E402,F401
 
 TASK = "enemy-lane-check-20261007"
 OUT = STORE / "analysis" / TASK
-DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+#: The frozen development matches its stored results read (`reticle.dev_set`).
+DEV = FROZEN_DEV
 OFFSET_CM = 800.0        # an icon 3-8 m away: a possible position or clock offset
 N_PER_MATCH = 60         # the pixel sample's cap per match
 N_EXTRA = 12             # of which extra icons

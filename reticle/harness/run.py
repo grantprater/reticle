@@ -55,7 +55,7 @@ names [metric:question_acceptance/lane/pgb@dev3#fa_named=157] and leaves
 unnamed; none is named off the enemy team or duplicated in its frame. The
 named-slot presence recall is
 [metric:question_acceptance/lane/pgb@dev3#lane_presence=0.5677] beside the
-reader's hit rate of [metric:question_acceptance/lane/pgb@dev3#reader_hit=0.6077].
+reader's hit rate of [metric:question_acceptance/lane/pgb@dev3#reader_hit=0.6076].
 
 **`--reality off|on|paired`** (0.2.0, task `detection-reality-20261007`)
 is the arm switch for `round_lifetimes.detection_reality`. `off` builds the
@@ -129,7 +129,7 @@ another entity: Tejo's Stealth Drone
 Leer [metric:question_acceptance/classes/pgb@dev3#true_fa_reyna_leer=11] and
 ally players; [metric:question_acceptance/classes/pgb@dev3#true_fa_nothing_there=37]
 lie on nothing. Recall of drawn enemies falls from the reader's hit rate to
-[metric:question_acceptance/classes/pgb@dev3#recall_player_enemy_drawn=0.5709]
+[metric:question_acceptance/classes/pgb@dev3#recall_player_enemy_drawn=0.5708]
 once each find holds one entity and ambiguous finds are set apart. The layer's
 enemy px reproduce the scorer's `enemies_px` within 1 px on every compared
 entry (the instrument control, recorded per session).
@@ -309,9 +309,9 @@ on Tejo's Stealth Drone and
 ambiguous; the old `other` and `other_ally_stack` classes resolve to
 entities.
 
-*The 2026-10-07 replay captures* (`NEW`: cadaadeb2d8b, 066741deafe5,
-9912c382130b) have current inputs, so the steps without a tagged arm score
-them (`new3`). Teammates against a fresh `ally_icon` recall
+*The 2026-10-07 replay captures* (cadaadeb2d8b, 066741deafe5,
+9912c382130b) have current inputs, and since 2026-10-09 they are the
+development set (`DEV`, `reticle.dev_set`, pool `new3`). Teammates against a fresh `ally_icon` recall
 [metric:question_acceptance/ally@new3#recall_player_ally_live=0.7651]
 beside the reader's
 [metric:question_acceptance/ally@new3#reader_recall_player_ally_live=0.7653],
@@ -325,14 +325,14 @@ Glyphs recall Clove's Ruse at
 [metric:question_acceptance/glyph@new3#recall_ability_ally_clove_ruse=0.8436]
 and Tejo's Stealth Drone at
 [metric:question_acceptance/glyph@new3#recall_ability_enemy_tejo_stealth_drone=0.0696].
-They have no tagged `minimap_object` arm
-(`teardrop_refusals.py reread`), so `lane`, `label`, `marks` and `budget`
-stay on the development matches.
+Every subcommand scores `DEV` by default.
 
-The development matches keep the stale inputs steps 5 to 8 named: `ally_icon`
-and `death` (`reticle plan`), `minimap_dark` (its rescan decodes),
+The old development matches (`FROZEN_DEV`, pool `dev3`) are frozen at their
+stored versions with the stale inputs steps 5 to 8 named: `ally_icon` and
+`death` (`reticle plan`), `minimap_dark` (its rescan decodes),
 `ability_glyph` rows (9acf02f98283's on an older glyph bank) and the
-`ability` scan; the player has decided no other session is reread.
+`ability` scan; the player excluded their rereads. They stay scorable when
+named, and every output they feed carries `frozen` with their stale streams.
 
 **The core moved to `reticle/acceptance.py`** (0.9.0, task
 `harness-promote-20261009`), which owns `replay-truth-under`: the join, the
@@ -349,8 +349,8 @@ budget (`harness.budget`) live beside this module, so every subcommand runs
 in process (`harness.commands`); `reticle acceptance summary` rescores the
 stored rows. The prototypes keep thin wrappers.
 
-Stored rows and replay truth only; no decode, rescan or trial. The held-out
-capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
+Stored rows and replay truth only; no decode, rescan or trial. The frozen
+held-out capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
 `notes/predictions.jsonl`): an evaluation.
 
     reticle acceptance lane --tag pgb [SESSION ...] [--pings b1] [--reality off|on|paired] [--record]
@@ -419,7 +419,11 @@ _step_summary = acc.step_summary
 #: 0.11.0 (task harness-t1d-20261009): the grid, T1d and every subcommand run
 #: in process from `reticle/harness/` (`reticle acceptance ...`); the scores
 #: are unchanged.
-VERSION = "question-acceptance-0.11.0"
+#: 0.12.0 (task dev-set-new3-20261009): `DEV` is the 2026-10-07 three
+#: (`reticle.dev_set`) and every default scores it; the old development
+#: matches (`FROZEN_DEV`) stay scorable, and each document and metric row they
+#: feed carries `frozen` with their stale streams (`extras.label`, `record`).
+VERSION = "question-acceptance-0.12.0"
 
 
 TASK = "event-harness-20261007"
@@ -427,27 +431,27 @@ TASK9 = "harness-step9-20261009"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / "question-acceptance"
 DEV = tr.DEV
-#: The 2026-10-07 replay captures, whose inputs are current (`reticle plan`):
-#: the steps that need no tagged enemy-lane arm score them beside `DEV`.
-NEW = tr.NEW
+FROZEN_DEV = tr.FROZEN_DEV
 SCORED = tr.SCORED
 #: The `--reality` arms and the folder suffix each writes under.
 ARMS = {"off": "", "on": "_reality"}
 
 
 def _refuse(sid: str) -> None:
-    """The held-out match is never read; the steps score `SCORED` only."""
-    if sid == tr.HELD_OUT:
-        raise SystemExit(f"{sid}: the held-out match is never read by this harness")
-    if sid not in SCORED:
-        raise SystemExit(f"{sid}: neither a development match nor a 2026-10-07 replay capture")
+    """The held-out matches are never read; the steps score `SCORED` only."""
+    tr.refuse(sid)
 
 
 def _pool_name(sessions) -> str:
-    """The metrics session of a pooled scope: `dev3` (`DEV`), `new3` (`NEW`),
-    else the sessions joined."""
-    s = sorted(sessions)
-    return "dev3" if s == sorted(DEV) else "new3" if s == sorted(NEW) else "+".join(s)
+    """The metrics session of a pooled scope (`dev_set.pool_name`): `new3`
+    (`DEV`), `dev3` (`FROZEN_DEV`), else the sessions joined."""
+    return tr.pool_name(sessions)
+
+
+def _suffix(sessions) -> str:
+    """A document's name suffix: none for the frozen development matches, whose
+    stored documents carry none, else the sessions joined."""
+    return "" if sorted(sessions) == sorted(FROZEN_DEV) else "_" + "_".join(sessions)
 
 
 def build_lane(sid: str, tag: str, reality: str = "off") -> tuple[Path, dict]:
@@ -843,9 +847,9 @@ def _pool_lane(per: list[dict], tag: str) -> tuple[list[dict], dict]:
 
 def _write_doc(doc: dict, sessions: list[str], tag: str, reality: str, kind: str = "lane") -> None:
     # the development set writes lane_TAG[_reality].json; any other set names its sessions
-    name = (f"{kind}_{tag}{ARMS.get(reality, '_' + reality)}" if sorted(sessions) == sorted(DEV) else
+    name = (f"{kind}_{tag}{ARMS.get(reality, '_' + reality)}" if sorted(sessions) == sorted(FROZEN_DEV) else
             f"{kind}_{tag}{ARMS.get(reality, '_' + reality)}_{'_'.join(sessions)}")
-    (OUT / f"{name}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+    (OUT / f"{name}.json").write_text(json.dumps(tr.label(doc, sessions), indent=1, default=str), encoding="utf-8")
 
 
 def run_paired(sessions: list[str], tag: str, ptag: str | None, record: bool) -> int:
@@ -912,7 +916,7 @@ def _metric_values(r: dict) -> tuple[dict, dict]:
 
 
 def _record_paired(doc: dict) -> None:
-    from reticle.metrics import record as rec
+    from .extras import record as rec
     vals = {f"{q}_diff": v["diff"] for q, v in doc["diff"]["pooled"].items()}
     ci = {f"{q}_diff": v["ci"] for q, v in doc["diff"]["pooled"].items()}
     rec("question_acceptance", part=f"lane/{doc['tag']}/reality-paired", session=_pool_name(doc["sessions"]),
@@ -924,7 +928,7 @@ def _record_paired(doc: dict) -> None:
 
 
 def _record(doc: dict, arm: str | None = None) -> None:
-    from reticle.metrics import record as rec
+    from .extras import record as rec
     tag = doc["tag"] + (f"/{arm}" if arm else "")
     for sid, r in doc["sessions"].items():
         vals, ci = _metric_values(r)
@@ -955,7 +959,7 @@ def _record_classes(doc: dict, arm: str | None = None) -> None:
     """The class-aware lane's pooled and per-session values: finds per
     outcome, the old true false accepts per outcome and per drone class, the
     drone classes' recall and the instrument control."""
-    from reticle.metrics import record as rec
+    from .extras import record as rec
     tag = doc["tag"] + (f"/{arm}" if arm else "")
     scopes = [(sid, r["classes"]) for sid, r in doc["sessions"].items() if r.get("classes")]
     if doc.get("pooled") and doc["pooled"].get("classes"):
@@ -1022,8 +1026,8 @@ def run_label(sessions: list[str], tag: str, ptag: str | None, reality: str = "o
         _print_coverage(sid, {"gap_finds_by_class": dict(gap), "census": u["census"],
                               "not_joined": {k: e["not_joined"] for k, e in u["census"].items() if e["not_joined"]}},
                         u["instrument"])
-    name = f"label_{tag}{ARMS[reality]}" + ("" if sorted(sessions) == sorted(DEV) else "_" + "_".join(sessions))
-    (OUT / f"{name}.json").write_text(json.dumps({"tag": tag, "version": VERSION, "sessions": summary},
+    name = f"label_{tag}{ARMS[reality]}" + _suffix(sessions)
+    (OUT / f"{name}.json").write_text(json.dumps(tr.label({"tag": tag, "version": VERSION, "sessions": summary}, sessions),
                                                  indent=1, default=str), encoding="utf-8")
     return 0
 
@@ -1574,8 +1578,8 @@ def run_step(step: str, sessions: list[str], tag: str | None, ptag: str | None, 
                         for r in res},
            "pooled": pooled, "pooled_reader": reader}
     name = f"step_{step}" + (f"_{tag}" if step == "marks" else "") + \
-        ("" if sorted(sessions) == sorted(DEV) else "_" + "_".join(sessions))
-    (OUT / f"{name}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+        _suffix(sessions)
+    (OUT / f"{name}.json").write_text(json.dumps(tr.label(doc, sessions), indent=1, default=str), encoding="utf-8")
     if record:
         _record_step(doc, sessions)
     return 0
@@ -1589,7 +1593,7 @@ def _record_step(doc: dict, sessions: list[str]) -> None:
     """A step's values per session and pooled: finds, outcomes, the
     right-entity labels, recall per claimed class and the reader's
     outcomes beside."""
-    from reticle.metrics import record as rec
+    from .extras import record as rec
     step = doc["step"]
     scopes = [(sid, v["classes"], v.get("reader")) for sid, v in doc["sessions"].items()]
     if doc.get("pooled"):
@@ -2904,7 +2908,7 @@ def run_replay_score(sessions: list[str], geometry: Path | None, legacy_out: str
     `--legacy-out NAME` also writes the report alone where `replay_truth
     score` wrote it (`replay_truth.ANALYSIS`)."""
     for sid in sessions:
-        if sid == tr.HELD_OUT:
+        if tr.never_read(sid):
             raise SystemExit(f"{sid}: the held-out match is never read by this harness")
     res = []
     for sid in sessions:
@@ -2927,7 +2931,7 @@ def run_replay_score(sessions: list[str], geometry: Path | None, legacy_out: str
         doc = {"session": sid, "version": VERSION, "report": s, "classes_refused": why,
                "classes": {n: b["classes"] for n, b in blocks.items()}, "secs": round(time.perf_counter() - t0, 1)}
         (OUT / "replay").mkdir(parents=True, exist_ok=True)
-        (OUT / "replay" / f"{sid}.json").write_text(json.dumps(doc, indent=1, default=rt._default), encoding="utf-8")
+        (OUT / "replay" / f"{sid}.json").write_text(json.dumps(tr.label(doc, [sid]), indent=1, default=rt._default), encoding="utf-8")
         if record_score and "refused" not in s:
             print("\n".join(record_replay_score(s)), flush=True)
         res.append({"session": sid, "blocks": blocks})
@@ -2957,10 +2961,10 @@ def _finish_blocks(sub: str, sessions: list[str], res: list[dict], pooled: dict,
            "left_out_reasons": REPLAY_LEFT_OUT,
            "sessions": {r["session"]: {n: b["classes"] for n, b in (r.get("blocks") or {}).items()} for r in res},
            "pooled": pooled}
-    name = f"step_{sub}" + ("" if sorted(sessions) == sorted(DEV) else "_" + "_".join(sessions))
-    (OUT / f"{name}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+    name = f"step_{sub}" + _suffix(sessions)
+    (OUT / f"{name}.json").write_text(json.dumps(tr.label(doc, sessions), indent=1, default=str), encoding="utf-8")
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         scopes = [(sid, b) for sid, b in doc["sessions"].items() if b]
         if pooled:
             scopes.append((_pool_name(sessions), pooled))
@@ -3000,7 +3004,7 @@ def run_replay_abilities(sessions: list[str], legacy_out: bool, record: bool, re
     `--legacy-out` also writes it where `replay_abilities score` wrote it
     (`replay_abilities.ANALYSIS`)."""
     for sid in sessions:
-        if sid == tr.HELD_OUT:
+        if tr.never_read(sid):
             raise SystemExit(f"{sid}: the held-out match is never read by this harness")
     res = []
     for sid in sessions:
@@ -3026,7 +3030,7 @@ def run_replay_abilities(sessions: list[str], legacy_out: bool, record: bool, re
         doc = {"session": sid, "version": VERSION, "report": s, "classes_refused": why,
                "classes": {n: b["classes"] for n, b in blocks.items()}, "secs": round(time.perf_counter() - t0, 1)}
         (OUT / "replay_abilities").mkdir(parents=True, exist_ok=True)
-        (OUT / "replay_abilities" / f"{sid}.json").write_text(json.dumps(doc, indent=1, default=rt._default),
+        (OUT / "replay_abilities" / f"{sid}.json").write_text(json.dumps(tr.label(doc, [sid]), indent=1, default=rt._default),
                                                              encoding="utf-8")
         if record_score and "refused" not in s:
             print("\n".join(record_replay_abilities(s)), flush=True)
@@ -3197,11 +3201,11 @@ def run_budget(tag: str, sessions: list[str], record: bool, rewrite: bool = Fals
             for f in C[sid]:
                 if f["set"] != "hit":
                     fh.write(json.dumps(f) + "\n")
-    name = "budget.json" if sorted(sessions) == sorted(DEV) else f"budget_{'_'.join(sessions)}.json"
-    (d / name).write_text(json.dumps(res, indent=1), encoding="utf-8")
+    name = "budget.json" if sorted(sessions) == sorted(FROZEN_DEV) else f"budget_{'_'.join(sessions)}.json"
+    (d / name).write_text(json.dumps(tr.label(res, sessions), indent=1), encoding="utf-8")
     print(f"\n-> {d / name}", flush=True)
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         for scope, tb in new_t.items():
             vals, ci = {"extra_total": tb["extra"]["total"], "miss_total": tb["miss"]["total"]}, {}
             for r in tb["extra"]["rows"]:
@@ -3407,7 +3411,7 @@ def run_slots(sessions: list[str], record: bool) -> int:
     sub.mkdir(parents=True, exist_ok=True)
     for sid in sessions:
         r = slot_regions(sid)
-        (sub / f"{sid}.json").write_text(json.dumps({k: v for k, v in r.items() if k != "_arrays"},
+        (sub / f"{sid}.json").write_text(json.dumps(tr.label({k: v for k, v in r.items() if k != "_arrays"}, [sid]),
                                                     indent=1, default=str), encoding="utf-8")
         e = r["sides"]["enemy"]
         print(f"{sid} slots: {r['frames_scored']} frames, {r['rounds']} rounds, {r['secs']} s; enemy binding "
@@ -3421,10 +3425,11 @@ def run_slots(sessions: list[str], record: bool) -> int:
         _print_slots(sid, flat)
         res.append(r)
     pools = {}
-    scopes = [("dev3", [r for r in res if r["session"] in DEV]), ("new3", [r for r in res if r["session"] in NEW]),
-              ("all6", res)]
+    # `all6` pools the frozen matches with `DEV` only when both are named; its rows carry `frozen`.
+    scopes = [("new3", [r for r in res if r["session"] in DEV]),
+              ("dev3", [r for r in res if r["session"] in FROZEN_DEV]), ("all6", res)]
     for name, rs in scopes:
-        if len(rs) < 2 or (name == "all6" and len(rs) != len(DEV) + len(NEW)):
+        if len(rs) < 2 or (name == "all6" and len(rs) != len(DEV) + len(FROZEN_DEV)):
             continue
         pools[name] = {side: acc.pool_slot_regions([{"arrays": r["_arrays"][side]} for r in rs])
                        for side in ("enemy", "ally")}
@@ -3433,7 +3438,7 @@ def run_slots(sessions: list[str], record: bool) -> int:
            "boot": f"{acc.N_BOOT} round resamples, seed {acc.SEED}",
            "sessions": {r["session"]: {k: v for k, v in r.items() if k != "_arrays"} for r in res},
            "pooled": pools}
-    (OUT / "step_slots.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+    (OUT / "step_slots.json").write_text(json.dumps(tr.label(doc, sessions), indent=1, default=str), encoding="utf-8")
     if record:
         _record_slots(res, pools, sessions)
     return 0
@@ -3441,7 +3446,7 @@ def run_slots(sessions: list[str], record: bool) -> int:
 
 def _record_slots(res: list[dict], pools: dict, sessions: list[str]) -> None:
     """Each side's shares per session and pooled, with their intervals."""
-    from reticle.metrics import record as rec
+    from .extras import record as rec
     scopes = [(r["session"], {side: {**{n: v for n, v in r["sides"][side].items()
                                         if isinstance(v, dict) and "value" in v},
                                      **{f"fit_{o}": r["sides"][side]["fit_outcomes"][o]
@@ -3477,9 +3482,9 @@ def _record_slots(res: list[dict], pools: dict, sessions: list[str]) -> None:
 
 # ----------------------------------------------------------------- the ability lane (docs/ABILITY_ENTITIES.md steps 2-3)
 
-#: The six sessions the step's acceptance names: the 2026-10-07 captures and
-#: the development matches.
-ABILITY_SETS = tuple(NEW) + tuple(DEV)
+#: The default sessions: the development set. The frozen development matches
+#: run only when named, and then carry `frozen`.
+ABILITY_SETS = tuple(DEV)
 #: `--side` choices: one slot side, or every side in one run (step 3).
 ABILITY_SIDE_CHOICES = acc.ABILITY_SIDES + ("all",)
 
@@ -3701,16 +3706,16 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
                   f"{w['end_cause_agreement']}; possible nodes {pb['finds']}, recall {pb['recall']}",
                   flush=True)
         docs[sid] = doc
-        (out_dir / f"{sid}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+        (out_dir / f"{sid}.json").write_text(json.dumps(tr.label(doc, [sid]), indent=1, default=str), encoding="utf-8")
     if not docs:
         return 1
     pooled = {sd: acc.pool_ability_lane(arr) for sd, arr in arrays.items() if arr}
     pooled_obj = acc.pool_ability_lane(obj_arrays) if obj_arrays else {}
     pooled_poss = acc.pool_ability_lane(poss_arrays) if poss_arrays else {}
-    (out_dir / "pooled.json").write_text(json.dumps({"sessions": sorted(docs), "sides": pooled,
+    (out_dir / "pooled.json").write_text(json.dumps(tr.label({"sessions": sorted(docs), "sides": pooled,
                                                      "objects": pooled_obj,
                                                      "objects_possible": pooled_poss,
-                                                     "post_hoc": post_hoc},
+                                                     "post_hoc": post_hoc}, sorted(docs)),
                                                     indent=1, default=str), encoding="utf-8")
     print(f"\npooled over {len(docs)} sessions")
     head = (f"{'side':8s} {'class':34s} {'truth':>5s} {'finds':>5s} {'pair':>4s} {'recall':>7s} "
@@ -3724,7 +3729,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
                   f"{str(b['false_open_ci']):>16s} {str(b['open_error'].get('median_ms')):>8s} "
                   f"{str(b['end_error'].get('median_ms')):>8s} {str(b['end_cause_agreement']):>6s}")
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         scopes = [(sid, {sd: {**d["classes"], "_all": d["all"]} for sd, d in doc["sides"].items()}
                    | ({"objects": {**doc["objects"]["classes"], "_all": doc["objects"]["all"]},
                         "objects_possible": {**doc["objects"]["possible"]["classes"],

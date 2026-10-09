@@ -348,7 +348,7 @@ def paired(tag: str, base: str, record: bool) -> int:
             vals = {k: P[k] for k in ("hits", "hit_rate", "false_accepts", "d_hits", "d_fa")}
             vals.update({"d_hits_lo": P["d_hits_ci"][0], "d_hits_hi": P["d_hits_ci"][1],
                          "d_fa_lo": P["d_fa_ci"][0], "d_fa_hi": P["d_fa_ci"][1]})
-            rec("enemy_portrait_gate", part=f"paired/{tag}-vs-{base}", session="dev3", values=vals,
+            rec("enemy_portrait_gate", part=f"paired/{tag}-vs-{base}", session=tr.pool_name(tr.DEV), values=vals,
                 deps={"version": VERSION, "rule": "T1d"}, context={"task": TASK, "boot": out["boot"]},
                 note="pooled over the three development matches; rounds resampled within each match")
     return 0

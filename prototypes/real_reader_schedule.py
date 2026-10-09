@@ -23,7 +23,7 @@ sight questions through the same `derive_episodes` and `answers`.
 (`reticle/ally_gate.py`, `ALLY_GATE_VERSION`) through the passes hook over each
 session's stored 15 Hz ally_icon frames, keeps V15h's fits only where the
 gate reads (`Vhook`) or reads or audits (`Vhook+a`), and scores both against
-V15h under QA5r3; `hook-report` pools dev3, new3 and all six and prints the
+V15h under QA5r3; `hook-report` pools new3 (dev3 and all six with `--with-frozen`) and prints the
 frame share and estimated CPU beside the stored 15 Hz pass's. The binding is
 V15h's, made over every frame, so the arm overstates a gated pass's binding.
 Outputs: `<store>/analysis/gate-hook-20261009/` for ally-gate-0.1.0, and a
@@ -98,8 +98,8 @@ from reticle.store import DEFAULT_STORE  # noqa: E402
 # harness-t1d-20261009); these names stay for this module's callers.
 from reticle.harness.schedule import (  # noqa: E402,F401
     _answers, _arm_row, _log, _ok_set, _round_of, ally_ms_per_frame, BOOT_N, BOOT_SEED,
-    ENEMY_GAP_MS, flips, gated_slots, HELD_OUT, hook_arms, HOOK_BASE, HOOK_CAVEAT, HOOK_DEV,
-    HOOK_NEW, hook_out, HOOK_REAL, HOOK_TASK, JOIN_HZ, join_runs, JUDGED, ORDER, OUT, paired_T1,
+    ENEMY_GAP_MS, flips, gated_slots, HELD_OUT, hook_arms, HOOK_BASE, HOOK_CAVEAT,
+    hook_out, HOOK_REAL, HOOK_TASK, JOIN_HZ, join_runs, JUDGED, ORDER, OUT, paired_T1,
     POST_HOC, QA5R2_CAP, qa5r2_pool, QA5R2_TOL, QA5R3_TOL, RealMatch as _RealMatch, REF, refuse,
     report_hook, report_qa5r2, run_hook, SIGHT_QS, simulate_gate, STORE, stored_ally_frames, TASK,
     track_outcome, VERSION)

@@ -52,8 +52,8 @@ whose `events/minimap_object` resolves to the tag's folder (`_Redirect`);
 every other input is the store's own.
 
 Stored data and the roi_cache only; no decode. `refuse` admits `SCORED`
-(the development matches and the 2026-10-07 replay captures, `NEW`); the
-held-out capture (cea8ecbc94ab) and every other session are refused before
+(the development set, `DEV`, and the frozen development matches); the
+frozen held-out capture (cea8ecbc94ab) and every other session are refused before
 any row is read. Not wired (`"wire":
 "no"`): an evaluation over replay truth; the fix it measures lives in
 `reticle/teardrop.py` and `reticle/minimap_objects.py`.
@@ -91,8 +91,8 @@ from reticle.store import DEFAULT_STORE  # noqa: E402
 # Moved into the acceptance harness (`reticle/harness/extras.py`, task
 # harness-t1d-20261009); these names stay for this module's callers.
 from reticle.harness.extras import (  # noqa: E402,F401
-    _idle, _pings, _point_store, _Redirect, class_extras, DEV, HELD_OUT, NEW, OUT, ping_path,
-    refuse, rows_path, SCORED, STORE, TASK, TRUE_FA, VERSION)
+    _idle, _pings, _point_store, _Redirect, class_extras, DEV, FROZEN_DEV, OUT, ping_path,
+    label, pool_name, refuse, record, rows_path, SCORED, STORE, TASK, TRUE_FA, VERSION)
 
 # The harness's gates and bootstrap live in its core (one definition).
 from reticle.acceptance import N_BOOT, NEAR_CM, OFFSET_CM, SEED  # noqa: E402,F401
@@ -271,7 +271,7 @@ def score(sid: str, tag: str, write: bool = True, ptag: str | None = None) -> di
     if write:
         d = OUT / ("stored" if tag == "stored" else tag)
         d.mkdir(parents=True, exist_ok=True)
-        (d / f"score_{sid}.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+        (d / f"score_{sid}.json").write_text(json.dumps(label(out, [sid]), indent=1), encoding="utf-8")
         with open(d / f"sets_{sid}.jsonl", "w", encoding="utf-8") as f:
             for r in pairs + ext_rows:
                 f.write(json.dumps(r) + "\n")
@@ -289,7 +289,7 @@ def gate(off: str, tags: list[str], write: bool = True) -> int:
     lost) and the true false accepts it removed, with the base-px distance
     each `owned_by_ping` refusal links to its ping, split by whether a T1d
     miss in its frame names a ping refusal (the nearest to the miss's place)."""
-    from reticle.metrics import record as rec
+    rec = record
 
     pooled = {}
     for sid in DEV:
@@ -359,7 +359,7 @@ def gate(off: str, tags: list[str], write: bool = True) -> int:
         print(f"pooled {tag} (reach {pl['reach']} base px): refused_real {pl['refused_real']}, "
               f"removed_false {pl['removed_false']} over {pl['sessions']}", flush=True)
         if write and len(pl["sessions"]) == len(DEV):
-            rec("teardrop_refusals", part=f"gate/{tag}", session="dev3",
+            rec("teardrop_refusals", part=f"gate/{tag}", session=pool_name(DEV),
                 values={"refused_real": pl["refused_real"], "removed_false": pl["removed_false"],
                         "reach_base_px": pl["reach"]},
                 deps={"version": VERSION, "rule": "T1d", "off": off},
@@ -388,7 +388,7 @@ def compare(tags: list[str]) -> int:
 def record_metrics(tags: list[str]) -> int:
     """Record each tag's score per match in the metrics ledger, series
     `teardrop_refusals`, part `lane/<tag>`."""
-    from reticle.metrics import record as rec
+    rec = record
 
     for tag in tags:
         for sid in DEV:

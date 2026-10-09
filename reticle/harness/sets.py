@@ -111,7 +111,7 @@ def live_samples(M) -> tuple[np.ndarray, np.ndarray]:
 
 
 def build_sets(sid: str, M=None) -> dict:
-    """The miss and extra sets of one scored match (`teardrop_refusals.SCORED`),
+    """The miss and extra sets of one scored match (`extras.SCORED`),
     with attributes.
     `M` (default `real_reader_schedule.RealMatch(sid)`) supplies the draw
     rule through `M.drawn`; `t1_draw_rule` passes its own."""
@@ -119,8 +119,7 @@ def build_sets(sid: str, M=None) -> dict:
     from reticle.replay_source import to_px
 
     refuse(sid)
-    if sid not in tr.SCORED:
-        raise SystemExit(f"{sid}: neither a development match nor a 2026-10-07 replay capture")
+    tr.refuse(sid)
     t0 = time.time()
     M = M if M is not None else rrs.RealMatch(sid)
     E = M.enemy_reads()

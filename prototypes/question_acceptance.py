@@ -43,7 +43,7 @@ from reticle.harness.run import (  # noqa: E402,F401
     _record_step, _refuse, _replay_enemies, _replay_spike, _score_finds, _session_census,
     _step_summary, _stream, _stream_stamp, _to_cm, _truth_ctx, _truth_under, _write_blocks,
     _write_doc, ARMS, budget_class, CLAIMERS, BUDGET_REFINED, build_lane, claims, DEV, FRAME_HALF_STEP, lane,
-    main, NEW, OUT, record_replay_abilities, record_replay_score, replay_abilities_score,
+    FROZEN_DEV, main, OUT, record_replay_abilities, record_replay_score, replay_abilities_score,
     replay_ability_classes, REPLAY_CLAIMS, replay_classes, REPLAY_LEFT_OUT, replay_score,
     run_budget, run_budget_tool, run_label, run_lane, run_paired, run_replay_abilities,
     run_replay_score, run_slots, run_step, SCORED, slot_regions, SLOTS_VERSION, step_ally, STEP_FUNCS, step_glyph, step_marks, step_smoke,
