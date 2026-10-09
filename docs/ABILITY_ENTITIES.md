@@ -268,6 +268,48 @@ table above says "parent slot", read "parent key". The `CHANNELS` table's
 validator requires every ability and effect entity to name its parent or
 null it with a reason (step 1).
 
+### 2.2b Slot modes and placement (player, 2026-10-09)
+
+**Slot modes.** A mode is a state on the player's own slot entity, with an
+enter event and an exit event; it is never a child. Astral Form is Astra's
+mode: she enters it at any time and from it places stars and activates her
+abilities [domain:abilities/astra-astral-form-any-time]; her body stays where
+she entered, visible and vulnerable, so her slot's position belief holds
+that point through the mode [domain:abilities/astra-astral-form-body-stays].
+Her own screen shows the astral-form map
+[domain:abilities/astra-astral-form-screen-map], a witness of enter and exit
+on her capture. Omen's Dark Cover aim is a phase of his slot while he holds
+the ability, and he does not move during it
+[domain:abilities/omen-dark-cover-aim-still].
+
+**Placement per ability.** A child's placement is body-relative or global,
+taken from that ability's own fact, never by analogy
+[domain:abilities/ability-rules-are-unique]. A child with global placement
+keeps its parent binding to the caster, but the slot belief's reach rule
+(2.6) never ties its position to the caster's region: `cast_region` does not
+apply, and an undrawn global child has no region until a witness places it.
+The mechanics sheet's `placement` column asks each ability; it drafts Gravity
+Well and Nova Pulse as global from the star's facts
+[domain:abilities/astra-gravity-well-global-placement]
+[domain:abilities/astra-nova-pulse-global-placement], for the player to
+confirm.
+
+**The star.** A star is one entity. Placing it opens it and picking it up
+closes it, freely, while it is unspent
+[domain:abilities/astra-stars-placed-and-picked-up]. Turning it into Nova
+Pulse, Nebula or Gravity Well is a one-way change of its kind that keeps its
+key; from then it runs that ability's own lifetime, and its effects are its
+children [domain:abilities/astra-star-spent-is-final]. Cosmic Divide is its
+own child of Astra's slot, not a turned star.
+
+**The kit count.** The limit of stars deployed at once and its recharge are
+a count on Astra's kit, the `ability_tray` lane, not a field of any star.
+The game files' candidate quantities and their unread meaning stand in the
+fact [domain:abilities/astra-stars-placed-and-picked-up].
+
+**Open.** Whether Astra's minimap icon changes in Astral Form is unknown
+[domain:abilities/astra-astral-form-screen-map].
+
 ### 2.3 Opening at a cast: the witness table
 
 The child owner declares one table, `CHANNELS`, naming every input stream
@@ -757,6 +799,7 @@ closed.
 
 ## 7. What this plan does not settle
 
+- Whether Astra's minimap icon changes in Astral Form (2.2b).
 - No step is measured: every number of section 3 is to be predicted first.
 - The cue's cost and its miss rate on enemy casts no other channel
   witnesses.
