@@ -248,6 +248,90 @@ lie on another entity, most on a living enemy the replay still places there:
 the lane reads a "?" before T1d's swap, evidence for the open "?" timing
 question.
 
+**Step 9** (0.8.0, task `harness-step9-20261009`) folds the other replay
+scorers into this file, so one scorer remains; their modules keep thin
+wrappers that forward here.
+
+*`replay-score`* is `replay_truth score`, moved whole (`replay_score`; on
+9acf02f98283 its report equals the old command's field for field). It adds
+`replay_classes`: each phantom of the report (a `round_entity` teammate
+observation or a `minimap_object` enemy icon with no living player of its
+side within 8 m) joins every replay entity at its frame's grid sample and
+takes `claim_outcome`'s outcome. On the development matches, of
+[metric:question_acceptance/replay@dev3#enemy_finds=451] enemy phantoms on
+the grid, [metric:question_acceptance/replay@dev3#enemy_other_entity=309]
+lie on another entity, most on Tejo's Stealth Drone
+[metric:question_acceptance/replay@dev3#enemy_other_entity_ability_enemy_tejo_stealth_drone=101]
+and Reyna's Leer
+[metric:question_acceptance/replay@dev3#enemy_other_entity_ability_enemy_reyna_leer=84],
+and [metric:question_acceptance/replay@dev3#enemy_nothing_there=124] on
+nothing. Of [metric:question_acceptance/replay@dev3#teammate_finds=6311]
+teammate phantoms, [metric:question_acceptance/replay@dev3#teammate_other_entity=3539]
+lie on another entity, most on an ally Sage Barrier Orb
+[metric:question_acceptance/replay@dev3#teammate_other_entity_ability_ally_sage_barrier_orb=2162],
+and [metric:question_acceptance/replay@dev3#teammate_nothing_there=2698] on
+nothing. A few phantoms (`right_entity:unnamed`) land within 3 m of a
+player on the grid's clock though 8 m off on the report's frame clock.
+
+*`replay-abilities`* is `replay_abilities score`, moved whole
+(`replay_abilities_score`). Its spike block now takes the killfeed fit's
+clock: since `replay_truth` 0.4.0 the old command passed a constant offset
+and failed; with that one call fixed, master's code gives the same report
+on 9acf02f98283. It adds `replay_ability_classes`: of
+[metric:question_acceptance/replay_abilities@dev3#shape_finds=66] found
+`ability_shape` ring centres,
+[metric:question_acceptance/replay_abilities@dev3#shape_right_entity=65]
+lie on the player's Recon Bolt, whose stuck bolt
+(`GameObject_Hunter_Q_SonarBolt_C`) the ring recalls at
+[metric:question_acceptance/replay_abilities@dev3#shape_recall_ability_ally_sova_recon_bolt_gameobject_hunter_q_sonarbolt_c=0.7451]
+over the shape rows' samples. The stored `spike` stream never reads a
+glyph while a spike is planted: the planted spike's recall is
+[metric:question_acceptance/replay_abilities@dev3#spike_recall_spike__planted_spike=0.0],
+and the [metric:question_acceptance/replay_abilities@dev3#spike_left_out_spike_not_planted=508]
+dropped glyphs read without a planted spike lie on the spike item, which
+the join leaves out (`NOT_JOINED`): a named coverage gap.
+
+*`budget --tag TAG`* moves `enemy_error_budget`'s commands in (`budget-feats`,
+`budget-eye`, `budget-eye-score`, `budget-levers`, `budget-sample`,
+`budget-peek` run its library unchanged). Each extra starts from the entity
+`truth_under` puts under it (the lane run's class rows); the players-only
+class refines only an enemy-player label (`budget_class`). The players-only
+budget is the control: recomputed, its classed rows and tables equal the
+stored ones on all three development matches. Of
+[metric:question_acceptance/budget/pgb@dev3#extra_total=1455] extras,
+[metric:question_acceptance/budget/pgb@dev3#extra_undrawn_truth_vu_unseen=473]
+lie on an undrawn enemy never seen, [metric:question_acceptance/budget/pgb@dev3#extra_nothing_there_kill_x=123]
+on a death's X, [metric:question_acceptance/budget/pgb@dev3#extra_other_entity_ability_enemy_tejo_stealth_drone=100]
+on Tejo's Stealth Drone and
+[metric:question_acceptance/budget/pgb@dev3#extra_ambiguous=113] are
+ambiguous; the old `other` and `other_ally_stack` classes resolve to
+entities.
+
+*The 2026-10-07 replay captures* (`NEW`: cadaadeb2d8b, 066741deafe5,
+9912c382130b) have current inputs, so the steps without a tagged arm score
+them (`new3`). Teammates against a fresh `ally_icon` recall
+[metric:question_acceptance/ally@new3#recall_player_ally_live=0.7651]
+beside the reader's
+[metric:question_acceptance/ally@new3#reader_recall_player_ally_live=0.7653],
+naming [metric:question_acceptance/ally@new3#right_entity_name_right=107984]
+finds right and [metric:question_acceptance/ally@new3#right_entity_name_wrong=1231]
+wrong. Smokes recall Miks's Waveform at
+[metric:question_acceptance/smoke@new3#recall_ability_ally_miks_waveform_smoke=0.9166]
+and Clove's Ruse at
+[metric:question_acceptance/smoke@new3#recall_ability_ally_clove_ruse_smoke=0.8726].
+Glyphs recall Clove's Ruse at
+[metric:question_acceptance/glyph@new3#recall_ability_ally_clove_ruse=0.8436]
+and Tejo's Stealth Drone at
+[metric:question_acceptance/glyph@new3#recall_ability_enemy_tejo_stealth_drone=0.0696].
+They have no tagged `minimap_object` arm
+(`teardrop_refusals.py reread`), so `lane`, `label`, `marks` and `budget`
+stay on the development matches.
+
+The development matches keep the stale inputs steps 5 to 8 named: `ally_icon`
+and `death` (`reticle plan`), `minimap_dark` (its rescan decodes),
+`ability_glyph` rows (9acf02f98283's on an older glyph bank) and the
+`ability` scan; the player has decided no other session is reread.
+
 Stored rows and replay truth only; no decode, rescan or trial. The held-out
 capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
 `notes/predictions.jsonl`): an evaluation.
@@ -259,6 +343,13 @@ capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
     python prototypes/question_acceptance.py smoke [SESSION ...] [--record]
     python prototypes/question_acceptance.py glyph [SESSION ...] [--record]
     python prototypes/question_acceptance.py marks --tag pgb [SESSION ...] [--pings b1] [--record]
+    python prototypes/question_acceptance.py replay-score [SESSION ...] [--geometry NPZ] [--legacy-out NAME]
+        [--record] [--record-score]
+    python prototypes/question_acceptance.py replay-abilities [SESSION ...] [--legacy-out] [--record]
+        [--record-score]
+    python prototypes/question_acceptance.py budget --tag pgb [SESSION ...] [--record] [--rewrite]
+    python prototypes/question_acceptance.py budget-feats SESSION ... --tag TAG (and budget-eye,
+        budget-eye-score, budget-levers, budget-sample, budget-peek)
 """
 from __future__ import annotations
 
@@ -266,6 +357,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 from collections import Counter, defaultdict
@@ -280,14 +372,22 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
+import replay_abilities as ra  # noqa: E402
+import replay_truth as rt  # noqa: E402
+import riot_ground_truth as rg  # noqa: E402
 import teardrop_refusals as tr  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "question-acceptance-0.7.0"
+VERSION = "question-acceptance-0.8.0"
 TASK = "event-harness-20261007"
+TASK9 = "harness-step9-20261009"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / "question-acceptance"
 DEV = tr.DEV
+#: The 2026-10-07 replay captures, whose inputs are current (`reticle plan`):
+#: the steps that need no tagged enemy-lane arm score them beside `DEV`.
+NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
+SCORED = DEV + NEW
 NEAR_CM = tr.NEAR_CM
 #: The lane outcomes of a find, in report order.
 OUTCOMES = ("no_track", "reality_refused", "identity_abstained", "agent_not_on_enemy_team",
@@ -324,6 +424,21 @@ Q_MARK_MS = 4000.0
 #: The class-aware outcomes of a find, in report order.
 CLASS_OUTCOMES = ("right_entity", "other_entity", "undrawn_truth", "nothing_there", "coverage_gap",
                   "ambiguous")
+
+
+def _refuse(sid: str) -> None:
+    """The held-out match is never read; the steps score `SCORED` only."""
+    if sid == tr.HELD_OUT:
+        raise SystemExit(f"{sid}: the held-out match is never read by this harness")
+    if sid not in SCORED:
+        raise SystemExit(f"{sid}: neither a development match nor a 2026-10-07 replay capture")
+
+
+def _pool_name(sessions) -> str:
+    """The metrics session of a pooled scope: `dev3` (`DEV`), `new3` (`NEW`),
+    else the sessions joined."""
+    s = sorted(sessions)
+    return "dev3" if s == sorted(DEV) else "new3" if s == sorted(NEW) else "+".join(s)
 
 
 # ----------------------------------------------------------------- pure parts
@@ -1796,7 +1911,7 @@ def _truth_ctx(sid: str) -> dict:
     """The replay truth on T1d's grid, without any reader: `M`, and `J`'s
     `alive` and `drawn` as `enemy_lane_check.build_sets` builds them."""
     import t1_draw_rule as tdr
-    tr.refuse(sid)
+    _refuse(sid)
     t0 = time.perf_counter()
     M = tdr.RealDrawMatch(sid, rule="T1d")
     return {"sid": sid, "M": M, "J": {"alive": M.alive_grid(), "drawn": M.drawn(M.C)}, "t0": t0}
@@ -2545,7 +2660,7 @@ def run_step(step: str, sessions: list[str], tag: str | None, ptag: str | None, 
     the class-aware outcomes, recall per class and the coverage report, the
     reader's diagnostic beside, and write rows and the document under OUT."""
     for sid in sessions:
-        tr.refuse(sid)
+        (tr.refuse if step == "marks" else _refuse)(sid)
     res = []
     for sid in sessions:
         r = STEP_FUNCS[step](sid, tag, ptag) if step == "marks" else STEP_FUNCS[step](sid)
@@ -2608,7 +2723,7 @@ def _record_step(doc: dict, sessions: list[str]) -> None:
     step = doc["step"]
     scopes = [(sid, v["classes"], v.get("reader")) for sid, v in doc["sessions"].items()]
     if doc.get("pooled"):
-        scopes.append(("dev3", doc["pooled"], doc.get("pooled_reader")))
+        scopes.append((_pool_name(sessions), doc["pooled"], doc.get("pooled_reader")))
     part = f"{step}/{doc['tag']}" if step == "marks" else step
     for scope, c, rd in scopes:
         vals = {"finds": c["finds"], **{o: c["outcomes"][o] for o in CLASS_OUTCOMES}}
@@ -2638,11 +2753,1628 @@ def _record_step(doc: dict, sessions: list[str]) -> None:
         rec("question_acceptance", part=part, session=scope, values=vals, ci=ci,
             deps={"version": VERSION, "rule": "T1d", "window_ms": WINDOW_MS, "near_cm": NEAR_CM,
                   "ambig_cm": AMBIG_CM, "life_tail_ms": LIFE_TAIL_MS,
-                  "stamps": (c.get("stamps") if scope != "dev3" else None)},
+                  "stamps": (c.get("stamps") if scope not in (_pool_name(sessions),) else None)},
             context={"task": "harness-steps-5-8-20261007", "boot": doc["boot"], "owner": doc["owner"],
                      "sessions": sessions},
             note=f"step {step}: the owner's emitted finds against every replay entity (claim_outcome); "
                  "recall per claimed class over its own pairs; the reader's finds beside as a diagnostic")
+
+
+# ----------------------------------------------------------------- step 9: the replay scorers, folded in
+# `replay_truth score` and `replay_abilities score` moved here whole (task
+# harness-step9-20261009); their modules keep thin wrappers.
+
+def replay_score(sid: str, geometry: Path | None = None, finds: bool = False) -> dict:
+    """Score one capture's stored minimap streams against its replay
+    (`replay_truth score`'s report, folded into the harness at step 9).
+
+    The denominator is the `ally_icon` frame grid restricted to the minimap
+    crop cache's spans (`roi_cache`) and to frames where `ally_icon` reads the
+    widget drawn; frames outside the spans or with the widget absent are
+    counted apart and never enter a share. Within it: teammates per frame
+    (`round_entity` observations, located within 8 m one to one, phantoms with
+    no living teammate within 8 m), names, tracks (switches, fragments, IDF1),
+    each missed teammate frame's class (`rt.MISS_CLASSES`, in order), the self
+    fit, enemies (`minimap_object`, names through `enemy_track`) and facing per
+    class with a lag scan. `geometry` overrides the baked geometry
+    (`rt.session_context`). With `finds`, the report carries `_finds`: the
+    teammate and enemy phantoms, for `replay_classes` to join to every
+    replay entity."""
+    from reticle import roi_cache
+
+    ctx = rt.session_context(sid, geometry)
+    out = ctx["out"]
+    if "refused" in out:
+        return out
+    rp, mf, clock, me, team = ctx["rp"], ctx["mf"], ctx["clock"], ctx["me"], ctx["team"]
+    allies, foes, agent = ctx["allies"], ctx["foes"], ctx["agent"]
+    cm_per_px, gate = ctx["cm_per_px"], ctx["gate"]
+    H, W = mf.widget_shape
+    r_icon = float(mf.icon_px)
+    rs = rp.round_starts()
+    out["r_icon_px"] = round(r_icon, 3)
+    stamps = {}
+
+    # -- the denominator: ally_icon's frames inside the crop cache, widget drawn
+    AI = ctx["AI"]
+    stamps["ally_icon"] = AI["stamp"]
+    rec = roi_cache.stored_record(rt.STORE, sid, "minimap")
+    spans = (rec or {}).get("spans") or []
+    in_sp = roi_cache.spans_mask(AI["t_ms"], spans)
+    sc = in_sp & AI["drawn"]
+    S_idx, S_t = AI["frame_idx"][sc], AI["t_ms"][sc]
+    S_rep = rt.capture_to_replay(S_t, *clock, rt.REMOTE_LAG_MS)        # teammates
+    S_rep_self = rt.capture_to_replay(S_t, *clock, rt.SELF_LAG_MS)     # the player
+    n = int(S_idx.size)
+    out["frames"] = {
+        "rule": "ally_icon frames inside the minimap crop cache's spans with widget_drawn",
+        "ally_icon_frames": int(AI["t_ms"].size), "outside_cache_spans": int((~in_sp).sum()),
+        "in_spans_widget_absent": int((in_sp & ~AI["drawn"]).sum()), "scored": n,
+        "cache": None if rec is None else {"version": rec.get("version"), "hz": rec.get("hz"),
+                                           "spans": len(spans)}}
+
+    def rows_of(fi):
+        fi = np.asarray(fi, np.int64)
+        if n == 0:
+            return np.zeros(fi.shape, np.int64), np.zeros(fi.shape, bool)
+        k = np.clip(np.searchsorted(S_idx, fi), 0, n - 1)
+        return k, S_idx[k] == fi
+
+    mates = list(allies)
+    c_me = mates.index(me)
+    TX, TY, TYAW, TL = rt.truth_px(rp, mf, mates, S_rep)
+    # the player's column at the self lag: the capture draws the player earlier
+    sX, sY, sYAW, sL = rt.truth_px(rp, mf, [me], S_rep_self)
+    TX[:, c_me], TY[:, c_me], TYAW[:, c_me], TL[:, c_me] = sX[:, 0], sY[:, 0], sYAW[:, 0], sL[:, 0]
+    rnd = np.searchsorted(rs, S_rep, side="right") - 1
+    # truth-side context per (frame, teammate)
+    dd = np.hypot(TX[:, :, None] - TX[:, None, :], TY[:, :, None] - TY[:, None, :])
+    dd[:, np.arange(len(mates)), np.arange(len(mates))] = np.inf
+    stacked = TL & (np.nanmin(np.where(np.isfinite(dd), dd, np.inf), axis=2) <= 2.0 * r_icon)
+    edge = TL & ((TX < r_icon) | (TX > W - 1 - r_icon) | (TY < r_icon) | (TY > H - 1 - r_icon))
+    # time since each teammate was last stacked (frames in time order)
+    last_st = np.where(stacked, S_t[:, None], -np.inf)
+    last_st = np.maximum.accumulate(last_st, axis=0)
+    since_stack = S_t[:, None] - last_st
+
+    # -- teammates: round_entity observations
+    RE = rt.load_round_entity(sid)
+    stamps["round_entity"] = RE["stamp"]
+    k, ok = rows_of(RE["frame_idx"])
+    rows = k[ok]
+    ox, oy, eid = RE["x"][ok], RE["y"][ok], RE["entity"][ok]
+    fam, oname = RE["family"][ok], RE["agent"][ok]
+    D = np.hypot(TX[rows] - ox[:, None], TY[rows] - oy[:, None])
+    j, dist = rt._assign(rows, D, gate)
+    hit = j >= 0
+    nearest = np.min(np.where(np.isfinite(D), D, np.inf), axis=1) if D.size else np.zeros(0)
+    phantom = ~(nearest <= gate)
+    if finds:
+        out["_finds"] = {"teammate": {"t_cap": S_t[rows][phantom], "px": ox[phantom], "py": oy[phantom],
+                                       "frame_idx": S_idx[rows][phantom], "family": fam[phantom]}}
+    G = np.zeros(TL.shape, bool)          # located by any observation
+    G[rows[hit], j[hit]] = True
+    M = np.full(TL.shape, -1, np.int64)   # the located observation's entity
+    M[rows[hit], j[hit]] = eid[hit]
+    obs_class = np.where(fam == "self", "self", "ally")
+    truth_cls = np.array(["self" if c == c_me else "ally" for c in range(len(mates))])
+    tm = {"observations": int(RE["x"].size), "observations_outside_scored_frames": int((~ok).sum()),
+          "observations_scored": int(ok.sum()),
+          "observations_without_entity": int(np.sum(eid < 0))}
+
+    def mate_block(cols, obs_mask):
+        live = TL[:, cols]
+        got = G[:, cols]
+        hm = hit & obs_mask
+        return {"living_truth_frames": int(live.sum()), "matched": int(got.sum()),
+                "recall": round(float(got.sum() / max(1, live.sum())), 4),
+                "observations": int(obs_mask.sum()), "phantom": int((phantom & obs_mask).sum()),
+                "phantom_share": round(float((phantom & obs_mask).sum() / max(1, obs_mask.sum())), 4),
+                "duplicate": int((~hit & ~phantom & obs_mask).sum()),
+                "err_px": rt._stats(dist[hm]), "err_cm": rt._stats(dist[hm] * cm_per_px, 0),
+                "within_r_icon": round(float(np.mean(dist[hm] <= r_icon)), 4) if hm.any() else None}
+
+    all_cols = list(range(len(mates)))
+    ally_cols = [c for c in all_cols if c != c_me]
+    tm["pooled"] = mate_block(all_cols, np.ones(hit.shape, bool))
+    tm["self"] = mate_block([c_me], obs_class == "self")
+    tm["ally"] = mate_block(ally_cols, obs_class == "ally")
+    tm["family_vs_truth"] = {f"{o_}->{t_}": int(np.sum(hit & (obs_class == o_) & (truth_cls[np.clip(j, 0, None)] == t_)))
+                             for o_ in ("self", "ally") for t_ in ("self", "ally")}
+
+    # names: the entity's agent against the replay's
+    truth_agent = np.array([agent.get(mates[c]) if c >= 0 else None for c in j], dtype=object)
+    named = hit & np.array([g is not None for g in oname], bool)
+    right = named & np.array([rt.rg.canon(g) == rt.rg.canon(t_) for g, t_ in zip(oname, truth_agent)], bool)
+    wrong = named & ~right
+    jc = np.clip(j, 0, None)
+    w_stacked = stacked[rows, jc] & wrong
+    w_left = wrong & ~w_stacked & (since_stack[rows, jc] <= rt.STACK_LEAVE_MS)
+    wrong_pairs = Counter((t_, g) for t_, g, w in zip(truth_agent, oname, wrong) if w)
+    tm["names"] = {"named": int(named.sum()), "right": int(right.sum()), "wrong": int(wrong.sum()),
+                   "refused": int((hit & ~named).sum()),
+                   "agreement": round(float(right.sum() / named.sum()), 4) if named.any() else None,
+                   "wrong_share": round(float(wrong.sum() / named.sum()), 4) if named.any() else None,
+                   "wrong_stacked": int(w_stacked.sum()),
+                   "wrong_within_1s_of_leaving_stack": int(w_left.sum()),
+                   "wrong_stack_share": (round(float((w_stacked | w_left).sum() / wrong.sum()), 4)
+                                         if wrong.any() else None),
+                   "unnamed_reason": None if named.any() else "no located observation's entity names an agent",
+                   "wrong_pairs_truth_got": [[t_, g, c] for (t_, g), c in wrong_pairs.most_common(12)]}
+
+    # tracks: one truth life is one teammate in one replay round
+    # a second observation the one-to-one pass left beside a teammate
+    dup = ~hit & ~phantom
+    dupm = np.zeros(TL.shape, bool)
+    if dup.any():
+        dupm[rows[dup], np.argmin(np.where(np.isfinite(D[dup]), D[dup], np.inf), axis=1)] = True
+    t_r, t_c = np.nonzero(TL)
+    life = t_c * 1000 + rnd[t_r]
+    tm["tracks"] = {}
+    for name, cols, om in (("pooled", all_cols, np.ones(hit.shape, bool)),
+                           ("self", [c_me], obs_class == "self"),
+                           ("ally", ally_cols, obs_class == "ally")):
+        sel = np.isin(t_c, cols)
+        tm["tracks"][name] = rt.track_metrics(life[sel], S_t[t_r[sel]], M[t_r[sel], t_c[sel]],
+                                           int(om.sum()), flag=stacked[t_r[sel], t_c[sel]])
+        tm["tracks"][name]["switches_beside_duplicate"] = rt.track_metrics(
+            life[sel], S_t[t_r[sel]], M[t_r[sel], t_c[sel]], int(om.sum()),
+            flag=dupm[t_r[sel], t_c[sel]])["switches_flagged"]
+        tm["tracks"][name]["switches_stacked_or_duplicate"] = rt.track_metrics(
+            life[sel], S_t[t_r[sel]], M[t_r[sel], t_c[sel]], int(om.sum()),
+            flag=(stacked | dupm)[t_r[sel], t_c[sel]])["switches_flagged"]
+    tm["tracks"]["switches_flagged_means"] = "the teammate is stacked at the switch frame"
+    tm["tracks"]["switches_beside_duplicate_means"] = ("another observation the one-to-one pass "
+                                                       "left within 8 m lies nearest this "
+                                                       "teammate at the switch frame")
+
+    # misses: every living truth frame no observation located, one class each
+    mr, mc = np.nonzero(TL & ~G)
+    occ = rt.load_occluders(sid)
+    TV = rt.load_team_vision(sid)
+    MO = rt.load_minimap_object(sid)
+    stamps["team_vision"] = TV["stamp"]
+    stamps["minimap_object"] = MO["stamp"]
+    stamps["minimap_dark"] = occ["stamps"].get("minimap_dark")
+    absent_fi = set(TV["frame_idx"][TV["widget"] == "not_drawn"].tolist())
+    absent_fi |= set(MO["frame_idx"][MO["reason"] == "widget_not_drawn"].tolist())
+    dk = np.clip(np.searchsorted(occ["dark_t"], S_t), 0, max(occ["dark_t"].size - 1, 0))
+    if occ["dark_t"].size:
+        dark_absent = (np.abs(occ["dark_t"][dk] - S_t) <= 1.0) & ~occ["dark_drawn"][dk]
+    else:
+        dark_absent = np.zeros(n, bool)
+    frame_absent = np.isin(S_idx, list(absent_fi)) | dark_absent
+    mx, my, mt = TX[mr, mc], TY[mr, mc], S_t[mr]
+    # a ping holds a span, not an instant: active from t0 to t1
+    ph = np.zeros(mr.size, bool)
+    for t0, t1, px, py in occ["ping"]:
+        ph |= (mt >= t0) & (mt <= t1) & (np.hypot(mx - px, my - py) <= r_icon)
+    under = {"ping": ph}
+    under["spike_glyph"] = rt._near_points(mt, mx, my, occ["spike_glyph"], rt.SPIKE_TOL_MS, r_icon)
+    under["ability_glyph"] = rt._near_points(mt, mx, my, occ["disc"], rt.DISC_TOL_MS, r_icon)
+    under["minimap_dark"] = rt._under_dark(mt, mx, my, occ, r_icon)
+    any_under = np.zeros(mr.size, bool)
+    for v in under.values():
+        any_under |= v
+    # the same tests on located frames: how often cover sits near a teammate
+    # the stream did locate, so a miss class is read against its base rate
+    lr, lc = np.nonzero(TL & G)
+    lx, ly, lt = TX[lr, lc], TY[lr, lc], S_t[lr]
+    lp = np.zeros(lr.size, bool)
+    for t0, t1, px, py in occ["ping"]:
+        lp |= (lt >= t0) & (lt <= t1) & (np.hypot(lx - px, ly - py) <= r_icon)
+    base = {"ping": lp,
+            "spike_glyph": rt._near_points(lt, lx, ly, occ["spike_glyph"], rt.SPIKE_TOL_MS, r_icon),
+            "ability_glyph": rt._near_points(lt, lx, ly, occ["disc"], rt.DISC_TOL_MS, r_icon),
+            "minimap_dark": rt._under_dark(lt, lx, ly, occ, r_icon)}
+    base_any = np.zeros(lr.size, bool)
+    for v in base.values():
+        base_any |= v
+    cls = rt.classify_misses({"widget_absent": frame_absent[mr], "stacked": stacked[mr, mc],
+                           "under_stored_occluder": any_under, "edge": edge[mr, mc]})
+    # minimap_dark's grey-dark floor lies within r_icon of most located
+    # teammates too (`occluder_share_located`), so the same order without it
+    # is reported beside the fixed rule, never in its place
+    no_dark = under["ping"] | under["spike_glyph"] | under["ability_glyph"]
+    cls_nd = rt.classify_misses({"widget_absent": frame_absent[mr], "stacked": stacked[mr, mc],
+                              "under_stored_occluder": no_dark, "edge": edge[mr, mc]})
+
+    def miss_block(mask, cls=cls):
+        c = Counter(cls[mask].tolist())
+        tot = int(mask.sum())
+        return {"missed": tot, **{f"{k}": int(c.get(k, 0)) for k in rt.MISS_CLASSES},
+                "shares": {k: round(c.get(k, 0) / tot, 4) if tot else None for k in rt.MISS_CLASSES}}
+    tm["misses"] = {"order": list(rt.MISS_CLASSES),
+                    "pooled": miss_block(np.ones(mr.size, bool)),
+                    "self": miss_block(mc == c_me), "ally": miss_block(mc != c_me),
+                    "pooled_without_minimap_dark": miss_block(np.ones(mr.size, bool), cls_nd),
+                    "occluder_kinds_any_order": {k: int(v.sum()) for k, v in under.items()},
+                    "occluder_share_missed": {k: round(float(v.mean()), 4) if v.size else None
+                                              for k, v in (under | {"any": any_under}).items()},
+                    "occluder_share_located": {k: round(float(v.mean()), 4) if v.size else None
+                                               for k, v in (base | {"any": base_any}).items()},
+                    "stacked_share_located": round(float(stacked[lr, lc].mean()), 4) if lr.size else None,
+                    "rules": {"widget_absent": "team_vision widget not_drawn, minimap_object "
+                                               "widget_not_drawn or minimap_dark widget_drawn false "
+                                               "at the frame",
+                              "stacked": "another living teammate (or the self) within 2 r_icon",
+                              "under_stored_occluder": "an active ping within r_icon; an accepted "
+                                                       "spike glyph or ability glyph disc within "
+                                                       "r_icon plus its radius; grey-dark "
+                                                       "minimap_dark floor within r_icon",
+                              "edge": "within r_icon of the widget's border",
+                              "isolated": "none of the above"}}
+    out["teammates"] = tm
+
+    # -- the self fit (ally_icon), within the scored frames
+    fx, fy = AI["self_x"][sc], AI["self_y"][sc]
+    q = rp.sample(me, S_rep_self)
+    me_live = TL[:, c_me]
+    sx, sy = rt.to_px(mf, q["x"], q["y"])
+    has = np.isfinite(fx)
+    e_self = np.hypot(sx - fx, sy - fy)
+    m_ = has & me_live
+    selfo = {"self_fits": int(has.sum()), "self_fits_player_alive": int(m_.sum()),
+             "self_fits_player_dead": int((has & ~me_live).sum()),
+             "living_frames": int(me_live.sum()),
+             "located_within_gate": int(np.sum(m_ & (e_self <= gate))),
+             "recall": round(float(np.sum(m_ & (e_self <= gate)) / max(1, me_live.sum())), 4),
+             "err_px": rt._stats(e_self[m_]), "err_cm": rt._stats(e_self[m_] * cm_per_px, 0),
+             "beyond_gate": int(np.sum(e_self[m_] > gate))}
+    scan = {}
+    for L in rt.LAG_SCAN_MS:
+        qq = rp.sample(me, rt.capture_to_replay(S_t[m_], *clock, L))
+        px, py = rt.to_px(mf, qq["x"], qq["y"])
+        scan[int(L)] = round(float(np.nanmedian(np.hypot(px - fx[m_], py - fy[m_]))), 3) if m_.any() else None
+    selfo["lag_scan_median_px"] = scan
+    okscan = {k_: v for k_, v in scan.items() if v is not None}
+    selfo["best_lag_ms"] = min(okscan, key=okscan.get) if okscan else None
+    w = m_ & (e_self <= gate)
+    if w.sum() > 20:
+        A = np.column_stack([q["x"][w], q["y"][w], np.ones(w.sum())])
+        cx, *_ = np.linalg.lstsq(A, fx[w], rcond=None)
+        cy, *_ = np.linalg.lstsq(A, fy[w], rcond=None)
+        res = np.hypot(A @ cx - fx[w], A @ cy - fy[w])
+        selfo["affine_fit_on_self"] = {"n": int(w.sum()), "residual_px": rt._stats(res),
+                                       "baked_transform_err_px": rt._stats(e_self[w]),
+                                       "coef_x": [round(float(c), 6) for c in cx],
+                                       "coef_y": [round(float(c), 6) for c in cy]}
+    out["self"] = selfo
+
+    # -- enemies: minimap_object icons, names through enemy_track
+    out["enemies"] = _replay_enemies(sid, rp, mf, clock, foes, agent, gate, cm_per_px, r_icon, MO,
+                                     rs, stamps)
+    if finds:
+        out["_finds"]["enemy"] = out["enemies"].pop("_phantoms")
+    else:
+        out["enemies"].pop("_phantoms")
+
+    # -- facing per class
+    fac = {}
+    # self: team_vision's self icon against the player
+    kk, okk = rows_of(TV["icon_frame"])
+    sel = okk & (TV["icon_role"] == "self")
+    rr = kk[sel]
+    d_ = np.hypot(TX[rr, c_me] - TV["icon_x"][sel], TY[rr, c_me] - TV["icon_y"][sel])
+    good = np.isfinite(d_) & (d_ <= gate)
+    err = rt._ang_deg(TYAW[rr, c_me], TV["icon_facing"][sel])[good]
+    fac["self_team_vision"] = {**rt._facing_block(err), "source": "team_vision role self",
+                               **rt._facing_lag_scan(rp, mf, [me] * int(good.sum()),
+                                                  TV["icon_t"][sel][good],
+                                                  TV["icon_facing"][sel][good], clock)}
+
+    def ally_facing(fr, fx_, fy_, ff, ft, source):
+        kk2, ok2 = rows_of(fr)
+        ok2 &= np.isfinite(ff)
+        r2 = kk2[ok2]
+        D2 = np.hypot(TX[r2][:, ally_cols] - fx_[ok2][:, None], TY[r2][:, ally_cols] - fy_[ok2][:, None])
+        j2, _d2 = rt._assign(r2, D2, gate)
+        h2 = j2 >= 0
+        cols = np.asarray(ally_cols)[np.clip(j2, 0, None)]
+        e2 = rt._ang_deg(TYAW[r2, cols], ff[ok2])[h2]
+        subj = [mates[c] for c in cols[h2]]
+        return {**rt._facing_block(e2), "icons": int(ok2.sum()), "located": int(h2.sum()),
+                "source": source,
+                **rt._facing_lag_scan(rp, mf, subj, ft[ok2][h2], ff[ok2][h2], clock)}
+
+    fac["ally_ally_icon"] = ally_facing(AI["icon_frame"], AI["icon_x"], AI["icon_y"],
+                                        AI["icon_facing"], AI["icon_t"],
+                                        "ally_icon icon teardrop facing, non-self teammates")
+    am = TV["icon_role"] == "ally"
+    fac["ally_team_vision"] = ally_facing(TV["icon_frame"][am], TV["icon_x"][am], TV["icon_y"][am],
+                                          TV["icon_facing"][am], TV["icon_t"][am],
+                                          "team_vision role ally")
+    fac["enemy_minimap_object"] = out["enemies"].pop("_facing", None)
+    out["facing"] = fac
+
+    # -- spike: the HUD marker and the minimap glyph against the replay's carrier
+    out["spike"] = _replay_spike(sid, rp, mf, clock, allies, foes, team, me)
+    out["stamps"] = stamps
+    out["agents"] = None   # never written: subjects stay in the store
+    return out
+
+
+def _replay_enemies(sid, rp, mf, clock, foes, agent, gate, cm_per_px, r_icon, MO, rs, stamps) -> dict:
+    """`replay_score`'s enemies: `minimap_object` enemy icons against the replay's living foes, and
+    `enemy_track`'s names and tracks.
+
+    An icon is located when one-to-one assignment within 8 m gives it a
+    living foe; a phantom has no living foe within 8 m. Recall is not scored:
+    whether the minimap must draw a foe is unknown here. `enemy_track`
+    observations are located the same way and their entity's agent compared
+    with the replay's; track metrics count only located observations."""
+    lag = rt.REMOTE_LAG_MS
+    read = MO["reason"] == None  # noqa: E711 (object array)
+    out = {"frames": int(MO["frame_idx"].size), "frames_read": int(read.sum()),
+           "frames_refused": dict(Counter(r for r in MO["reason"].tolist() if r is not None)),
+           "icons": int(MO["enemy_x"].size)}
+    out["_phantoms"] = {"t_cap": np.zeros(0), "px": np.zeros(0), "py": np.zeros(0),
+                        "frame_idx": np.zeros(0, np.int64)}
+    if MO["enemy_x"].size:
+        t_rep = rt.capture_to_replay(MO["enemy_t"], *clock, lag)
+        X, Y, YAW, _L = rt.truth_px(rp, mf, foes, t_rep)
+        D = np.hypot(X - MO["enemy_x"][:, None], Y - MO["enemy_y"][:, None])
+        j, dist = rt._assign(MO["enemy_frame"], D, gate)
+        hit = j >= 0
+        nearest = np.min(np.where(np.isfinite(D), D, np.inf), axis=1)
+        phantom = ~(nearest <= gate)
+        out["_phantoms"] = {"t_cap": np.asarray(MO["enemy_t"], float)[phantom],
+                            "px": np.asarray(MO["enemy_x"], float)[phantom],
+                            "py": np.asarray(MO["enemy_y"], float)[phantom],
+                            "frame_idx": np.asarray(MO["enemy_frame"], np.int64)[phantom]}
+        out.update(matched=int(hit.sum()), phantom=int(phantom.sum()),
+                   phantom_share=round(float(phantom.mean()), 4),
+                   duplicate=int((~hit & ~phantom).sum()),
+                   err_px=rt._stats(dist[hit]), err_cm=rt._stats(dist[hit] * cm_per_px, 0),
+                   within_r_icon=round(float(np.mean(dist[hit] <= r_icon)), 4) if hit.any() else None)
+        ff = MO["enemy_facing"]
+        fh = hit & np.isfinite(ff)
+        jc = np.clip(j, 0, None)
+        e = rt._ang_deg(YAW[np.arange(j.size), jc], ff)[fh]
+        out["_facing"] = {**rt._facing_block(e), "source": "minimap_object enemy teardrop",
+                          **rt._facing_lag_scan(rp, mf, [foes[c] for c in jc[fh]], MO["enemy_t"][fh],
+                                             ff[fh], clock)}
+    ET = rt.load_enemy_track(sid)
+    if ET is None:
+        out["enemy_track"] = {"refused": "no_stored_enemy_track"}
+        return out
+    stamps["enemy_track"] = ET["stamp"]
+    t_rep = rt.capture_to_replay(ET["t_ms"], *clock, lag)
+    X, Y, _YAW, _L = rt.truth_px(rp, mf, foes, t_rep)
+    D = np.hypot(X - ET["x"][:, None], Y - ET["y"][:, None])
+    j, dist = rt._assign(ET["frame_idx"], D, gate)
+    hit = j >= 0
+    nearest = np.min(np.where(np.isfinite(D), D, np.inf), axis=1) if D.size else np.zeros(0)
+    phantom = ~(nearest <= gate)
+    truth_agent = np.array([agent.get(foes[c]) if c >= 0 else None for c in j], dtype=object)
+    named = hit & np.array([g is not None for g in ET["agent"]], bool)
+    right = named & np.array([rt.rg.canon(g) == rt.rg.canon(t_) for g, t_ in zip(ET["agent"], truth_agent)],
+                             bool)
+    wrong_pairs = Counter((t_, g) for t_, g, w in zip(truth_agent, ET["agent"], named & ~right) if w)
+    rnd = np.searchsorted(rs, t_rep, side="right") - 1
+    life = np.clip(j, 0, None) * 1000 + rnd
+    trk = rt.track_metrics(life[hit], ET["t_ms"][hit], ET["entity"][hit], int(ET["x"].size))
+    # truth frames are only the located ones (drawn-ness is unknown): IDF1 and
+    # id_recall would read as precision, so only id_precision stands
+    for k in ("idf1", "id_recall", "truth_frames", "truth_minutes", "switches_per_truth_minute"):
+        trk.pop(k, None)
+    mins = hit.sum() / rt.GRID_HZ / 60.0
+    trk["switches_per_located_minute"] = round(trk["switches"] / mins, 3) if mins else None
+    out["enemy_track"] = {"observations": int(ET["x"].size), "matched": int(hit.sum()),
+                          "phantom": int(phantom.sum()),
+                          "phantom_share": round(float(phantom.mean()), 4) if phantom.size else None,
+                          "err_px": rt._stats(dist[hit]),
+                          "names": {"named": int(named.sum()), "right": int(right.sum()),
+                                    "wrong": int((named & ~right).sum()),
+                                    "refused": int((hit & ~named).sum()),
+                                    "agreement": (round(float(right.sum() / named.sum()), 4)
+                                                  if named.any() else None),
+                                    "wrong_pairs_truth_got": [[t_, g, c] for (t_, g), c
+                                                              in wrong_pairs.most_common(8)]},
+                          "tracks": trk}
+    return out
+
+
+def _replay_spike(sid, rp, mf, clock, allies, foes, team, me) -> dict:
+    """`replay_score`'s spike: the HUD marker and the minimap glyph
+    against the replay's carrier, and the stored per-round carrier."""
+    import pyarrow.parquet as pq
+
+    p = rp.dir / "spike_carrier.parquet"
+    if not p.is_file():
+        return {"refused": "no_replay_spike_carrier"}
+    iv = pq.read_table(p).to_pylist()
+    held = [r for r in iv if r["holder_kind"] in ("player", "proxy") and r["carrier_subject"]]
+    f0 = np.array([r["from_ms"] for r in held], float)
+    f1 = np.array([r["to_ms"] if r["to_ms"] is not None else np.inf for r in held], float)
+    who = np.array([r["carrier_subject"] for r in held], dtype=object)
+
+    def carrier_at(t):
+        t = np.asarray(t, float)
+        k = np.searchsorted(f0, t, side="right") - 1
+        ok = (k >= 0) & (t < f1[np.clip(k, 0, None)])
+        return np.where(ok, who[np.clip(k, 0, None)], None)
+
+    s_t, s_slot, s_glyph = [], [], []
+    for r in rt._rows(rt.STORE / "events" / "spike" / f"{sid}.jsonl", '"kind":"frame"'):
+        if r.get("reason") is not None:
+            continue
+        s_t.append(r["t_ms"])
+        s_slot.append((r.get("marker") or {}).get("slot"))
+        g = [x for x in r.get("glyphs") or [] if x.get("reason") is None]
+        s_glyph.append(g)
+    if not s_t:
+        return {"refused": "no_spike_frames"}
+    s_t = np.array(s_t)
+    # the carrier is another player's state as the minimap draws it: the remote lag
+    t_rep = rt.capture_to_replay(s_t, *clock, rt.REMOTE_LAG_MS)
+    car = carrier_at(t_rep)
+    ally_car = np.array([c is not None and team.get(c) == team[me] for c in car])
+    foe_car = np.array([c is not None and team.get(c) != team[me] for c in car])
+    marker = np.array([s is not None for s in s_slot])
+    out = {"frames": int(s_t.size),
+           "marker_vs_ally_carrier": {"both": int((marker & ally_car).sum()),
+                                      "marker_only": int((marker & ~ally_car).sum()),
+                                      "carrier_only": int((~marker & ally_car).sum()),
+                                      "neither": int((~marker & ~ally_car).sum())},
+           "frames_enemy_carries": int(foe_car.sum())}
+    # carried glyph position against the carrier
+    errs, kinds = [], Counter()
+    gx, gy, gt, gc = [], [], [], []
+    for t, gl, c in zip(t_rep, s_glyph, car):
+        for g in gl:
+            kinds[(g["state"], "ally" if c in allies else "foe" if c in foes else "none")] += 1
+            if g["state"] == "carried" and c is not None:
+                gx.append(g["cx"])
+                gy.append(g["cy"])
+                gt.append(t)
+                gc.append(c)
+    if gx:
+        gx, gy, gt = np.array(gx, float), np.array(gy, float), np.array(gt)
+        tx, ty = np.full(gt.size, np.nan), np.full(gt.size, np.nan)
+        for s in set(gc):
+            m = np.array([c == s for c in gc])
+            q = rp.sample(s, gt[m])
+            tx[m], ty[m] = rt.to_px(mf, q["x"], q["y"])
+        errs = np.hypot(tx - gx, ty - gy)
+    out["glyph_state_by_replay_carrier"] = {f"{k[0]}|{k[1]}": n for k, n in sorted(kinds.items())}
+    out["carried_glyph_err_px"] = rt._stats(errs) if len(errs) else None
+    # stored per-round carrier_seen against the replay's rounds with an allied carrier
+    rs = rp.round_starts()
+    rounds_ally = set()
+    for r in held:
+        if team.get(r["carrier_subject"]) == team[me]:
+            rounds_ally.add(int(np.searchsorted(rs, r["from_ms"], side="right")))
+    stored = [r for r in rt._rows(rt.STORE / "events" / "spike_carrier" / f"{sid}.jsonl", '"kind":"round"')]
+    seen = {r["round_no"] for r in stored if r.get("carrier_seen")}
+    out["rounds"] = {"replay_ally_carrier_rounds": len(rounds_ally),
+                     "stored_carrier_seen_rounds": len(seen),
+                     "seen_and_ally_carrier": len(seen & rounds_ally),
+                     "seen_without_ally_carrier": sorted(seen - rounds_ally),
+                     "ally_carrier_not_seen": sorted(rounds_ally - seen)}
+    return out
+
+
+def record_replay_score(s: dict) -> list[str]:
+    """`replay_score`'s values in the `replay_truth` series, part `score`, as
+    `replay_truth score --record` wrote them."""
+    from reticle import metrics
+    geo = s.get("geometry") or {}
+    deps = {"replay_truth": rt.REPLAY_TRUTH_VERSION, "vrfkit": rt.VRFKIT_VERSION,
+            "minimap_lag_ms": s["minimap_lag_ms"], "gate_m": rt.rg.GATE_M, "max_gap_ms": rt.MAX_GAP_MS,
+            "geometry": geo.get("path"), "shade_fit": geo.get("shade_fit"),
+            "stamps": s.get("stamps"), "player_basis": s.get("player_basis"),
+            "team_source": s.get("team_source"),
+            "self_id": {"radius_m": rt.SELF_ID_RADIUS_M, "min_frames": rt.SELF_ID_MIN_FRAMES,
+                        "min_share": rt.SELF_ID_MIN_SHARE, "margin": rt.SELF_ID_MARGIN}}
+    T, S, E, F = s["teammates"], s["self"], s["enemies"], s["facing"]
+    SI = s.get("self_identity") or {}
+    SR, SX = SI.get("replay") or {}, SI.get("riot_cross_check") or {}
+    P, MS = T["pooled"], T["misses"]["pooled"]["shares"]
+    ET = E.get("enemy_track") or {}
+
+    def fv(cls, key):
+        b = F.get(cls) or {}
+        if key in ("median", "p90"):
+            return (b.get("err_deg") or {}).get(key)
+        return b.get(key)
+    v = {"self_id_frames": SR.get("frames"),
+         "self_id_best_share": (SR.get("best") or {}).get("share_within"),
+         "self_id_runner_up_share": (SR.get("runner_up") or {}).get("share_within"),
+         "self_id_margin": SR.get("margin"),
+         "self_id_riot_present": SX.get("present"),
+         "self_id_riot_self_agrees": SX.get("self_agrees"),
+         "self_id_riot_team_agrees": SX.get("team_agrees"),
+         "align_offset_ms": round(s["align"]["a_ms"], 1),
+         "align_mad_ms": round(s["align"]["residual_mad_ms"], 1),
+         "align_matched": s["align"]["matched"],
+         "frames_scored": s["frames"]["scored"],
+         "frames_outside_spans": s["frames"]["outside_cache_spans"],
+         "frames_in_spans_widget_absent": s["frames"]["in_spans_widget_absent"],
+         "self_err_px_median": (S["err_px"] or {}).get("median"),
+         "self_err_px_p90": (S["err_px"] or {}).get("p90"),
+         "self_err_cm_median": (S["err_cm"] or {}).get("median"),
+         "self_err_cm_p90": (S["err_cm"] or {}).get("p90"),
+         "self_recall": S["recall"], "self_best_lag_ms": S["best_lag_ms"],
+         "self_affine_residual_px_median":
+             ((S.get("affine_fit_on_self") or {}).get("residual_px") or {}).get("median"),
+         "self_baked_err_px_median":
+             ((S.get("affine_fit_on_self") or {}).get("baked_transform_err_px") or {}).get("median"),
+         "mate_recall": P["recall"], "mate_phantom_share": P["phantom_share"],
+         "mate_self_recall": T["self"]["recall"], "mate_ally_recall": T["ally"]["recall"],
+         "ally_err_px_median": (P["err_px"] or {}).get("median"),
+         "ally_err_px_p90": (P["err_px"] or {}).get("p90"),
+         "ally_err_cm_median": (P["err_cm"] or {}).get("median"),
+         "mate_within_r_icon": P["within_r_icon"],
+         "ally_id_agreement": T["names"]["agreement"],
+         "mate_wrong_name_share": T["names"]["wrong_share"],
+         "mate_wrong_name_stack_share": T["names"]["wrong_stack_share"],
+         **{f"miss_{k}_share": MS[k] for k in rt.MISS_CLASSES},
+         "mate_switches_per_min": T["tracks"]["pooled"]["switches_per_truth_minute"],
+         "mate_ally_switches_per_min": T["tracks"]["ally"]["switches_per_truth_minute"],
+         "mate_fragments_per_life": T["tracks"]["pooled"]["fragments_per_matched_life"],
+         "mate_idf1": T["tracks"]["pooled"]["idf1"],
+         "mate_self_idf1": T["tracks"]["self"]["idf1"],
+         "mate_ally_idf1": T["tracks"]["ally"]["idf1"],
+         "enemy_icons": E.get("icons"), "enemy_phantom_share": E.get("phantom_share"),
+         "enemy_err_px_median": (E.get("err_px") or {}).get("median"),
+         "enemy_track_id_agreement": (ET.get("names") or {}).get("agreement"),
+         "enemy_track_id_precision": (ET.get("tracks") or {}).get("id_precision"),
+         **{f"facing_{c}_{k}": fv(c, k)
+            for c in ("self_team_vision", "ally_ally_icon", "ally_team_vision",
+                      "enemy_minimap_object")
+            for k in ("median", "p90", "flip_share", "best_lag_ms")}}
+    metrics.record("replay_truth", part="score", session=s["session"], values=v, deps=deps)
+    return [f"[metric:replay_truth/score@{s['session']}#{key}={val}]" for key, val in v.items()]
+
+
+def _ra_pair(det_t, tru_t, gate):
+    """One-to-one nearest pairing of two time lists within `gate` (ms).
+    Returns (det index, truth index, det - truth ms) triples."""
+    det_t, tru_t = np.asarray(det_t, float), np.asarray(tru_t, float)
+    if not det_t.size or not tru_t.size:
+        return []
+    D = det_t[:, None] - tru_t[None, :]
+    i, j = np.nonzero(np.abs(D) <= gate)
+    o = np.argsort(np.abs(D[i, j]), kind="stable")
+    used_i, used_j, out = set(), set(), []
+    for k in o:
+        a, b = int(i[k]), int(j[k])
+        if a in used_i or b in used_j:
+            continue
+        used_i.add(a)
+        used_j.add(b)
+        out.append((a, b, float(D[a, b])))
+    return out
+
+
+def _ra_cast_score(det, tru, gate=ra.CAST_GATE_MS):
+    """Detections (t_cap ms, ability) against truth (t_cap ms, ability)."""
+    res = {}
+    for ab in sorted({d[1] for d in det} | {t[1] for t in tru}, key=str):
+        dt = [d[0] for d in det if d[1] == ab]
+        tt = [t[0] for t in tru if t[1] == ab]
+        p = _ra_pair(dt, tt, gate)
+        e = np.array([x[2] for x in p])
+        res[ab] = {"stored": len(dt), "replay": len(tt), "paired": len(p),
+                   "within_1s": int(np.sum(np.abs(e) <= 1000)) if e.size else 0,
+                   "false": len(dt) - len(p), "missed": len(tt) - len(p),
+                   "recall": round(len(p) / len(tt), 4) if tt else None,
+                   "stored_minus_replay_ms": ra._stats(e, 1)}
+    return res
+
+
+def replay_abilities_score(sid: str) -> dict:
+    """`replay_abilities score`'s report, folded into the harness at step 9:
+    the player's casts (`tray_drop`, `ability_state`), `ability_shape`, the
+    player's labels, `ult_cast` and the spike against the replay's actors
+    and cast records. The spike block is `_replay_spike` on the session's
+    clock (the killfeed fit); 0.1.0 passed it the constant offset and
+    failed."""
+    ctx = rt.session_context(sid)
+    out = dict(ctx["out"])
+    if "refused" in out:
+        return out
+    out["replay_abilities_version"] = ra.REPLAY_ABILITIES_VERSION
+    rp, mf, a, me, team = ctx["rp"], ctx["mf"], ctx["a"], ctx["me"], ctx["team"]
+    allies, foes, agent = ctx["allies"], ctx["foes"], ctx["agent"]
+    lag = rg.MINIMAP_LAG_MS
+    out["rests_on"] = {"alignment": "stored deaths (death-adjudication) against replay "
+                                    "characterDeath, replay_truth.session_context",
+                       "player_and_teams": "Riot match record",
+                       "map_frame": "baked geometry shade_fit + valorant-api map constants",
+                       "minimap_lag_ms": lag}
+    ex = ra.Export(rp.match, rp=rp)
+    cen = ra.actor_census(rp.match, ex)
+    smap = ra.slot_map(cen)
+    out["slot_map"] = smap
+    my_agent = agent.get(me)
+    my_code = None
+    # the player's own world actors and casts, by ability display name
+    mine = defaultdict(list)
+    for r in cen["classes"]:
+        if not r.get("code") or not r["mapped"]:
+            continue
+        for i in ex.instances(class_short=r["class"]):
+            s, _ = ex.owner_subject(i["guid"])
+            if s == me:
+                my_code = r["code"]
+                mine[r["class"]].append({**i, "ability": r["ability"]})
+    C = ex.casts()["casts"]
+    folder_name = {}
+    for r in cen["classes"]:
+        if r.get("folder"):
+            folder_name[(r["code"], r["folder"])] = r["ability"]
+    my_casts = []
+    for c in C:
+        if c["subject"] != me or c["t_ms"] is None:
+            continue
+        f = smap.get(f"{my_agent}|{c['slot']}")
+        my_casts.append({**c, "ability": folder_name.get((my_code, f)) if f else None})
+    ults = ex.ult_intervals()
+    my_ults = [u for u in ults if u["subject"] == me]
+    # the replay's casts of the player in capture time; an ult cast is its transition
+    truth = [(c["t_ms"] + a, c["ability"]) for c in my_casts if c["ability"]]
+    unk = [c for c in my_casts if not c["ability"]]
+    out["player_replay_casts"] = {"records": len(my_casts), "by_ability": dict(Counter(t[1] for t in truth)),
+                                  "slot_unmapped": dict(Counter(c["slot"] for c in unk)),
+                                  "ult_transitions": len(my_ults)}
+    x_name = next((r["ability"] for r in cen["classes"] if r.get("code") == my_code
+                   and r.get("folder") == "Ability_X"), None)
+    if x_name is None and my_code:
+        x_name = ra.ability_display(my_code, "Ability_X")["display"]
+    truth_x = [(u["on_ms"] + a, x_name) for u in my_ults]
+    truth_all = [t for t in truth if t[1] != x_name] + truth_x
+
+    # slot key (tray catalogue) -> ability name, from the stored ability_state rows
+    key_name = {}
+    for r in rt._rows(ra.STORE / "events" / "ability_state" / f"{sid}.jsonl", '"kind":"state"'):
+        key_name.setdefault(r["slot"], r.get("ability"))
+    out["tray_keys"] = key_name
+
+    # -- tray_drop: player casts, and the drops refused for a reason
+    drops = [r for r in rt._rows(ra.STORE / "events" / "tray_drop" / f"{sid}.jsonl")
+             if r.get("kind") == "drop"]
+    det = [(r["t_ms"], key_name.get(r["slot"])) for r in drops if r.get("player_cast")]
+    out["tray_drop"] = {"casts": _ra_cast_score(det, truth_all)}
+    # a refused drop that sits on a replay cast the player-cast set missed
+    paired_truth = set()
+    for ab in {t[1] for t in truth_all}:
+        idx = [k for k, t in enumerate(truth_all) if t[1] == ab]
+        dt = [d[0] for d in det if d[1] == ab]
+        for _i, j, _e in _ra_pair(dt, [truth_all[k][0] for k in idx], ra.CAST_GATE_MS):
+            paired_truth.add(idx[j])
+    missed = [truth_all[k] for k in range(len(truth_all)) if k not in paired_truth]
+    ref_d = [r for r in drops if not r.get("player_cast")]
+    why = Counter()
+    for t, ab in missed:
+        near = [r for r in ref_d if key_name.get(r["slot"]) == ab and abs(r["t_ms"] - t) <= ra.CAST_GATE_MS]
+        why[(ab, near[0].get("reason") if near else "no_drop")] += 1
+    out["tray_drop"]["missed_by_reason"] = {f"{k[0]}|{k[1]}": v for k, v in sorted(why.items(), key=str)}
+    rr = Counter()
+    for r in ref_d:
+        ab = key_name.get(r["slot"])
+        hit = any(t[1] == ab and abs(t[0] - r["t_ms"]) <= ra.CAST_GATE_MS for t in truth_all)
+        rr[(r.get("reason"), "on_replay_cast" if hit else "no_replay_cast")] += 1
+    out["tray_drop"]["refused_drops"] = {f"{k[0]}|{k[1]}": v for k, v in sorted(rr.items(), key=str)}
+
+    # -- ability_state: cast verdicts, and kit_end against the player's deaths
+    st = list(rt._rows(ra.STORE / "events" / "ability_state" / f"{sid}.jsonl", '"kind":"verdict"'))
+    det = [(r["t_ms"], key_name.get(r["slot"])) for r in st if r["transition"] == "cast"]
+    out["ability_state"] = {"cast_verdicts": _ra_cast_score(det, truth_all),
+                            "transitions": dict(Counter(r["transition"] for r in st))}
+    my_deaths = np.array([e["t"] + a for e in rp.group("characterDeath") if e.get("victim") == me])
+    kd = sorted({r["t_ms"] for r in st if r["transition"] == "owner_death"})
+    p = _ra_pair(kd, my_deaths, 3000.0)
+    out["ability_state"]["owner_death"] = {
+        "stored": len(kd), "replay_deaths": int(my_deaths.size), "paired": len(p),
+        "stored_minus_replay_ms": ra._stats([x[2] for x in p], 1)}
+
+    # -- ability_shape: Recon Bolt rings and Hunter's Fury beams
+    out["ability_shape"] = _ra_shape(sid, rp, mf, a, lag, me, mine, my_ults, ex)
+
+    # -- player's tray-object marks and the glyph eval's labelled points
+    out["labels"] = _ra_labels(sid, rp, mf, a, lag, me, mine, my_ults, ex)
+
+    # -- ult_cast
+    out["ult_cast"] = _ra_ults(sid, a, ults, agent, team, me)
+
+    # -- spike: replay_truth's carrier check plus the planted spike's placement
+    sp = _replay_spike(sid, rp, mf, ctx["clock"], allies, foes, team, me)
+    sp["planted"] = _ra_planted(sid, rp, mf, a, lag, ex)
+    out["spike"] = sp
+
+    # -- smoke and the other minimap ability streams: stored rows or a refusal
+    out["streams_without_rows"] = {}
+    for name in ("smoke", "smoke_owner", "ability", "ability_icon", "ability_fit", "ability_gate",
+                 "ability_light", "ability_wall", "minimap_object", "ability_shape_scan"):
+        pth = ra.STORE / "events" / name / f"{sid}.jsonl"
+        if not pth.is_file():
+            out["streams_without_rows"][name] = "no_stored_rows_for_session"
+    out["replay_truth_available"] = {
+        r["mapped"]: r["opens"] for r in cen["classes"] if r["mapped"]}
+    return out
+
+
+def _ra_bolt_truth(rows, t_rep):
+    """(n, k) world x, y of the instances in `rows` alive at replay times `t_rep`."""
+    n, k = t_rep.size, len(rows)
+    X, Y = np.full((n, k), np.nan), np.full((n, k), np.nan)
+    for c, r in enumerate(rows):
+        end = r["close_ms"] if r["close_ms"] is not None else np.inf
+        live = (t_rep >= r["open_ms"]) & (t_rep <= end)
+        X[live, c], Y[live, c] = r["xyz"][0], r["xyz"][1]
+    return X, Y
+
+
+def _ra_shape(sid, rp, mf, a, lag, me, mine, my_ults, ex) -> dict:
+    rows = [r for r in rt._rows(ra.STORE / "events" / "ability_shape" / f"{sid}.jsonl")
+            if r.get("kind") == "shape"]
+    out = {}
+    rb = [r for r in rows if r["ability"] == "Recon Bolt"]
+    bolts = mine.get("GameObject_Hunter_Q_SonarBolt_C", [])
+    if rb:
+        t = np.array([r["t_ms"] for r in rb], float)
+        t_rep = rt._frames_to_replay(t, a, lag)
+        X, Y = _ra_bolt_truth(bolts, t_rep)
+        PX, PY = rt.to_px(mf, X, Y)
+        cx = np.array([r["cx"] for r in rb], float)[:, None]
+        cy = np.array([r["cy"] for r in rb], float)[:, None]
+        D = np.hypot(PX - cx, PY - cy)
+        alive = np.isfinite(D).any(axis=1)
+        dmin = np.where(alive, np.nanmin(np.where(np.isfinite(D), D, np.inf), axis=1), np.nan)
+        found = np.array([bool(r["found"]) for r in rb])
+        rr = np.array([r.get("r") or np.nan for r in rb], float)
+        out["recon_bolt"] = {
+            "rows": len(rb), "found": int(found.sum()),
+            "replay_bolts_of_player": len(bolts),
+            "rows_with_bolt_alive": int(alive.sum()),
+            "found_with_bolt": int((found & alive).sum()),
+            "found_without_bolt": int((found & ~alive).sum()),
+            "not_found_with_bolt": int((~found & alive).sum()),
+            "not_found_without_bolt": int((~found & ~alive).sum()),
+            "recall_rows": round(float((found & alive).sum() / alive.sum()), 4) if alive.any() else None,
+            "found_centre_err_px": ra._stats(dmin[found & alive]),
+            "found_centre_err_cm": ra._stats(dmin[found & alive] / mf.px_per_unit, 0),
+            "found_centre_inside_ring": int(np.sum(dmin[found & alive] <= rr[found & alive])),
+            "not_found_fit_err_px": ra._stats(dmin[~found & alive])}
+        # per cast: the stored rows' span against the bolt's replay lifetime
+        per = []
+        for ct in sorted({r["cast_t_ms"] for r in rb}):
+            m = np.array([r["cast_t_ms"] == ct for r in rb])
+            ctr = ct - a
+            b = [x for x in bolts if ctr - 500 <= x["open_ms"] <= ctr + 6000]
+            fm = m & found
+            per.append({"cast_t_ms": round(ct, 1), "rows": int(m.sum()), "found": int(fm.sum()),
+                        "replay_bolt": bool(b),
+                        "bolt_open_after_cast_ms": round(b[0]["open_ms"] - ctr, 1) if b else None,
+                        "bolt_life_s": (round((b[0]["close_ms"] - b[0]["open_ms"]) / 1000.0, 3)
+                                        if b and b[0]["close_ms"] else None),
+                        "found_first_minus_open_ms": (round(float(t[fm].min() - lag - a - b[0]["open_ms"]), 1)
+                                                      if b and fm.any() else None),
+                        "found_last_minus_close_ms": (round(float(t[fm].max() - lag - a - b[0]["close_ms"]), 1)
+                                                      if b and fm.any() and b[0]["close_ms"] else None)})
+        out["recon_bolt"]["per_cast"] = per
+        out["recon_bolt"]["casts_with_replay_bolt"] = sum(p["replay_bolt"] for p in per)
+        L = [p["bolt_life_s"] for p in per if p["bolt_life_s"]]
+        out["recon_bolt"]["bolt_life_s"] = ra._stats(L, 3)
+        f0 = [p["found_first_minus_open_ms"] for p in per if p["found_first_minus_open_ms"] is not None]
+        f1 = [p["found_last_minus_close_ms"] for p in per if p["found_last_minus_close_ms"] is not None]
+        out["recon_bolt"]["found_first_minus_open_ms"] = ra._stats(f0, 1)
+        out["recon_bolt"]["found_last_minus_close_ms"] = ra._stats(f1, 1)
+    hf = [r for r in rows if r["ability"] == "Hunter's Fury"]
+    if hf:
+        t = np.array([r["t_ms"] for r in hf], float)
+        t_rep = rt._frames_to_replay(t, a, lag)
+        on = np.zeros(t.size, bool)
+        for u in my_ults:
+            on |= (t_rep >= u["on_ms"]) & (t_rep <= (u["off_ms"] or np.inf))
+        q = rp.sample(me, t_rep)
+        sx, sy = rt.to_px(mf, q["x"], q["y"])
+        fyaw = rt.facing_px_deg(mf, q["x"], q["y"], q["yaw"])
+        x0 = np.array([r["x0"] for r in hf]); y0 = np.array([r["y0"] for r in hf])
+        x1 = np.array([r["x1"] for r in hf]); y1 = np.array([r["y1"] for r in hf])
+        dx, dy = x1 - x0, y1 - y0
+        L = np.hypot(dx, dy)
+        perp = np.abs(dx * (sy - y0) - dy * (sx - x0)) / np.where(L > 0, L, np.nan)
+        th = np.mod(np.degrees(np.arctan2(dy, dx)), 180.0)
+        dth = np.abs(np.mod(th - np.mod(fyaw, 180.0) + 90.0, 180.0) - 90.0)
+        found = np.array([bool(r["found"]) for r in hf])
+        out["hunters_fury"] = {"rows": len(hf), "found": int(found.sum()),
+                               "rows_in_replay_ult": int(on.sum()),
+                               "found_outside_ult": int((found & ~on).sum()),
+                               "line_to_sova_px": ra._stats(perp[found & on]),
+                               "line_vs_view_yaw_deg": ra._stats(dth[found & on]),
+                               "ult_windows": len(my_ults)}
+    return out
+
+
+def _ra_labels(sid, rp, mf, a, lag, me, mine, my_ults, ex) -> dict:
+    """The player's tray-object marks and the glyph eval's labelled points
+    against the replay's actor of the named ability.
+
+    Owl Drone: the drone pawn's track, point error. Recon Bolt: the stuck bolt;
+    the player marked the bolt once and the ring round it otherwise
+    [domain:abilities/sova-recon-bolt-minimap-ring], so a mark within half the
+    ring's radius scores as a centre mark (distance to the bolt) and any other
+    as a ring mark (distance minus the stored descriptor's radius). Hunter's
+    Fury: the perpendicular distance to the line from Sova's replay position
+    along the view yaw, while the replay's ult is active."""
+    marks = []
+    for r in rt._rows(ra.STORE / "labels" / "tray_object" / f"{sid}.jsonl"):
+        for m in r.get("marks") or []:
+            marks.append((r["ability"], float(m["t_ms"]), float(m["x"]), float(m["y"])))
+    gi = ra.STORE / "analysis" / "minimap-glyphs-20261004" / "items.json"
+    glyph = []
+    if gi.is_file():
+        items = json.loads(gi.read_text(encoding="utf-8"))
+        for it in (items if isinstance(items, list) else items.get("items") or []):
+            if it.get("sid") == sid:
+                glyph.append((it["cat"].split(":")[-1].strip(), float(it["t_ms"]),
+                              float(it["x"]), float(it["y"])))
+    drones = mine.get("Pawn_Hunter_E_Drone_C", [])
+    bolts = mine.get("GameObject_Hunter_Q_SonarBolt_C", [])
+    ring_r = next((r["descriptor"]["radius_px"] for r in
+                   rt._rows(ra.STORE / "events" / "ability_shape" / f"{sid}.jsonl", '"Recon Bolt"')
+                   if r.get("kind") == "shape" and r.get("descriptor")), None)
+
+    def drone_px(t_rep):
+        for d in drones:
+            if d["open_ms"] <= t_rep <= (d["close_ms"] or np.inf):
+                tt, xx, yy = ex.pawn_track(d["guid"])
+                if tt.size < 2:
+                    return None
+                k = int(np.clip(np.searchsorted(tt, t_rep), 1, tt.size - 1))
+                if min(abs(tt[k] - t_rep), abs(tt[k - 1] - t_rep)) > rt.MAX_GAP_MS:
+                    return None
+                w = float(np.clip((t_rep - tt[k - 1]) / max(tt[k] - tt[k - 1], 1.0), 0, 1))
+                px, py = rt.to_px(mf, [xx[k - 1] * (1 - w) + xx[k] * w],
+                                  [yy[k - 1] * (1 - w) + yy[k] * w])
+                return float(px[0]), float(py[0])
+        return None
+
+    def bolt_px(t_rep):
+        for b in bolts:
+            if b["open_ms"] <= t_rep <= (b["close_ms"] or np.inf):
+                px, py = rt.to_px(mf, [b["xyz"][0]], [b["xyz"][1]])
+                return float(px[0]), float(py[0])
+        return None
+
+    def judge(ability, t_cap, x, y):
+        t_rep = t_cap - a - lag
+        ab = ability.lower()
+        if ab == "owl drone":
+            w = drone_px(t_rep)
+            return None if w is None else ("point", float(np.hypot(w[0] - x, w[1] - y)))
+        if ab == "recon bolt":
+            w = bolt_px(t_rep)
+            if w is None:
+                return None
+            d = float(np.hypot(w[0] - x, w[1] - y))
+            if ring_r is None or d <= ring_r / 2.0:
+                return ("centre", d)
+            return ("ring", d - float(ring_r))
+        if ab == "hunter's fury":
+            if not any(u["on_ms"] <= t_rep <= (u["off_ms"] or np.inf) for u in my_ults):
+                return None
+            q = rp.sample(me, [t_rep])
+            if not np.isfinite(q["x"][0]):
+                return None
+            sx, sy = rt.to_px(mf, q["x"], q["y"])
+            th = np.radians(rt.facing_px_deg(mf, q["x"], q["y"], q["yaw"])[0])
+            return ("line", float(abs(np.cos(th) * (y - sy[0]) - np.sin(th) * (x - sx[0]))))
+        return None
+
+    out = {"ring_radius_px": ring_r}
+    for name, rows in (("tray_object_marks", marks), ("glyph_eval_points", glyph)):
+        res = defaultdict(list)
+        unscored = Counter()
+        for ab, t, x, y in rows:
+            j = judge(ab, t, x, y)
+            if j is None:
+                unscored[ab] += 1
+                continue
+            res[f"{ab}|{j[0]}"].append(round(j[1], 2))
+        out[name] = {"n": len(rows), "unscored_no_replay_actor": dict(unscored),
+                     "err_px": {k: ra._stats(v) for k, v in sorted(res.items())}}
+    # the player's "nothing on the minimap" answers against the replay
+    nothing = []
+    for r in rt._rows(ra.STORE / "labels" / "tray_object" / f"{sid}.jsonl"):
+        if r.get("class") == "nothing_on_minimap":
+            t_rep = r["t_drop_s"] * 1000.0 - a
+            hit = {}
+            for k, v in mine.items():
+                for x in v:
+                    if t_rep - 1000 <= x["open_ms"] <= t_rep + 3000:
+                        hit[k] = (round(x["open_ms"] - t_rep, 1), None if x["close_ms"] is None
+                                  else round((x["close_ms"] - x["open_ms"]) / 1000.0, 3))
+            nothing.append({"ability": r["ability"], "t_drop_s": r["t_drop_s"],
+                            "replay_actors_open_after_drop_ms_life_s": hit})
+    out["nothing_on_minimap"] = nothing
+    return out
+
+
+def _ra_ults(sid, a, ults, agent, team, me) -> dict:
+    rows = [r for r in rt._rows(ra.STORE / "events" / "ult_cast" / f"{sid}.jsonl")
+            if r.get("kind") in ("cast", "refusal")]
+    side = {s: ("ally" if team.get(s) == team[me] else "enemy") for s in team}
+    tru = [(u["on_ms"] + a, f"{agent.get(u['subject'])}|{'own' if u['subject'] == me else side.get(u['subject'])}")
+           for u in ults]
+
+    def lab(r):
+        v = r.get("side") or r.get("variant")
+        v = "own" if v in ("own", "self") or r.get("player_cast") else v
+        return f"{r.get('agent') or r.get('template_agent')}|{v}"
+
+    casts = [r for r in rows if r["kind"] == "cast"]
+    det = [(float(r["t_ms"]), lab(r)) for r in casts]
+    # any agent and side: does a replay ult sit under each stored cast at all?
+    p_any = _ra_pair([d[0] for d in det], [t[0] for t in tru], ra.ULT_GATE_MS)
+    res = {"stored_casts": len(det), "replay_ults": len(tru),
+           "replay_by_label": dict(Counter(t[1] for t in tru)),
+           "stored_by_label": dict(Counter(d[1] for d in det)),
+           "by_label": _ra_cast_score(det, tru, ra.ULT_GATE_MS),
+           "paired_any_label": len(p_any),
+           "any_label_stored_minus_replay_ms": ra._stats([x[2] for x in p_any], 1)}
+    pl = _ra_pair([d[0] for d in det], [t[0] for t in tru], ra.ULT_GATE_MS)
+    res["paired_label_agrees"] = sum(det[i][1] == tru[j][1] for i, j, _ in pl)
+    pr = sum(v["paired"] for v in res["by_label"].values())
+    res["paired_same_label"] = pr
+    res["recall"] = round(pr / len(tru), 4) if tru else None
+    res["precision"] = round(pr / len(det), 4) if det else None
+    # refusals: was a replay ult of the template's agent near?
+    rf = Counter()
+    for r in rows:
+        if r["kind"] != "refusal":
+            continue
+        ag = r.get("template_agent")
+        hit = any(abs(t[0] - float(r["t_ms"])) <= ra.ULT_GATE_MS and t[1].split("|")[0] == ag for t in tru)
+        rf[(r.get("reason"), "replay_ult_of_agent" if hit else "no_replay_ult_of_agent")] += 1
+    res["refusals"] = {f"{k[0]}|{k[1]}": v for k, v in sorted(rf.items(), key=str)}
+    return res
+
+
+def _ra_planted(sid, rp, mf, a, lag, ex) -> dict:
+    """Dropped-or-planted spike glyphs against the planted spike (`TimedBomb_C`)."""
+    bombs = ex.instances(class_short="TimedBomb_C")
+    gx, gy, gt = [], [], []
+    for r in rt._rows(ra.STORE / "events" / "spike" / f"{sid}.jsonl", '"kind":"frame"'):
+        if r.get("reason") is not None:
+            continue
+        for g in r.get("glyphs") or []:
+            if g.get("reason") is None and g.get("state") == "dropped":
+                gx.append(g["cx"]); gy.append(g["cy"]); gt.append(r["t_ms"])
+    if not gt:
+        return {"refused": "no_dropped_glyphs"}
+    t_rep = rt._frames_to_replay(np.array(gt, float), a, lag)
+    X, Y = _ra_bolt_truth(bombs, t_rep)
+    PX, PY = rt.to_px(mf, X, Y)
+    D = np.hypot(PX - np.array(gx)[:, None], PY - np.array(gy)[:, None])
+    alive = np.isfinite(D).any(axis=1)
+    dmin = np.where(alive, np.nanmin(np.where(np.isfinite(D), D, np.inf), axis=1), np.nan)
+    # frames where the replay has a planted spike: how many carry a dropped glyph
+    grid = sorted({r["t_ms"] for r in rt._rows(ra.STORE / "events" / "spike" / f"{sid}.jsonl", '"kind":"frame"')
+                   if r.get("reason") is None})
+    g_rep = rt._frames_to_replay(np.array(grid, float), a, lag)
+    Xg, _ = _ra_bolt_truth(bombs, g_rep)
+    planted_frames = np.isfinite(Xg).any(axis=1)
+    have = set(np.round(gt, 1).tolist())
+    with_glyph = np.array([round(t, 1) in have for t in grid])
+    return {"plants": len(bombs), "dropped_glyphs": len(gt),
+            "glyphs_while_planted": int(alive.sum()),
+            "glyph_err_px_while_planted": ra._stats(dmin[alive]),
+            "planted_frames": int(planted_frames.sum()),
+            "planted_frames_with_glyph": int((planted_frames & with_glyph).sum())}
+
+
+def record_replay_abilities(s: dict) -> list[str]:
+    """`replay_abilities_score`'s values in the `replay_abilities` series,
+    part `score`, as `replay_abilities score --record` wrote them."""
+    from reticle import metrics
+    v = {}
+    for ab, x in s["tray_drop"]["casts"].items():
+        k = re.sub(r"[^a-z]", "_", str(ab).lower())
+        v[f"tray_{k}_paired"] = x["paired"]
+        v[f"tray_{k}_replay"] = x["replay"]
+        v[f"tray_{k}_false"] = x["false"]
+        if x["stored_minus_replay_ms"]:
+            v[f"tray_{k}_dt_ms_median"] = x["stored_minus_replay_ms"]["median"]
+    for ab, x in s["ability_state"]["cast_verdicts"].items():
+        k = re.sub(r"[^a-z]", "_", str(ab).lower())
+        v[f"state_{k}_paired"] = x["paired"]
+        v[f"state_{k}_replay"] = x["replay"]
+    rb = s["ability_shape"].get("recon_bolt") or {}
+    for k in ("rows", "found", "rows_with_bolt_alive", "found_with_bolt", "found_without_bolt",
+              "not_found_with_bolt", "recall_rows", "replay_bolts_of_player", "casts_with_replay_bolt"):
+        v[f"rb_{k}"] = rb.get(k)
+    v["rb_err_px_median"] = (rb.get("found_centre_err_px") or {}).get("median")
+    v["rb_err_px_p90"] = (rb.get("found_centre_err_px") or {}).get("p90")
+    v["rb_bolt_life_s_median"] = (rb.get("bolt_life_s") or {}).get("median")
+    hf = s["ability_shape"].get("hunters_fury") or {}
+    v["hf_line_to_sova_px_median"] = (hf.get("line_to_sova_px") or {}).get("median")
+    v["hf_angle_deg_median"] = (hf.get("line_vs_view_yaw_deg") or {}).get("median")
+    u = s["ult_cast"]
+    v.update({"ult_stored": u["stored_casts"], "ult_replay": u["replay_ults"],
+              "ult_paired_same_label": u["paired_same_label"], "ult_paired_any": u["paired_any_label"],
+              "ult_recall": u["recall"], "ult_precision": u["precision"],
+              "ult_dt_ms_median": (u["any_label_stored_minus_replay_ms"] or {}).get("median")})
+    lb = s["labels"]
+    for name, short in (("glyph_eval_points", "glyph"), ("tray_object_marks", "marks")):
+        for k, st in (lb[name]["err_px"] or {}).items():
+            key = re.sub(r"[^a-z]", "_", k.lower())
+            v[f"{short}_{key}_n"] = (st or {}).get("n")
+            v[f"{short}_{key}_px_median"] = (st or {}).get("median")
+    pl = s["spike"].get("planted") or {}
+    v["planted_glyph_err_px_median"] = (pl.get("glyph_err_px_while_planted") or {}).get("median")
+    v["planted_frames"] = pl.get("planted_frames")
+    v["planted_frames_with_glyph"] = pl.get("planted_frames_with_glyph")
+    metrics.record("replay_abilities", part="score", session=s["session"], values=v,
+                   deps={"replay_abilities": ra.REPLAY_ABILITIES_VERSION, "vrfkit": rt.VRFKIT_VERSION,
+                         "minimap_lag_ms": rg.MINIMAP_LAG_MS, "cast_gate_ms": ra.CAST_GATE_MS,
+                         "ult_gate_ms": ra.ULT_GATE_MS})
+    return [f"[metric:replay_abilities/score#{k}={x}]" for k, x in v.items()]
+
+
+
+# ----------------------------------------------------------------- step 9: the replay scorers' finds, every entity
+
+#: What each `replay_score` phantom claims: a teammate observation claims a
+#: teammate (or the player), an enemy icon an enemy player.
+REPLAY_CLAIMS = {"teammate": ("player_ally", "player_self"), "enemy": ("player_enemy",)}
+#: Why the class-aware blocks leave a find out, printed beside the counts.
+REPLAY_LEFT_OUT = {
+    "off_grid": "the find's frame joins no live grid sample (outside live play or the capture's spans)",
+    "spike_not_planted": "a dropped spike glyph while no planted spike lives: the spike item "
+                         f"(BombEquippable_C) is not joined: {NOT_JOINED['BombEquippable_C']}",
+    "spike_carried": "a carried spike glyph rides its carrier; the spike item is not joined",
+    "shape_line": "a Hunter's Fury beam is a line, not a point; `hunters_fury` scores it",
+}
+
+
+def _norm(s) -> str:
+    return "".join(ch for ch in str(s).lower() if ch.isalnum())
+
+
+def _live_rounds(M) -> list:
+    """The rounds holding a live grid sample (`enemy_lane_check.live_samples`)."""
+    import enemy_lane_check as elc
+    live, _ = elc.live_samples(M)
+    return sorted({int(r) for r in np.asarray(M.G_round)[live]})
+
+
+def _class_block(rows: list, rec: dict, rounds: list, census: dict, extra: dict) -> dict:
+    rounds = sorted(set(rounds) | {r["round"] for r in rows})
+    doc, per = _step_summary(rows, rec, rounds, census, extra)
+    return {"rows": rows, "classes": doc, "_per": per}
+
+
+def _grid_finds(M, to_cm, t_cap, px, py, claim, meta, keep=None) -> tuple[dict, np.ndarray, np.ndarray, int]:
+    """Finds at stream frames `t_cap` on T1d's grid (`_frames_on_grid`):
+    the finds, every frame's sample and replay time, and how many of the
+    kept frames join no sample."""
+    t_cap = np.asarray(t_cap, float)
+    keep = np.ones(t_cap.size, bool) if keep is None else np.asarray(keep, bool)
+    k, trep = _frames_on_grid(M, t_cap, np.ones(t_cap.size, bool))
+    i = np.flatnonzero(keep & (k >= 0))
+    F = _finds(k[i], t_cap[i], trep[i], np.asarray(px, float)[i], np.asarray(py, float)[i], to_cm,
+               [claim[j] for j in i], [meta[j] for j in i])
+    return F, k, trep, int((keep & (k < 0)).sum())
+
+
+def replay_classes(sid: str, s: dict) -> dict:
+    """Step 9: `replay_score`'s phantoms against every replay entity.
+
+    `replay_score` calls an observation a phantom when no living player of
+    its claimed side lies within 8 m (one to one, players only). Here each
+    phantom (a `round_entity` teammate observation, a `minimap_object` enemy
+    icon) joins every replay entity at its frame's grid sample
+    (`_join_entities`) and takes its outcome (`claim_outcome`): a phantom on
+    another real entity is that entity's, on nothing `nothing_there`, on an
+    unmapped actor a named coverage gap."""
+    ctx = _truth_ctx(sid)
+    M = ctx["M"]
+    to_cm = _to_cm(sid)
+    rounds = _live_rounds(M)
+    G_last, raw = None, {}
+    for name, fams in REPLAY_CLAIMS.items():
+        ph = s["_finds"][name]
+        n = int(np.asarray(ph["t_cap"]).size)
+        fam = ph.get("family")
+        meta = [{"frame_idx": int(ph["frame_idx"][i]), **({"obs_family": str(fam[i])} if fam is not None else {})}
+                for i in range(n)]
+        F, _k, _t, off = _grid_finds(M, to_cm, ph["t_cap"], ph["px"], ph["py"], [None] * n, meta)
+        rows, G_ = _score_finds(ctx, F, claimed=lambda d, fams=fams: d["family"] in fams,
+                                near_side="enemy" if name == "enemy" else "ally")
+        raw[name] = (rows, n, off)
+        G_last = G_
+    census = _session_census(ctx, G_last)
+    out = {}
+    for name, (rows, n, off) in raw.items():
+        out[name] = _class_block(rows, {}, rounds, census, {"phantoms": n, "left_out": {"off_grid": off}})
+    return out
+
+
+def replay_ability_classes(sid: str) -> dict:
+    """Step 9: the point finds of the streams `replay_abilities_score` reads,
+    against every replay entity.
+
+    * `shape`: each found `ability_shape` ring centre at its frame, claiming
+      a child of the ability the shape names (`right_entity:name_right` on
+      that ability's child, `name_wrong` on another ability's child); recall
+      of the player's own children of those abilities over the samples of
+      every shape row (the stream reads only after a cast);
+    * `spike`: each dropped spike glyph of a read `spike` frame while a
+      planted spike (`TimedBomb_C`) lives, claiming the spike; recall of the
+      planted spike over the read frames. Dropped glyphs with no planted
+      spike and carried glyphs are counted apart (`REPLAY_LEFT_OUT`)."""
+    ctx = _truth_ctx(sid)
+    M = ctx["M"]
+    to_cm = _to_cm(sid)
+    rounds = _live_rounds(M)
+    ri = {r: i for i, r in enumerate(rounds)}
+    C = M.tl0.children.cols
+    G0 = _empty_join(ctx)
+    out = {}
+
+    # shapes
+    sh = sorted((r for r in (_stream(sid, "ability_shape", '"shape"') or []) if r.get("kind") == "shape"),
+                key=lambda r: r["t_ms"])
+    pt = [r for r in sh if r.get("cx") is not None]
+    t = np.array([r["t_ms"] for r in pt], float)
+    found = np.array([bool(r.get("found")) for r in pt], bool)
+    F, k_all, trep_all, off = _grid_finds(M, to_cm, t, [r["cx"] for r in pt], [r["cy"] for r in pt],
+                                          [_norm(r["ability"]) for r in pt],
+                                          [{"ability": r["ability"], "cast_t_ms": r.get("cast_t_ms")} for r in pt],
+                                          keep=found)
+    rows, G_ = _score_finds(ctx, F, claimed=lambda d: d["kind"] == "child" and str(d["family"]).startswith("ability_"),
+                            name_of=lambda d: _norm(d["ability"]), near_side="ally")
+    abil = {_norm(r["ability"]) for r in pt}
+    sel = np.array([s_ is not None and s_ == M.me and _norm(a_) in abil
+                    for s_, a_ in zip(C["subject"], C["ability"])], bool)
+    on = k_all >= 0
+    rec = _recall_children(M, G_, k_all[on], trep_all[on], sel, _assigned(rows, G_, "child"), ri, len(rounds),
+                           key_of=lambda d: f"{d['key']} ({d['entity_class']})") if on.any() else {}
+    out["shape"] = (rows, rec, {"shape_rows": len(sh), "point_rows": len(pt), "found": int(found.sum()),
+                                "abilities": sorted({r["ability"] for r in pt}),
+                                "left_out": {"off_grid": off, "shape_line": len(sh) - len(pt)},
+                                "stamps": [_stream_stamp(sid, "ability_shape")]})
+
+    # the planted spike
+    planted = np.flatnonzero(G0["joinable"] & (C["cls"].astype(str) == "TimedBomb_C"))
+    fr = sorted((r for r in (_stream(sid, "spike", '"kind":"frame"') or [])
+                 if r.get("kind") == "frame" and r.get("reason") is None), key=lambda r: r["t_ms"])
+    tf = np.array([r["t_ms"] for r in fr], float)
+    gt, gx, gy, gm = [], [], [], []
+    carried = 0
+    for r in fr:
+        for g in r.get("glyphs") or []:
+            if g.get("reason") is not None:
+                continue
+            if g.get("state") == "dropped":
+                gt.append(r["t_ms"])
+                gx.append(g["cx"])
+                gy.append(g["cy"])
+                gm.append({"state": "dropped"})
+            elif g.get("state") == "carried":
+                carried += 1
+    gt = np.array(gt, float)
+    g_rep = np.asarray(M.to_rep(gt, rt.REMOTE_LAG_MS), float) if gt.size else np.zeros(0)
+    in_plant = np.zeros(gt.size, bool)
+    for c in planted:
+        in_plant |= (g_rep >= G0["lo"][c] - WINDOW_MS) & (g_rep <= G0["hi"][c] + WINDOW_MS)
+    F, _k, _t, off = _grid_finds(M, to_cm, gt, gx, gy, [None] * gt.size, gm, keep=in_plant)
+    rows, G_ = _score_finds(ctx, F, claimed=lambda d: d["family"] == "spike", near_side="ally")
+    k_f, trep_f = _frames_on_grid(M, tf, np.ones(tf.size, bool))
+    on = k_f >= 0
+    sel = np.isin(np.arange(C["cls"].size), planted)
+    rec = _recall_children(M, G_, k_f[on], trep_f[on], sel, _assigned(rows, G_, "child"), ri, len(rounds),
+                           key_of=lambda d: d["key"]) if on.any() and planted.size else {}
+    out["spike"] = (rows, rec, {"dropped_glyphs": int(gt.size), "planted_spikes": int(planted.size),
+                                "left_out": {"off_grid": off, "spike_not_planted": int((~in_plant).sum()),
+                                             "spike_carried": carried},
+                                "stamps": [_stream_stamp(sid, "spike")]})
+    census = _session_census(ctx, G_)
+    return {name: _class_block(rows, rec, rounds, census, extra) for name, (rows, rec, extra) in out.items()}
+
+
+def _pool_blocks(res: list[dict], key: str = "blocks") -> dict:
+    """Each block pooled over the sessions holding it (`_pool_classes`)."""
+    names = sorted({n for r in res for n in (r.get(key) or {})})
+    pooled = {}
+    for name in names:
+        have = [r for r in res if name in (r.get(key) or {})]
+        if len(have) > 1:
+            pooled[name] = _pool_classes([{"session": r["session"], "classes": r[key][name]["classes"]}
+                                          for r in have], [{"classes": r[key][name]["_per"]} for r in have])
+            pooled[name]["left_out"] = dict(sum((Counter(r[key][name]["classes"].get("left_out") or {})
+                                                 for r in have), Counter()))
+    return pooled
+
+
+def _print_blocks(scope: str, blocks: dict) -> None:
+    for name, b in blocks.items():
+        c = b["classes"] if "classes" in b else b
+        print(f"   {scope} {name}: left out {c.get('left_out')} "
+              + " ".join(f"{k}={c[k]}" for k in ("phantoms", "found", "dropped_glyphs", "planted_spikes")
+                         if k in c), flush=True)
+        _print_classes(f"{scope} {name}", c, fa=False)
+
+
+def _write_blocks(sub: str, sid: str, blocks: dict) -> None:
+    d = OUT / "steps" / sub
+    d.mkdir(parents=True, exist_ok=True)
+    with open(d / f"{sid}.jsonl", "w", encoding="utf-8") as f:
+        for name, b in blocks.items():
+            for row in b["rows"]:
+                f.write(json.dumps({"block": name, **row}, default=str) + "\n")
+
+
+def run_replay_score(sessions: list[str], geometry: Path | None, legacy_out: str | None, record: bool,
+                     record_score: bool) -> int:
+    """`replay-score`: `replay_score` per session, its phantoms against every
+    replay entity on the development matches (`replay_classes`), pooled with
+    round-bootstrap intervals. The report goes to `OUT/replay/SESSION.json`;
+    `--legacy-out NAME` also writes the report alone where `replay_truth
+    score` wrote it (`replay_truth.ANALYSIS`)."""
+    for sid in sessions:
+        if sid == tr.HELD_OUT:
+            raise SystemExit(f"{sid}: the held-out match is never read by this harness")
+    res = []
+    for sid in sessions:
+        t0 = time.perf_counter()
+        s = replay_score(sid, geometry, finds=True)
+        fi = s.pop("_finds", None)
+        if legacy_out:
+            rt.ANALYSIS.mkdir(parents=True, exist_ok=True)
+            name = legacy_out if len(sessions) == 1 else f"{sid}_{legacy_out}"
+            (rt.ANALYSIS / name).write_text(json.dumps(s, indent=1, default=rt._default), encoding="utf-8")
+        why = ("refused: " + str(s["refused"]) if "refused" in s else
+               "neither a development match nor a 2026-10-07 replay capture" if sid not in SCORED else
+               "--geometry: the truth join reads the session's own geometry" if geometry else None)
+        blocks = {} if why else replay_classes(sid, {"_finds": fi})
+        _print_replay(sid, s)
+        _print_blocks(sid, blocks)
+        if why:
+            print(f"   {sid} class-aware blocks: {why}", flush=True)
+        _write_blocks("replay", sid, blocks)
+        doc = {"session": sid, "version": VERSION, "report": s, "classes_refused": why,
+               "classes": {n: b["classes"] for n, b in blocks.items()}, "secs": round(time.perf_counter() - t0, 1)}
+        (OUT / "replay").mkdir(parents=True, exist_ok=True)
+        (OUT / "replay" / f"{sid}.json").write_text(json.dumps(doc, indent=1, default=rt._default), encoding="utf-8")
+        if record_score and "refused" not in s:
+            print("\n".join(record_replay_score(s)), flush=True)
+        res.append({"session": sid, "blocks": blocks})
+    pooled = _pool_blocks(res)
+    if pooled:
+        _print_blocks("pooled", {n: {"classes": c} for n, c in pooled.items()})
+    _finish_blocks("replay", sessions, res, pooled, record,
+                   note="replay_score's phantoms (round_entity teammates, minimap_object enemies with no living "
+                        "player of the claimed side within 8 m) against every replay entity")
+    return 0
+
+
+def _print_replay(sid: str, s: dict) -> None:
+    """`replay_score`'s headline, as a line per block."""
+    if "refused" in s:
+        print(f"{sid} replay_score refused: {s['refused']}", flush=True)
+        return
+    T, E = s["teammates"], s["enemies"]
+    print(f"{sid} replay_score ({rt.REPLAY_TRUTH_VERSION}): frames {s['frames']['scored']}; teammates recall "
+          f"{T['pooled']['recall']} phantoms {T['pooled']['phantom']} ({T['pooled']['phantom_share']}); self recall "
+          f"{s['self']['recall']}; enemy icons {E.get('icons')} phantoms {E.get('phantom')} "
+          f"({E.get('phantom_share')}); names agreement {T['names']['agreement']}", flush=True)
+
+
+def _finish_blocks(sub: str, sessions: list[str], res: list[dict], pooled: dict, record: bool, note: str) -> None:
+    doc = {"step": sub, "version": VERSION, "boot": f"{tr.N_BOOT} round resamples, seed {tr.SEED}",
+           "left_out_reasons": REPLAY_LEFT_OUT,
+           "sessions": {r["session"]: {n: b["classes"] for n, b in (r.get("blocks") or {}).items()} for r in res},
+           "pooled": pooled}
+    name = f"step_{sub}" + ("" if sorted(sessions) == sorted(DEV) else "_" + "_".join(sessions))
+    (OUT / f"{name}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+    if record:
+        from reticle.metrics import record as rec
+        scopes = [(sid, b) for sid, b in doc["sessions"].items() if b]
+        if pooled:
+            scopes.append((_pool_name(sessions), pooled))
+        for scope, blocks in scopes:
+            vals, ci = {}, {}
+            for bn, c in blocks.items():
+                vals[f"{bn}_finds"] = c["finds"]
+                for o in CLASS_OUTCOMES:
+                    vals[f"{bn}_{o}"] = c["outcomes"][o]
+                    if c.get("outcomes_ci", {}).get(o) is not None:
+                        ci[f"{bn}_{o}"] = c["outcomes_ci"][o]
+                for lb, v in c["labels"].items():
+                    if v >= 5 or lb.startswith("right_entity"):
+                        nm = f"{bn}_{_metric_name(lb)}"
+                        vals[nm] = v
+                        if lb in c.get("labels_ci", {}):
+                            ci[nm] = c["labels_ci"][lb]
+                for k, v in c["recall"].items():
+                    nm = f"{bn}_recall_{_metric_name(k)}"
+                    vals[nm] = v["value"]
+                    ci[nm] = v["ci"]
+                    vals[nm + "_den"] = v["den"]
+                for k, v in (c.get("left_out") or {}).items():
+                    vals[f"{bn}_left_out_{k}"] = v
+            rec("question_acceptance", part=sub, session=scope, values=vals, ci=ci,
+                deps={"version": VERSION, "rule": "T1d", "window_ms": WINDOW_MS, "near_cm": NEAR_CM,
+                      "ambig_cm": AMBIG_CM, "life_tail_ms": LIFE_TAIL_MS,
+                      "replay_truth": rt.REPLAY_TRUTH_VERSION},
+                context={"task": TASK9, "boot": doc["boot"], "sessions": sessions},
+                note=note)
+
+
+def run_replay_abilities(sessions: list[str], legacy_out: bool, record: bool, record_score: bool) -> int:
+    """`replay-abilities`: `replay_abilities_score` per session and its point
+    finds against every replay entity (`replay_ability_classes`) on the
+    development matches. The report goes to `OUT/replay_abilities/SESSION.json`;
+    `--legacy-out` also writes it where `replay_abilities score` wrote it
+    (`replay_abilities.ANALYSIS`)."""
+    for sid in sessions:
+        if sid == tr.HELD_OUT:
+            raise SystemExit(f"{sid}: the held-out match is never read by this harness")
+    res = []
+    for sid in sessions:
+        t0 = time.perf_counter()
+        s = replay_abilities_score(sid)
+        if legacy_out:
+            ra.ANALYSIS.mkdir(parents=True, exist_ok=True)
+            (ra.ANALYSIS / f"{sid}.json").write_text(json.dumps(s, indent=1, default=rt._default), encoding="utf-8")
+        why = ("refused: " + str(s["refused"]) if "refused" in s else
+               "neither a development match nor a 2026-10-07 replay capture" if sid not in SCORED else None)
+        blocks = {} if why else replay_ability_classes(sid)
+        if "refused" in s:
+            print(f"{sid} replay_abilities_score refused: {s['refused']}", flush=True)
+        else:
+            u = s["ult_cast"]
+            print(f"{sid} replay_abilities_score ({ra.REPLAY_ABILITIES_VERSION}): tray casts "
+                  f"{ {k: (v['paired'], v['replay']) for k, v in s['tray_drop']['casts'].items()} }; ult recall "
+                  f"{u['recall']} precision {u['precision']}; spike planted {s['spike'].get('planted')}", flush=True)
+        _print_blocks(sid, blocks)
+        if why:
+            print(f"   {sid} class-aware blocks: {why}", flush=True)
+        _write_blocks("replay_abilities", sid, blocks)
+        doc = {"session": sid, "version": VERSION, "report": s, "classes_refused": why,
+               "classes": {n: b["classes"] for n, b in blocks.items()}, "secs": round(time.perf_counter() - t0, 1)}
+        (OUT / "replay_abilities").mkdir(parents=True, exist_ok=True)
+        (OUT / "replay_abilities" / f"{sid}.json").write_text(json.dumps(doc, indent=1, default=rt._default),
+                                                             encoding="utf-8")
+        if record_score and "refused" not in s:
+            print("\n".join(record_replay_abilities(s)), flush=True)
+        res.append({"session": sid, "blocks": blocks})
+    pooled = _pool_blocks(res)
+    if pooled:
+        _print_blocks("pooled", {n: {"classes": c} for n, c in pooled.items()})
+    _finish_blocks("replay_abilities", sessions, res, pooled, record,
+                   note="ability_shape ring centres and dropped spike glyphs while planted against every replay entity")
+    return 0
+
+
+# ----------------------------------------------------------------- step 9: the enemy error budget
+
+#: The budget's class-aware extras: an extra starts from the entity
+#: `truth_under` puts under it. Only where that entity is an enemy player
+#: (undrawn, or 3 to 8 m off) does the players-only split refine it.
+BUDGET_REFINED = {"undrawn_truth": "vu_", "nothing_there:enemy_3_8m": "e38_"}
+
+
+def budget_class(old_cls: str, label: str) -> str:
+    """An extra's class-aware cause: its `truth_under` label, refined by the
+    players-only class where the label names an enemy player
+    (`BUDGET_REFINED`), with the old class kept beside it otherwise."""
+    for lead, pre in BUDGET_REFINED.items():
+        if label == lead:
+            return f"{label}:{old_cls}" if old_cls.startswith(pre) else f"{label}:other:{old_cls}"
+    if label.startswith("right_entity"):
+        return f"{label}:{old_cls}"
+    return label
+
+
+def _budget_tables(C: dict, sessions: list[str], key: str, orders: dict, quiet: bool = False) -> dict:
+    """The budget's Pareto tables per match and pooled, as
+    `enemy_error_budget.budget` builds them: per class the count and share
+    with 95% intervals from a bootstrap over rounds, stratified by match
+    (`enemy_error_budget._boot`), rows by count, the cumulative share."""
+    import enemy_error_budget as eb
+    tables = {}
+    scopes = [(sid, [sid]) for sid in sessions] + ([("pooled", sessions)] if len(sessions) > 1 else [])
+    for scope, sids in scopes:
+        tables[scope] = {}
+        for st, order in orders.items():
+            rounds = {s: sorted({f["round"] for f in C[s]}) for s in sids}
+            ri = {s: {r: i for i, r in enumerate(rounds[s])} for s in sids}
+            den = {s: np.zeros(len(rounds[s])) for s in sids}
+            cnt = {c: {s: np.zeros(len(rounds[s])) for s in sids} for c in order}
+            for s in sids:
+                for f in C[s]:
+                    if f["set"] == st:
+                        den[s][ri[s][f["round"]]] += 1
+                        cnt[f[key]][s][ri[s][f["round"]]] += 1
+            N = int(sum(d.sum() for d in den.values()))
+            rows = []
+            for c in order:
+                n = int(sum(v.sum() for v in cnt[c].values()))
+                ci_n, ci_s = eb._boot(rounds, cnt[c], den)
+                rows.append({"cls": c, "n": n, "share": round(n / N, 4) if N else None,
+                             "n_ci": ci_n, "share_ci": ci_s})
+            rows.sort(key=lambda r: -r["n"])
+            cum = 0
+            for r in rows:
+                cum += r["n"]
+                r["cum_share"] = round(cum / N, 4) if N else None
+            tables[scope][st] = {"total": N, "rows": rows}
+            if not quiet:
+                print(f"\n{scope} {key} {st}: {N}", flush=True)
+                for r in rows:
+                    if r["n"]:
+                        print(f"  {r['cls']:64s} {r['n']:5d} [{r['n_ci'][0]:4d},{r['n_ci'][1]:4d}] "
+                              f"{r['share']:7.3f} [{r['share_ci'][0]:.3f},{r['share_ci'][1]:.3f}] "
+                              f"{r['cum_share']:6.3f}", flush=True)
+    return tables
+
+
+def _lane_rows(tag: str, sid: str) -> dict:
+    """The lane's class-aware rows (`lane`'s `classes_SESSION.jsonl`, this
+    version's), by (sample, frame, icon px)."""
+    docs = [OUT / f"lane_{tag}.json", OUT / f"lane_{tag}_{sid}.json"]
+    ok = False
+    for p in docs:
+        if p.is_file():
+            d = json.loads(p.read_text(encoding="utf-8"))
+            if d.get("version") == VERSION and sid in (d.get("sessions") or {}):
+                ok = True
+    if not ok:
+        raise SystemExit(f"{sid} {tag}: no {VERSION} lane run holds this session; run `lane --tag {tag}` first")
+    out = {}
+    with open(OUT / tag / f"classes_{sid}.jsonl", encoding="utf-8") as f:
+        for ln in f:
+            r = json.loads(ln)
+            key = (int(r["k"]), int(r["frame_idx"]), round(r["icon_px"][0], 1), round(r["icon_px"][1], 1))
+            out.setdefault(key, []).append(r)
+    return out
+
+
+def run_budget(tag: str, sessions: list[str], record: bool, rewrite: bool = False) -> int:
+    """`budget --tag TAG`: the enemy lane's error budget, class-aware.
+
+    Misses keep the players-only classes (`enemy_error_budget.MISS_ORDER`:
+    a T1d-drawn enemy is one entity already). Each extra starts from the
+    entity `truth_under` puts under it (the lane run's class rows), then the
+    players-only class refines only an enemy-player label (`budget_class`).
+    The players-only budget is the control: recomputed from the stored
+    features, it must equal the stored `enemy_error_budget` tables and
+    classed rows; it is rewritten there only when they are absent, or with
+    `--rewrite`."""
+    import enemy_error_budget as eb
+    C, ctl = {}, {}
+    for sid in sessions:
+        tr.refuse(sid)
+        C[sid] = eb.classify(eb._load_feats(tag, sid))
+        sc = json.loads((eb.SRC / tag / f"score_{sid}.json").read_text(encoding="utf-8"))
+        got = Counter(f["set"] for f in C[sid])
+        if got["miss"] != sc["misses"] or got["extra"] != sc["extras"]:
+            raise SystemExit(f"{sid} {tag}: classed {got['miss']} misses and {got['extra']} extras against "
+                             f"the scorer's {sc['misses']} and {sc['extras']}")
+        stored = eb.OUT / tag / f"classed_{sid}.jsonl"
+        if stored.is_file():
+            old = [json.loads(ln) for ln in stored.open(encoding="utf-8")]
+            ctl[sid] = {"rows": len(C[sid]), "stored_rows": len(old),
+                        "rows_equal": old == C[sid]}
+        else:
+            ctl[sid] = {"rows": len(C[sid]), "stored_rows": None, "rows_equal": None}
+        lab = _lane_rows(tag, sid)
+        joined = Counter()
+        for f in C[sid]:
+            if f["set"] != "extra":
+                f["cls_ca"] = f["cls"]
+                continue
+            key = (int(f["k"]), int(f["frame_idx"]), round(f["icon_px"][0], 1), round(f["icon_px"][1], 1))
+            hits = lab.get(key) or []
+            if not hits:
+                raise SystemExit(f"{sid} {tag}: extra k={f['k']} at {f['icon_px']} joins no lane row")
+            u = hits.pop(0)          # two icons at one place in one frame: one row each, in order
+            joined[u["outcome"]] += 1
+            f["truth_under"] = u["label"]
+            f["truth_entity"] = {k: u[k] for k in ("entity_id", "entity_class", "family", "agent", "ability",
+                                                   "dist_m", "derivation")}
+            f["cls_ca"] = budget_class(f["cls"], u["label"])
+        ctl[sid]["extras_by_truth_outcome"] = dict(joined)
+    orders_old = {"miss": list(eb.MISS_ORDER), "extra": list(eb.EXTRA_ORDER)}
+    old_t = _budget_tables(C, sessions, "cls", orders_old, quiet=True)
+    stored_b = eb.OUT / tag / ("budget.json" if len(sessions) > 1 else f"budget_{sessions[0]}.json")
+    if stored_b.is_file():
+        sb = json.loads(stored_b.read_text(encoding="utf-8"))
+        ctl["tables_equal"] = sb.get("tables") == old_t
+    else:
+        ctl["tables_equal"] = None
+    print(f"players-only control (enemy_error_budget {eb.VERSION}): {json.dumps(ctl)}", flush=True)
+    if (ctl["tables_equal"] is None or rewrite) and ctl["tables_equal"] is not True:
+        eb.budget(tag, sessions, record=False)
+    elif ctl["tables_equal"] is False:
+        print(f"   the stored players-only budget differs and is kept ({stored_b}); --rewrite replaces it",
+              flush=True)
+    classes = sorted({f["cls_ca"] for s in sessions for f in C[s] if f["set"] == "extra"})
+    new_t = _budget_tables(C, sessions, "cls_ca", {"extra": classes})
+    for scope, tb in new_t.items():
+        tb["miss"] = old_t[scope]["miss"]
+    cross = {s: dict(Counter(f"{f['cls']}|{f['cls_ca']}" for f in C[s] if f["set"] == "extra").most_common())
+             for s in sessions}
+    res = {"version": VERSION, "budget_version": eb.VERSION, "tag": tag, "sessions": sessions,
+           "rule": "extras start from truth_under (the lane's class rows); misses keep the players-only classes",
+           "refined": BUDGET_REFINED, "boot": f"{eb.N_BOOT} round resamples within each match, seed {eb.SEED}",
+           "control": ctl, "tables": new_t, "players_only_tables": old_t, "old_x_new": cross}
+    d = OUT / tag / "budget"
+    d.mkdir(parents=True, exist_ok=True)
+    for sid in sessions:
+        with open(d / f"classed_{sid}.jsonl", "w", encoding="utf-8") as fh:
+            for f in C[sid]:
+                if f["set"] != "hit":
+                    fh.write(json.dumps(f) + "\n")
+    name = "budget.json" if sorted(sessions) == sorted(DEV) else f"budget_{'_'.join(sessions)}.json"
+    (d / name).write_text(json.dumps(res, indent=1), encoding="utf-8")
+    print(f"\n-> {d / name}", flush=True)
+    if record:
+        from reticle.metrics import record as rec
+        for scope, tb in new_t.items():
+            vals, ci = {"extra_total": tb["extra"]["total"], "miss_total": tb["miss"]["total"]}, {}
+            for r in tb["extra"]["rows"]:
+                if r["n"]:
+                    nm = "extra_" + _metric_name(r["cls"])
+                    vals[nm] = r["n"]
+                    vals[nm + "_share"] = r["share"]
+                    ci[nm] = r["n_ci"]
+                    ci[nm + "_share"] = r["share_ci"]
+            ctl_rows = []
+            if scope != "pooled" and ctl[scope]["rows_equal"] is not None:
+                ctl_rows.append({"name": "players-only classed rows equal the stored enemy_error_budget rows",
+                                 "observed": int(ctl[scope]["rows_equal"]), "expected": 1, "tol": 0})
+            if scope == "pooled" and ctl["tables_equal"] is not None:
+                ctl_rows.append({"name": "players-only tables equal the stored enemy_error_budget tables",
+                                 "observed": int(ctl["tables_equal"]), "expected": 1, "tol": 0})
+            rec("question_acceptance", part=f"budget/{tag}", session=scope if scope != "pooled" else "dev3",
+                values=vals, ci=ci, controls=ctl_rows,
+                deps={"version": VERSION, "budget_version": eb.VERSION, "rule": "T1d", "near_cm": NEAR_CM,
+                      "window_ms": WINDOW_MS, "ambig_cm": AMBIG_CM, "refined": BUDGET_REFINED},
+                context={"task": TASK9, "boot": res["boot"], "sessions": sessions},
+                note="the enemy lane's extras by the entity truth_under puts under each, refined by the "
+                     "players-only class only on an enemy player; misses keep the players-only classes")
+    return 0
+
+
+def run_budget_tool(a) -> int:
+    """The budget's diagnostics, unchanged from `enemy_error_budget`: the
+    features (`budget-feats`), the eye crops and their score, the levers,
+    the label sample and exploratory crops. They read the players-only
+    classes; `budget` holds the class-aware ones."""
+    import enemy_error_budget as eb
+    cmd = a.cmd.removeprefix("budget-")
+    if cmd == "feats":
+        for s in a.sessions:
+            eb.feats(s, a.tag)
+        return 0
+    if cmd == "eye":
+        return eb.eye_crops(a.tag, a.n, a.only.split(",") if a.only else None, a.out)
+    if cmd == "sample":
+        eb.label_sample(a.tag)
+        return 0
+    if cmd == "levers":
+        eb.levers(a.tag, a.record)
+        return 0
+    if cmd == "eye-score":
+        eb.eye_score(a.tag, a.record)
+        return 0
+    if cmd == "peek":
+        rng = np.random.default_rng(eb.SEED)
+        rows = []
+        for sid in a.sessions.split(","):
+            rows += [f for f in eb._load_feats(a.tag, sid) if f["set"] == a.set and eval(a.expr, {"f": f})]
+        print(f"{len(rows)} rows match", flush=True)
+        pick = [rows[i] for i in sorted(rng.permutation(len(rows))[:a.n])]
+        eb.draw_crops(a.tag, pick, a.name)
+        return 0
+    return 1
 
 
 def main(argv=None) -> int:
@@ -2668,8 +4400,58 @@ def main(argv=None) -> int:
         p.add_argument("--tag", required=step == "marks", default=None)
         p.add_argument("--pings", default="b1")
         p.add_argument("--record", action="store_true")
+    p = sub.add_parser("replay-score", help="step 9: replay_truth score, its phantoms against every entity")
+    p.add_argument("sessions", nargs="*", default=list(DEV))
+    p.add_argument("--geometry", type=Path, default=None,
+                   help="a baked geometry npz in place of the session's own (no class-aware block)")
+    p.add_argument("--legacy-out", default=None,
+                   help="also write the report alone under replay_truth.ANALYSIS with this name")
+    p.add_argument("--record", action="store_true", help="the class-aware values")
+    p.add_argument("--record-score", action="store_true", help="the replay_truth/score series")
+    p = sub.add_parser("replay-abilities", help="step 9: replay_abilities score, its point finds "
+                                                 "against every entity")
+    p.add_argument("sessions", nargs="*", default=list(DEV))
+    p.add_argument("--legacy-out", action="store_true",
+                   help="also write the report alone under replay_abilities.ANALYSIS")
+    p.add_argument("--record", action="store_true", help="the class-aware values")
+    p.add_argument("--record-score", action="store_true", help="the replay_abilities/score series")
+    p = sub.add_parser("budget", help="step 9: the enemy error budget, extras from truth_under")
+    p.add_argument("sessions", nargs="*", default=list(DEV))
+    p.add_argument("--tag", required=True)
+    p.add_argument("--record", action="store_true")
+    p.add_argument("--rewrite", action="store_true",
+                   help="rewrite a stored players-only budget that differs")
+    p = sub.add_parser("budget-feats", help="the budget's features per miss and extra")
+    p.add_argument("sessions", nargs="+")
+    p.add_argument("--tag", required=True)
+    p = sub.add_parser("budget-eye", help="the budget's crops for the eye check")
+    p.add_argument("--tag", required=True)
+    p.add_argument("--n", type=int, default=12)
+    p.add_argument("--only", help="SET__CLASS,... to draw (default: every class at or above EYE_SHARE)")
+    p.add_argument("--out", default="eye")
+    p = sub.add_parser("budget-sample", help="the budget's stratified label sample")
+    p.add_argument("--tag", required=True)
+    for name in ("budget-levers", "budget-eye-score"):
+        p = sub.add_parser(name)
+        p.add_argument("--tag", required=True)
+        p.add_argument("--record", action="store_true")
+    p = sub.add_parser("budget-peek", help="crops of feature rows a filter picks (exploration)")
+    p.add_argument("--tag", required=True)
+    p.add_argument("--sessions", default=",".join(DEV))
+    p.add_argument("--set", default="miss")
+    p.add_argument("--expr", default="True", help="a Python filter over the feature row f (exploration)")
+    p.add_argument("--n", type=int, default=12)
+    p.add_argument("--name", required=True)
     a = ap.parse_args(argv)
     tr._idle()
+    if a.cmd == "replay-score":
+        return run_replay_score(a.sessions or list(DEV), a.geometry, a.legacy_out, a.record, a.record_score)
+    if a.cmd == "replay-abilities":
+        return run_replay_abilities(a.sessions or list(DEV), a.legacy_out, a.record, a.record_score)
+    if a.cmd == "budget":
+        return run_budget(a.tag, a.sessions or list(DEV), a.record, a.rewrite)
+    if a.cmd.startswith("budget-"):
+        return run_budget_tool(a)
     if a.cmd in STEP_FUNCS:
         return run_step(a.cmd, a.sessions or list(DEV), a.tag, a.pings, a.record)
     if a.cmd == "label":

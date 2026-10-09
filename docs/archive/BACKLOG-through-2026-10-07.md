@@ -50,6 +50,7 @@ Acceptance: each item's own command in the [10-05 archive](docs/archive/BACKLOG-
 
 ## Completed
 
+- **`class-aware-harness-20261007` (2026-10-07):** T0 carries every replay ability child; 126 of 167 old true false accepts lie on another real entity.
 - **`fidelity-principle-20261006` (2026-10-06):** the AGENTS.md rule; two precedents archived.
 - **`killfeed-robust-20261006` (2026-10-06):** `adjudication.self_entry` (side plus bound agent's portrait, "Me" second); the Shooting Error readout [domain:hud/shooting-error-readout] refuses covered slots (hud-0.27.0); cea8ecbc94ab reads 8/15 against the scoreboard.
 - **`frame-join-20261006` (2026-10-06):** `reticle/frame_join.py` (grid joins refuse below 0.99; sampled state with age); c817691bcd15 W1 and W2 rescored, no verdict changed.
