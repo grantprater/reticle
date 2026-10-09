@@ -3475,24 +3475,31 @@ def _record_slots(res: list[dict], pools: dict, sessions: list[str]) -> None:
                      "share of living-player rows whose slot holds a fit")
 
 
-# ----------------------------------------------------------------- the ability lane (docs/ABILITY_ENTITIES.md step 2)
+# ----------------------------------------------------------------- the ability lane (docs/ABILITY_ENTITIES.md steps 2-3)
 
 #: The six sessions the step's acceptance names: the 2026-10-07 captures and
 #: the development matches.
 ABILITY_SETS = tuple(NEW) + tuple(DEV)
+#: `--side` choices: one slot side, or every side in one run (step 3).
+ABILITY_SIDE_CHOICES = acc.ABILITY_SIDES + ("all",)
 
 
 def _ability_truth(sid: str) -> dict:
-    """The replay's truth for the player's ability children, in capture ms
-    (`replay_truth.session_context`'s clock): every player's cast records
-    (`replay_actors.Export.casts`) named by the slot map and the class census,
-    the player's ult transitions as X casts, the player's world actors per
-    ability, the player's deaths, and the census's unmapped classes."""
+    """The replay's truth for every slot's ability children, in capture ms
+    (`replay_truth.session_context`'s clock). Per slot side (`self`, `team`,
+    `enemy`, from the replay's teams and the decided player): every player's
+    cast records (`replay_actors.Export.casts`) named by the slot map and the
+    class census, each player's ult transitions as X casts, each player's
+    world actors per ability and class, and each player's deaths; and the
+    census's unmapped classes. `casts` and `others` keep step 2's shape: the
+    player's own casts, and every other player's."""
     ctx = rt.session_context(sid)
     out = dict(ctx["out"])
     if "refused" in out:
         return {"refused": out["refused"]}
     rp, a, me, agent = ctx["rp"], ctx["a"], ctx["me"], ctx["agent"]
+    allies = set(ctx.get("allies") or [])
+    side_of = lambda s: "self" if s == me else "team" if s in allies else "enemy"
     ex = ra.Export(rp.match, rp=rp)
     cen = ra.actor_census(rp.match, ex)
     smap = ra.slot_map(cen)
@@ -3503,37 +3510,59 @@ def _ability_truth(sid: str) -> dict:
             continue
         for i in ex.instances(class_short=r["class"]):
             s, _ = ex.owner_subject(i["guid"])
-            if s is not None:
-                code_of.setdefault(s, r["code"])
-            if s == me:
-                actors.append({"ability": r["ability"], "class": r["class"],
-                               "open_ms": float(i["open_ms"]) + a,
-                               "close_ms": None if i["close_ms"] is None else float(i["close_ms"]) + a})
-    mine, others = [], []
+            if s is None:
+                continue
+            code_of.setdefault(s, r["code"])
+            actors.append({"ability": r["ability"], "class": r["class"], "subject": s,
+                           "agent": agent.get(s), "side": side_of(s),
+                           "open_ms": float(i["open_ms"]) + a,
+                           "close_ms": None if i["close_ms"] is None else float(i["close_ms"]) + a})
+    casts = []
     for c in ex.casts()["casts"]:
         if c["t_ms"] is None:
             continue
         ag = agent.get(c["subject"])
         f = smap.get(f"{ag}|{c['slot']}")
         name = folder_name.get((code_of.get(c["subject"]), f)) if f else None
-        row = {"t_ms": float(c["t_ms"]) + a, "ability": name, "slot": c["slot"], "agent": ag}
-        (mine if c["subject"] == me else others).append(row)
-    my_code = code_of.get(me)
-    x_name = next((r["ability"] for r in cen["classes"] if r.get("code") == my_code
-                   and r.get("folder") == "Ability_X"), None)
-    if x_name is None and my_code:
-        x_name = ra.ability_display(my_code, "Ability_X")["display"]
-    mine = [c for c in mine if c["ability"] != x_name]
-    mine += [{"t_ms": float(u["on_ms"]) + a, "ability": x_name, "slot": "X", "agent": agent.get(me)}
-             for u in ex.ult_intervals() if u["subject"] == me]
-    deaths = [float(e["t"]) + a for e in rp.group("characterDeath") if e.get("victim") == me]
-    return {"agent": agent.get(me), "casts": mine, "others": others, "actors": actors,
-            "deaths_ms": deaths, "clock_ms": a,
+        casts.append({"t_ms": float(c["t_ms"]) + a, "ability": name, "slot": c["slot"], "agent": ag,
+                      "subject": c["subject"], "side": side_of(c["subject"])})
+    x_name = {}
+    for s in rp.subjects:
+        code = code_of.get(s)
+        x = next((r["ability"] for r in cen["classes"] if r.get("code") == code
+                  and r.get("folder") == "Ability_X"), None)
+        if x is None and code:
+            x = ra.ability_display(code, "Ability_X")["display"]
+        x_name[s] = x
+    # Step 2's others: every other player's raw cast records, kept as step 2 read them.
+    others = [{k: c[k] for k in ("t_ms", "ability", "slot", "agent")} for c in casts if c["subject"] != me]
+    casts = [c for c in casts if c["ability"] is None or c["ability"] != x_name.get(c["subject"])]
+    casts += [{"t_ms": float(u["on_ms"]) + a, "ability": x_name.get(u["subject"]), "slot": "X",
+               "agent": agent.get(u["subject"]), "subject": u["subject"], "side": side_of(u["subject"])}
+              for u in ex.ult_intervals() if u["subject"] in agent]
+    deaths = defaultdict(list)
+    for e in rp.group("characterDeath"):
+        if e.get("victim") is not None:
+            deaths[e["victim"]].append(float(e["t"]) + a)
+    mine = [c for c in casts if c["subject"] == me]
+    return {"agent": agent.get(me), "me": me,
+            "casts": [{k: c[k] for k in ("t_ms", "ability", "slot", "agent")} for c in mine],
+            "others": others, "all_casts": casts,
+            "actors": [x for x in actors if x["subject"] == me], "all_actors": actors,
+            "deaths_ms": deaths.get(me, []), "deaths_by_subject": dict(deaths), "clock_ms": a,
             "unmapped_classes": sorted(r["class"] for r in cen["classes"] if not r["mapped"])}
 
 
+def _ability_child_rows(sid: str) -> list[dict]:
+    from reticle.store import Store
+    st = Store(STORE)
+    path = st.events_path("ability_child", sid)
+    return [r for r in (st.read_events("ability_child", sid) if path.is_file() else [])
+            if r.get("kind") == "child"]
+
+
 def _ability_lane_rows(sid: str) -> tuple[list[dict], set, dict]:
-    """The `ability` lane's consumer entities, plus each child the lane
+    """The `ability` lane's consumer entities, plus each instance the lane
     withheld (stale inputs or an unresolved name) as the owner stored it in
     `ability_child`, shaped as an entity and marked held; and why the lane
     withheld them (`entity_events.rebuild_reason`, or its held inputs)."""
@@ -3543,13 +3572,13 @@ def _ability_lane_rows(sid: str) -> tuple[list[dict], set, dict]:
     ev = ee.EntityEvents(st, sid, lanes=("ability",), check=False)
     ents = [] if "ability" in ev.missing else list(ev.entities(lane="ability"))
     have = {e["entity_id"] for e in ents}
-    path = st.events_path("ability_child", sid)
-    children = [r for r in (st.read_events("ability_child", sid) if path.is_file() else [])
-                if r.get("kind") == "child" and r["child_id"] not in have]
+    children = [r for r in _ability_child_rows(sid)
+                if r["child_id"] not in have and r.get("node", "instance") == "instance"]
     held = set()
     for c in children:
         ents.append({"entity_id": c["child_id"], "family": "ability_object",
                      "kind": c.get("subject") or "unknown", "round": c["round"],
+                     "side": c.get("side", "ally"), "player": c.get("owner_slot", c.get("parent")),
                      "lifetime": {"began": dict(c["open"]), "ended": dict(c["end"])}})
         held.add(c["child_id"])
     why = {}
@@ -3557,25 +3586,52 @@ def _ability_lane_rows(sid: str) -> tuple[list[dict], set, dict]:
         stale = ee.stale_inputs(st, sid)
         why = {"missing": ev.missing["ability"]} if "ability" in ev.missing else \
             {s: stale[s] for s in ee.LANE["ability"]["inputs"] if s in stale} or \
-            {"withheld": "an unresolved name (the lane's ledger)"}
+            {"withheld": "an unresolved name or an unbound owner (the lane's ledger)"}
     return ents, held, why
 
 
-def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> int:
-    """`ability-lane`: the `ability` lane's children of the player scored per
-    class against the replay (`reticle.acceptance.score_ability_lane`), one
-    document per session and one pooled, written under
-    `OUT/ability_lane/TAG/`. Rows the lane withheld stale count, and the
-    document names their stale inputs."""
+def _object_finds(sid: str) -> tuple[list[dict], set]:
+    """The owner's spawned-object nodes (`ability_child` rows with node
+    `object`, witnessed and possible), as `score_ability_objects` takes them,
+    and the classes of the spawn tree for the session's agents."""
+    from reticle import slot_state as ss
+    rows = _ability_child_rows(sid)
+    nodes = [{"key": r["child_id"], "cls": acc.object_class_key(r["object"]),
+              "side": r.get("slot_side"), "agent": r.get("agent"), "exists": r.get("exists"),
+              "open_lo": float(r["open"]["lo_ms"]), "open_hi": float(r["open"]["hi_ms"]),
+              "end_hi": float(r["end"]["hi_ms"]), "end_basis": r["end"]["basis"]}
+             for r in rows if r.get("node") == "object"]
+    L = ss.lineup_slots(sid, STORE)
+    agents = {ss.agent_key(s["agent"]) for s in (L.get("slots") or []) + (L.get("enemy_slots") or [])
+              if s.get("agent")}
+    tree = ss.ability_objects(STORE)["tree"]
+    classes = {acc.object_class_key(o["part"]) for (ag, _slot), objs in tree.items() if ag in agents
+               for o in objs}
+    return nodes, classes
+
+
+def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
+                     post_hoc: bool = False) -> int:
+    """`ability-lane`: the `ability` lane's children scored per slot side and
+    class against the replay (`reticle.acceptance.score_ability_lane`), and
+    the owner's spawned-object nodes per side and class
+    (`score_ability_objects`); one document per session and one pooled,
+    written under `OUT/ability_lane/TAG/`. Rows the lane withheld count, and
+    the document names why. `side` is one of `ABILITY_SIDE_CHOICES`; `all`
+    scores every side in one run. A side's finds pair only with that side's
+    truth casts; a find on another side's cast is `other_entity`. Finds no
+    witness bound to a slot score apart, as `unbound`, against every
+    non-player cast. Witnessed object nodes are the primary object measure;
+    possible nodes score in their own block (`objects_possible`). `post_hoc`
+    marks every recorded row a revision after the pre-registered run."""
     from reticle import entity_events as ee
+    from reticle import slot_state as ss
     from reticle.store import Store
-    if side != "self":
-        raise SystemExit("ability-lane scores the player's own children (--side self) until "
-                         "docs/ABILITY_ENTITIES.md step 3 builds the team's")
+    sides = acc.ABILITY_SIDES if side == "all" else (side,)
     st = Store(STORE)
     out_dir = OUT / "ability_lane" / tag
     out_dir.mkdir(parents=True, exist_ok=True)
-    docs, arrays = {}, []
+    docs, arrays, obj_arrays, poss_arrays = {}, defaultdict(list), [], []
     for sid in sessions:
         ents, held, stale = _ability_lane_rows(sid)
         if not ents:
@@ -3585,65 +3641,123 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> 
         if "refused" in truth:
             print(f"{sid}: replay truth refused: {truth['refused']}", flush=True)
             continue
+        L = ss.lineup_slots(sid, STORE)
+        self_key = L["slots"][int(L["player_slot"])]["key"] if L.get("player_slot") is not None else None
         rounds = ee.round_rows(st, sid)
         starts = [float(r["t_start_ms"]) for r in rounds]
         bars = [float(r["t_close_ms"] if r.get("t_close_ms") is not None else r["t_end_ms"])
                 for r in rounds]
-        inst = acc.ability_truth_instances(truth["casts"], truth["actors"], truth["deaths_ms"], bars)
-        finds = acc.ability_lane_finds(ents, frozenset(held))
-        doc, arr = acc.score_ability_lane(finds, inst, truth["others"], starts)
-        doc.update({"session": sid, "side": side, "agent": truth["agent"], "version": VERSION,
-                    "lane": (ee.EntityEvents(st, sid, lanes=("ability",), check=False)
-                             .stamp("ability") or {}).get("entity_ability_version"),
-                    "held_stale": stale,
-                    "unmapped_classes": truth["unmapped_classes"],
-                    "unmapped_note": "coverage gaps by class: the census maps no ability to them"})
+        objects = frozenset(r["child_id"] for r in _ability_child_rows(sid) if r.get("node") == "object")
+        finds = acc.ability_lane_finds(ents, frozenset(held), self_key, objects)
+        doc = {"session": sid, "agent": truth["agent"], "version": VERSION,
+               "lane": (ee.EntityEvents(st, sid, lanes=("ability",), check=False)
+                        .stamp("ability") or {}).get("entity_ability_version"),
+               "held_stale": stale, "unmapped_classes": truth["unmapped_classes"],
+               "unmapped_note": "coverage gaps by class: the census maps no ability to them",
+               "sides": {}}
+        for sd in sides + ((acc.ABILITY_UNBOUND,) if side == "all" else ()):
+            if sd == "self":
+                tc, oth = truth["casts"], truth["others"]
+                inst = acc.ability_truth_instances(tc, truth["actors"], truth["deaths_ms"], bars)
+            else:
+                want = ("team", "enemy") if sd == acc.ABILITY_UNBOUND else (sd,)
+                inst = []
+                for subj in sorted({c["subject"] for c in truth["all_casts"] if c["side"] in want}):
+                    tc_s = [c for c in truth["all_casts"] if c["subject"] == subj]
+                    inst += acc.ability_truth_instances(
+                        tc_s, [x for x in truth["all_actors"] if x["subject"] == subj],
+                        truth["deaths_by_subject"].get(subj, []), bars)
+                oth = [{k: c[k] for k in ("t_ms", "ability", "slot", "agent")}
+                       for c in truth["all_casts"] if c["side"] not in want]
+            fs = [f for f in finds if f["side"] == sd]
+            d, arr = acc.score_ability_lane(fs, inst, oth, starts)
+            doc["sides"][sd] = d
+            arrays[sd].append(arr)
+            a = d["all"]
+            print(f"{sid} [{sd}]: truth {a['truth']}, finds {a['finds']} ({a['held_stale_finds']} held), "
+                  f"recall {a['recall']} {a['recall_ci']}, false opens {a['false_opens']} "
+                  f"{a['false_open_ci']}, outcomes {a['outcomes']}, open err {a['open_error']}, "
+                  f"end err {a['end_error']}, end cause {a['end_cause_agreement']} "
+                  f"(n {a['end_cause_n']})", flush=True)
+        if side == "all":
+            nodes, classes = _object_finds(sid)
+            acts = []
+            for x in truth["all_actors"]:
+                cls = acc.object_class_key(x["class"])
+                if cls not in classes:
+                    continue
+                acts.append({"cls": cls, "side": x["side"], "agent": x["agent"], "open_ms": x["open_ms"],
+                             "close_ms": x["close_ms"],
+                             "end_cause": acc.truth_end_cause(x["close_ms"],
+                                                              truth["deaths_by_subject"].get(x["subject"], []),
+                                                              bars, x["open_ms"])})
+            od, oarr = acc.score_ability_objects(nodes, acts, starts)
+            doc["objects"] = od
+            obj_arrays.append(oarr["witnessed"])
+            poss_arrays.append(oarr["possible"])
+            w, pb = od["all"], od["possible"]["all"]
+            print(f"{sid} [objects]: truth {w['truth']}, witnessed nodes {w['finds']}, recall "
+                  f"{w['recall']} {w['recall_ci']}, false opens {w['false_open_share']}, cause "
+                  f"{w['end_cause_agreement']}; possible nodes {pb['finds']}, recall {pb['recall']}",
+                  flush=True)
         docs[sid] = doc
-        arrays.append(arr)
         (out_dir / f"{sid}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
-        a = doc["all"]
-        print(f"{sid} ({truth['agent']}): truth {a['truth']}, finds {a['finds']} "
-              f"({a['held_stale_finds']} held stale), recall {a['recall']} {a['recall_ci']}, "
-              f"false opens {a['false_opens']} {a['false_open_ci']}, outcomes {a['outcomes']}, "
-              f"open err {a['open_error']}, end err {a['end_error']}, end cause agreement "
-              f"{a['end_cause_agreement']} (n {a['end_cause_n']}); gaps {doc['coverage_gaps']}",
-              flush=True)
     if not docs:
         return 1
-    pooled = acc.pool_ability_lane(arrays)
-    (out_dir / "pooled.json").write_text(json.dumps({"sessions": sorted(docs), "classes": pooled},
-                                                     indent=1, default=str), encoding="utf-8")
+    pooled = {sd: acc.pool_ability_lane(arr) for sd, arr in arrays.items() if arr}
+    pooled_obj = acc.pool_ability_lane(obj_arrays) if obj_arrays else {}
+    pooled_poss = acc.pool_ability_lane(poss_arrays) if poss_arrays else {}
+    (out_dir / "pooled.json").write_text(json.dumps({"sessions": sorted(docs), "sides": pooled,
+                                                     "objects": pooled_obj,
+                                                     "objects_possible": pooled_poss,
+                                                     "post_hoc": post_hoc},
+                                                    indent=1, default=str), encoding="utf-8")
     print(f"\npooled over {len(docs)} sessions")
-    print(f"{'class':22s} {'truth':>5s} {'finds':>5s} {'pair':>4s} {'recall':>7s} {'recall CI':>16s} "
-          f"{'false':>5s} {'false CI':>16s} {'open med':>8s} {'end med':>8s} {'cause':>6s}")
-    for cls, b in sorted(pooled.items(), key=lambda kv: (kv[0] == "_all", kv[0])):
-        print(f"{cls:22s} {b['truth']:5d} {b['finds']:5d} {b['paired']:4d} {str(b['recall']):>7s} "
-              f"{str(b['recall_ci']):>16s} {str(b['false_open_share']):>5s} "
-              f"{str(b['false_open_ci']):>16s} {str(b['open_error'].get('median_ms')):>8s} "
-              f"{str(b['end_error'].get('median_ms')):>8s} {str(b['end_cause_agreement']):>6s}")
+    head = (f"{'side':8s} {'class':34s} {'truth':>5s} {'finds':>5s} {'pair':>4s} {'recall':>7s} "
+            f"{'recall CI':>16s} {'false':>6s} {'false CI':>16s} {'open med':>8s} {'end med':>8s} {'cause':>6s}")
+    print(head)
+    for sd, blocks in list(pooled.items()) + ([("objects", pooled_obj)] if pooled_obj else []) \
+            + ([("possible", pooled_poss)] if pooled_poss else []):
+        for cls, b in sorted(blocks.items(), key=lambda kv: (kv[0] == "_all", kv[0])):
+            print(f"{sd:8s} {cls[:34]:34s} {b['truth']:5d} {b['finds']:5d} {b['paired']:4d} "
+                  f"{str(b['recall']):>7s} {str(b['recall_ci']):>16s} {str(b['false_open_share']):>6s} "
+                  f"{str(b['false_open_ci']):>16s} {str(b['open_error'].get('median_ms')):>8s} "
+                  f"{str(b['end_error'].get('median_ms')):>8s} {str(b['end_cause_agreement']):>6s}")
     if record:
         from reticle.metrics import record as rec
-        for scope, blocks in [(sid, {**d["classes"], "_all": d["all"]}) for sid, d in docs.items()] + \
-                [(_pool_name(sorted(docs)), pooled)]:
+        scopes = [(sid, {sd: {**d["classes"], "_all": d["all"]} for sd, d in doc["sides"].items()}
+                   | ({"objects": {**doc["objects"]["classes"], "_all": doc["objects"]["all"]},
+                        "objects_possible": {**doc["objects"]["possible"]["classes"],
+                                             "_all": doc["objects"]["possible"]["all"]}}
+                      if "objects" in doc else {}))
+                  for sid, doc in docs.items()]
+        scopes.append((_pool_name(sorted(docs)), {**pooled, **({"objects": pooled_obj,
+                                                                 "objects_possible": pooled_poss}
+                                                                if pooled_obj else {})}))
+        for scope, by_side in scopes:
             vals, ci = {}, {}
-            for cls, b in blocks.items():
-                nm = _metric_name(cls)
-                for k in ("truth", "finds", "paired", "recall", "false_opens", "false_open_share",
-                          "end_cause_agreement"):
-                    vals[f"{nm}_{k}"] = b.get(k)
-                vals[f"{nm}_open_err_median_ms"] = b["open_error"].get("median_ms")
-                vals[f"{nm}_end_err_median_ms"] = b["end_error"].get("median_ms")
-                for k, v in ((f"{nm}_recall", b.get("recall_ci")),
-                             (f"{nm}_false_open_share", b.get("false_open_ci"))):
-                    if v is not None:
-                        ci[k] = v
+            for sd, blocks in by_side.items():
+                for cls, b in blocks.items():
+                    nm = _metric_name(cls) if side != "all" and sd == "self" else \
+                        f"{sd}_{_metric_name(cls)}"
+                    for k in ("truth", "finds", "paired", "recall", "false_opens", "false_open_share",
+                              "end_cause_agreement"):
+                        vals[f"{nm}_{k}"] = b.get(k)
+                    vals[f"{nm}_open_err_median_ms"] = b["open_error"].get("median_ms")
+                    vals[f"{nm}_end_err_median_ms"] = b["end_error"].get("median_ms")
+                    for k, v in ((f"{nm}_recall", b.get("recall_ci")),
+                                 (f"{nm}_false_open_share", b.get("false_open_ci"))):
+                        if v is not None:
+                            ci[k] = v
             rec("question_acceptance", part=f"ability_lane/{tag}", session=scope, values=vals, ci=ci,
                 deps={"version": VERSION, "acceptance": acc.ACCEPTANCE_VERSION,
-                      "gate_ms": acc.ABILITY_OPEN_GATE_MS, "end_tol_ms": acc.ABILITY_END_TOL_MS},
-                context={"task": "ability-entities-step2-20261009", "side": side,
-                         "sessions": sorted(docs)},
-                note="docs/ABILITY_ENTITIES.md step 2: the ability lane's children of the player "
-                     "against the replay's casts and actors, per class")
+                      "gate_ms": acc.ABILITY_OPEN_GATE_MS, "end_tol_ms": acc.ABILITY_END_TOL_MS,
+                      "ability_child": ss.ABILITY_CHILD_VERSION},
+                context={"task": "ability-tree-step3-20261009", "side": side,
+                         "sessions": sorted(docs), "post_hoc": post_hoc},
+                note="docs/ABILITY_ENTITIES.md step 3: the ability lane's children of every slot "
+                     "side against the replay's casts and actors, per side and class; spawned-"
+                     "object nodes per class against the replay's actors of that class")
     return 0
 
 

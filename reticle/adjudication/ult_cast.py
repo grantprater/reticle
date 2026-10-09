@@ -56,7 +56,7 @@ else. The formal identity events go to their own stream, since a stream of
 formal events holds nothing else.
 
 **The tray.** The adjudicator asks `ability_timeline.player_tray_casts` which
-stored tray drops are the player's casts (`player_x_drops`) and keeps the X
+stored tray drops are the player's casts (`ability_timeline.player_x_drops`) and keeps the X
 slot's drops with the owner's verdict; it restates none of the tray's rules.
 An own selection binds to the nearest X cast whose drop lies within the
 player's agent's cast window (`cast_window`): its `tray_witness` holds onset
@@ -105,7 +105,7 @@ the lowest best peak of the other matches (0.345). The check refuses nothing.
 WITNESS_FLOOR is a cast only with an independent witness of that cast, and the
 row names it in `rests_on` and `witness`:
 
-* `tray_x_cast` -- one of the player's X casts (`player_x_drops`) in a round
+* `tray_x_cast` -- one of the player's X casts (`ability_timeline.player_x_drops`) in a round
   with no own selection in its window: the best own-template peak in the
   window.
 * `ult_kill` -- a stored `death` verdict whose resolved killfeed icon is an
@@ -278,23 +278,6 @@ def cast_window(agent: str | None) -> tuple[float, float]:
     return CAST_WINDOW.get(agent, (-OWN_WINDOW_S, OWN_WINDOW_S))
 
 
-def player_x_drops(drop_rows: list[dict], phase_of, rounds: list[dict],
-                   player_deaths_ms: list[float], **gate) -> list[dict]:
-    """The X-slot drops among a session's stored `tray_drop` rows, each with the
-    `player_cast` and `reason` that `ability_timeline.player_tray_casts` gives
-    it. Every slot's drops go in, because the owner's co-occurrence test reads
-    them all. `gate` carries the owner's other inputs, as
-    `ability_timeline.stored_gate_inputs` reads them, but never the player's
-    own ult lines: those are this adjudicator's output, and an X drop a line
-    passed would come back to witness that same line."""
-    from ..ability_timeline import player_tray_casts
-    drops = [{k: r[k] for k in DROP_FIELDS if k in r} for r in drop_rows
-             if r.get("kind") == "drop"]
-    gate = {**gate, "own_lines_ms": ()}
-    return [r for r in player_tray_casts(drops, phase_of, rounds, player_deaths_ms, **gate)
-            if r["slot"] == ULT_SLOT]
-
-
 def rests_on_line(drop: dict) -> bool:
     """Whether the gate passed `drop` on an own ult line (`rests_on` names
     `ult_cast`), so it may never witness a line."""
@@ -417,7 +400,7 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
     formal identity events, from stored peaks, the lineup and the rounds.
 
     `tray_drops` are the X drops with the owner's verdict from
-    `player_x_drops`, or None with `tray_reason`; `tray_inputs` are their
+    `ability_timeline.player_x_drops`, or None with `tray_reason`; `tray_inputs` are their
     stamps for the coverage row. `deaths` are the stored `death` verdicts, or
     None with `death_reason`. `drops_ms` maps each round number to its barrier
     drop as `gametime` schedules it, or is None. `burst_bound`, `witness_floor`

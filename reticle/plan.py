@@ -388,14 +388,15 @@ def derived_streams() -> list[dict]:
          "current": ABILITY_GLYPH_NAME_VERSION, "command": "reticle ability-glyphs {sid}",
          "how": "storage", "fields": {},
          "upstream": ("ability_disc_track", "ability_glyph", "tray_kit")},
-        # The player's own ability children and effects (`slot_state`,
-        # docs/ABILITY_ENTITIES.md step 2), built from the stored witnesses;
+        # Every slot's ability children and effects (`slot_state`,
+        # docs/ABILITY_ENTITIES.md step 3), built from the stored witnesses;
         # one command writes both, the children first.
         {"stream": "ability_child", "key": "ability_child_version",
          "current": ABILITY_CHILD_VERSION, "command": "reticle ability-children {sid} --write",
          "how": "storage", "fields": {},
          "upstream": ("ability_state", "ult_cast", "smoke_owner", "ability_shape",
-                      "ability_glyph_name", "death", "assist", "rounds")},
+                      "ability_glyph_name", "ability_disc_track", "tray_kit", "tray_drop",
+                      "death", "assist", "rounds")},
         {"stream": "ability_effect", "key": "ability_effect_version",
          "current": ABILITY_EFFECT_VERSION, "command": "reticle ability-children {sid} --write",
          "how": "storage", "fields": {}, "upstream": ("ability_child", "death", "assist")},
@@ -485,7 +486,9 @@ def derived_streams() -> list[dict]:
             ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache", None),
             ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage", None),
             ("enemy_track_identity", "enemy_track", "reticle enemy-tracks {sid}", "storage",
-             None)):
+             None),
+            ("ability_child_identity", "ability_child", "reticle ability-children {sid} --write",
+             "storage", None)):
         row = {"stream": stream, "key": "producer_version",
                "current": AGENT_IDENTITY_VERSION, "command": command, "how": how,
                "fields": {}, "upstream": (parent,), "identity": True}
@@ -806,9 +809,19 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                "ability_shape#ability_shape_version"),
                           "ability_glyph_name": _in("inputs.ability_glyph_name",
                                                     "ability_glyph_name#ability_glyph_name_version"),
+                          "ability_disc_track": _in("inputs.ability_disc_track",
+                                                    "ability_disc_track#ability_disc_track_version",
+                                                    optional=True),
+                          "tray_kit": _in("inputs.tray_kit", "tray_kit#tray_kit_version",
+                                          optional=True),
+                          "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version",
+                                           optional=True),
                           "death": _in("inputs.death", death),
                           "assist": _in("inputs.assist", "assist#assist_adjudication_version"),
                           "round": _in("inputs.round", "rounds"),
+                          # the spawn tree and each node's sheet answers
+                          # (`slot_state.ability_objects`): an answer edit restales it
+                          "mechanics_sheet": _in("inputs.mechanics_sheet", "mechanics_sheet"),
                           **{f"dead_ruse_{k}": v for k, v in
                              _gate("inputs.dead_ruse_gate.", optional=True).items()},
                           **_lineup_inputs()},
@@ -923,7 +936,7 @@ def _probe_stream(probe: str) -> str | None:
         return probe.split("#", 1)[0]
     if probe in ("geometry", "lineup_file", "reliability", "catalogue", "catalogue_icons",
                  "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels",
-                 "glyph_drawing_answers"):
+                 "glyph_drawing_answers", "mechanics_sheet"):
         return None
     return probe
 
@@ -1129,6 +1142,9 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
             now = f"reference/abilities.json#{reference_key(root)}"
         else:
             now = ist.NO_ROWS
+    elif probe == "mechanics_sheet":
+        from .mechanics_sheet import sheet_stamp
+        now = sheet_stamp(root) if root is not None else ist.NO_ROWS
     elif probe == "glyph_drawing_answers":
         from .adjudication.ability_glyph import drawing_answers_stamp
         now = drawing_answers_stamp(root) if root is not None else ist.NO_ROWS

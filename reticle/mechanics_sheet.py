@@ -44,6 +44,12 @@ ability-entity plan needs (sections 2.4 and 6, question 4):
 * `engine_states`: the game data's lexical phases per owner. Evidence, never
   a question: game files outrank the player, so the import writes them as the
   fact's `states` unasked.
+* `drawing_loss` (0.4.2): when the object's minimap drawing disappears, has
+  the object ended? yes, no (it can still be there), or ask (the player
+  cannot say in general). Pre-filled only from a game-file fact that states
+  it (`DRAWING_LOSS_FACTS`, none yet); every other cell is `ask`. The child
+  owner reads the answer per node (`slot_state.ability_objects`); the
+  import writes no fact from it, so a row's lifecycle fact never waits on it.
 
 One question per agent, `modes`, lists the modes or views the agent enters
 apart from casting one ability: a state of the agent's own slot, never a
@@ -103,7 +109,8 @@ from pathlib import Path
 
 from . import domain
 
-VERSION = "mechanics-sheet-0.4.1"
+#: 0.4.2 (2026-10-09): the `drawing_loss` column; earlier answers keep their keys.
+VERSION = "mechanics-sheet-0.4.2"
 BUILD = "release-13.06-shipping-18-5590001"
 #: The game-data states table (`prototypes/ability_states_gamedata.py`).
 STATES_TABLE = ("reference/ability-states", "ability-states-gamedata-0.2.0")
@@ -115,7 +122,10 @@ VIEW_ANSWERS = "labels/minimap_glyph_questions/answers.jsonl"
 SLOTS = ("C", "Q", "E", "X")
 COLUMNS = ("parent", "lifecycle_class", "placement", "visible_phases", "lifetime_s",
            "destructible", "owner_death", "ends_on", "effects", "minimap_drawing",
-           "engine_states")
+           "engine_states", "drawing_loss")
+#: Columns a row's `lifecycle` fact needs; `drawing_loss` the child owner
+#: reads from the answers, never from a fact.
+IMPORT_COLUMNS = tuple(c for c in COLUMNS if c != "drawing_loss")
 #: Questions asked once per agent, on its own slot rather than an ability.
 AGENT_COLUMNS = ("modes",)
 #: Columns renamed since an earlier sheet: an old answer reads under the new name.
@@ -124,6 +134,12 @@ CLASSES = ("deployed", "instant", "self_buff", "equipped", "movement")
 ENDS = ("lifetime", "destroyed", "owner_death", "recall_or_reactivation", "round_end")
 TARGETS = ("self", "allies", "enemies")
 DRAWINGS = ("icon", "shape", "icon_and_shape", "nothing")
+#: `drawing_loss` answers: the object ended; it can still be there; ask per case.
+DRAWING_LOSS = ("yes", "no", "ask")
+#: Game-file facts that state, for one row subject, whether the object ends
+#: when its minimap drawing disappears: subject -> (answer, fact id). Only a
+#: `game_data/` fact qualifies; none states it yet, so every cell is `ask`.
+DRAWING_LOSS_FACTS: dict[str, tuple[str, str]] = {}
 PLACEMENTS = ("body_relative", "global", "not_applicable")
 assert set(CLASSES) == domain.LIFECYCLE_CLASSES and set(ENDS) == domain.ENDS_ON
 
@@ -548,6 +564,16 @@ def _decide(srcs: dict[str, list[str]], none_basis: str) -> dict:
     return _sheet_cell("confirm", v, src)
 
 
+def _drawing_loss(subject: str, facts: dict) -> dict:
+    """Whether the object ends when its drawing disappears: a game-file fact
+    that states it (`DRAWING_LOSS_FACTS`), else `ask`; never a sibling's
+    answer or a rule over abilities [domain:abilities/ability-rules-are-unique]."""
+    got = DRAWING_LOSS_FACTS.get(subject)
+    if got and got[1].startswith("game_data/") and got[1] in facts:
+        return _sheet_cell("confirm", got[0], [f"[domain:{got[1]}]"])
+    return _sheet_cell("ask", basis="no game-file fact states whether it ends with its drawing")
+
+
 def _destructible(subject: str, evidence: dict, facts: dict) -> dict:
     srcs = {"yes": list(evidence["yes"]), "no": list(evidence["no"])}
     for v, s in _fact_cells(subject, "destructible", facts).items():
@@ -787,6 +813,7 @@ def _row(agent, slot, ab, obj, split, objects, gdata, facts, exports, views, tab
         "visible_phases": _visible(subject, ability_subject, facts),
         "effects": effects,
         "minimap_drawing": _minimap(ab, gd, scope, views, agent, slot, ref),
+        "drawing_loss": _drawing_loss(subject, facts),
     }
     cells["ends_on"] = _ends_on(cells, _recall(subject, ab, scope, facts, ref))
     # Engine state names are evidence for the contract, never a question.
@@ -879,6 +906,13 @@ def build(store_root: Path) -> tuple[Path, list[dict]]:
                        "view_answers": VIEW_ANSWERS}}
     (out_dir / f"provenance-{VERSION}.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
     return jl, rows
+
+
+def sheet_stamp(store_root: Path) -> str:
+    """The sheet a reader of its cells read: the pre-fill's version and a
+    digest of the answers file, so an answer edit moves the stamp."""
+    p = Path(store_root) / ANSWERS
+    return f"{VERSION}#{_file_sha(p) if p.is_file() else 'no_rows'}"
 
 
 def load_prefill_rows(store_root: Path) -> list[dict]:
@@ -1052,6 +1086,11 @@ def cell_question(row: dict, column: str, answers: dict, sub: str = "") -> tuple
     if column == "effects:targets":
         opts = [(agent, "self"), (f"{agent}'s teammates", "allies"), ("enemies", "enemies")]
         return f"Who does {name}'s {sub} reach? Type every number that applies.", opts, ""
+    if column == "drawing_loss":
+        opts = [("yes, it has ended", "yes"), ("no, it can still be there", "no"),
+                ("I can't say in general: ask me about each case", "ask")]
+        sug = dict((v, w) for w, v in opts).get(value, "") if cell["status"] == "confirm" else ""
+        return f"When {name}'s minimap drawing disappears, has {name} ended?", opts, sug
     if column == "minimap_drawing":
         opts = [("an icon", "icon"), ("a shape or area", "shape"),
                 ("both an icon and a shape", "icon_and_shape"), ("nothing", "nothing")]
@@ -1282,9 +1321,9 @@ def resolve(row: dict, answers: dict) -> tuple[dict | None, list[str]]:
     got, missing = {}, []
     if is_agent_row(row):
         return None, ["an agent's modes: recorded as facts by hand, never imported"]
-    if all(row["cells"][c]["status"] in NOT_ASKED for c in COLUMNS):
+    if all(row["cells"][c]["status"] in NOT_ASKED for c in IMPORT_COLUMNS):
         return None, ["nothing to confirm: an engine helper"]
-    for c in COLUMNS:
+    for c in IMPORT_COLUMNS:
         if row["cells"][c]["status"] in NOT_ASKED:
             continue
         a = answers.get(cell_key(row, c))
@@ -1420,7 +1459,7 @@ def import_rows(store_root: Path, rows: list[dict], *, write: bool = False,
         got, missing = resolve(r, answers)
         fid = fact_id(r)
         if got is None:
-            asked = [c for c in COLUMNS if r["cells"][c]["status"] not in NOT_ASKED]
+            asked = [c for c in IMPORT_COLUMNS if r["cells"][c]["status"] not in NOT_ASKED]
             if asked and any(c not in missing for c in asked):
                 skipped.append(f"{fid}: open {', '.join(missing)}")
             continue

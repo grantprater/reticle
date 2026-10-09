@@ -184,6 +184,27 @@ GATE_FIELDS = frozenset({
     "pool_gold_drop", "refused_as", "line_ms", "rests_on"})
 
 
+def player_x_drops(drop_rows: list[dict], phase_of, rounds: list[dict],
+                   player_deaths_ms: list[float], **gate) -> list[dict]:
+    """The X-slot drops among a session's stored `tray_drop` rows, each with the
+    `player_cast` and `reason` that `player_tray_casts` gives it: the tray
+    channel's cast verdict on the ultimate's slot, which `ult-cast` reads to
+    select a peak an X cast witnesses. Moved here from `adjudication.ult_cast`
+    (docs/ABILITY_ENTITIES.md step 3): binding an own line to its X drop is
+    the child owner's (`slot_state.build_abilities`), and this verdict is the
+    tray's. Every slot's drops go in, because the co-occurrence test reads
+    them all. `gate` carries the gate's other inputs, as `stored_gate_inputs`
+    reads them, but never the player's own ult lines: those are `ult_cast`'s
+    output, and an X drop a line passed would come back to witness that same
+    line."""
+    from .adjudication.ult_cast import DROP_FIELDS, ULT_SLOT
+    drops = [{k: r[k] for k in DROP_FIELDS if k in r} for r in drop_rows
+             if r.get("kind") == "drop"]
+    gate = {**gate, "own_lines_ms": ()}
+    return [r for r in player_tray_casts(drops, phase_of, rounds, player_deaths_ms, **gate)
+            if r["slot"] == ULT_SLOT]
+
+
 def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
@@ -725,7 +746,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     `ult_cast` rows `own_line_times` keeps, used only where they are at
     ULT_CAST_VERSION; otherwise none come back and `ult_cast_reason` says
     why. `ult_cast` reads this gate in turn, but asks it with no own lines
-    (`adjudication.ult_cast.player_x_drops`), so the stream never reads its
+    (`player_x_drops`), so the stream never reads its
     own output. The restock
     numeral reads are the stored `tray_countdown` rows where current
     (`stored_countdown`); `reticle tray` writes them in the pass that writes

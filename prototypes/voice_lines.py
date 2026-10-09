@@ -84,7 +84,7 @@ detections at the same threshold and records the comparison.
 `heldout` tests the production threshold on sessions it was not chosen on,
 from storage alone: the reader's `ult_line` peaks, the lineup classes of
 `adjudication.ult_cast`, the live mask of `match_time`, and the player's X
-casts that `ult_cast.player_x_drops` asks of the tray owner. It chooses the
+casts that `ability_timeline.player_x_drops` asks of the tray owner. It chooses the
 operating point on half of the lineup sessions and scores the other half, both
 ways, then leaves each session out in turn, and records `heldout-0.1.0`. The
 cast window per agent (`CAST_WINDOW`) lives in `adjudication.ult_cast`, which
@@ -2317,6 +2317,7 @@ def heldout_session(sid: str) -> dict | None:
     the best own-class score within the player's agent's window. None for a
     session without a lineup."""
     from reticle import lineup
+    from reticle import ability_timeline as _at
     from reticle.adjudication import ult_cast as uc
     from reticle.rounds import player_death_times
     from reticle.store import Store
@@ -2337,7 +2338,7 @@ def heldout_session(sid: str) -> dict | None:
     peaks = [r for r in rows if r.get("kind") == "peak"]
     tm = match_time(sid, int(rows[0]["n_frames"]))
     gt, rr = tm["gametime"], tm["rounds"]
-    casts = [c for c in uc.player_x_drops(drops, lambda t: gt.game_time_at(t).phase, rr,
+    casts = [c for c in _at.player_x_drops(drops, lambda t: gt.game_time_at(t).phase, rr,
                                           player_death_times(tm["hud"]))
              if c["player_cast"] and uc.round_of(c["t_ms"], rr) is not None]
     t = np.array([p["frame"] for p in peaks], np.float64) * HOP

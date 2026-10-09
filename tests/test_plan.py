@@ -1135,6 +1135,29 @@ class GlyphDrawingAnswersInputTests(unittest.TestCase):
                              ["drawing_answers"])
 
 
+class MechanicsSheetInputTests(unittest.TestCase):
+    """The child owner reads the mechanics sheet's answers (`ability_objects`);
+    an answer edit restales `ability_child`."""
+
+    def test_an_answer_edit_restales_the_children(self):
+        import json
+
+        from reticle import mechanics_sheet as ms
+        from reticle.plan import inputs_moved, record_inputs
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            store = _Store(root)
+            man = store.read_manifest("s")
+            head = record_inputs(store, man, "ability_child", {})
+            self.assertEqual(head["inputs"]["mechanics_sheet"], f"{ms.VERSION}#no_rows")
+            self.assertNotIn("mechanics_sheet", inputs_moved(store, man, "ability_child", head)[0])
+            p = root / ms.ANSWERS
+            p.parent.mkdir(parents=True)
+            p.write_text(json.dumps({"key": "Cypher:E:drawing_loss", "answer": "yes",
+                                     "unsure": False}) + "\n", encoding="utf-8")
+            self.assertIn("mechanics_sheet", inputs_moved(store, man, "ability_child", head)[0])
+
+
 class EnemyTrackGlyphVerdictInputTests(unittest.TestCase):
     """`enemy_track` records the glyph verdicts it weighed by their content
     stamp, so a rerun of `reticle ability-glyphs` over moved inputs restales

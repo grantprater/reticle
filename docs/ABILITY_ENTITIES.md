@@ -696,40 +696,58 @@ Step 2 done (2026-10-09, branch `ability-entities-step2-20261009`):
   dev matches' lanes stay held stale until their `smoke_owner` is rebuilt;
   the player's viewer check is owed.
 
-**Step 3. The team's children, and `ability-owner`.** Openers add ally
-smokes, glyph tracks, shape fits and walls, ally ult lines, spectated kit
-drops, killfeed ability kills and assist icons; allies' effects bind.
-Channel claims re-key to children; `ability_child_identity` is written;
-`slot_state` owns `ability-owner` (`names_agents = true`, deferring to
-`agent-identity`). The viewer drops its direct reads of `smoke`,
-`smoke_owner`, `ult_cast` and their identity streams. Retire milestone C
+**Step 3. Every slot, one builder (steps 3 and 4 merged, 2026-10-09).**
+The player asked why the enemy's abilities were treated apart: they are not.
+A side is a property of the slot, and which slots a witness can observe is a
+property of its channel. So one pass of `slot_state.build_abilities` opens,
+joins and ends children for every slot, self, team and enemy, with whichever
+witnesses reach that slot's side: each `CHANNELS` row names its `sides` and
+`opens_sides`, with the evidence (`sides_reason`), never by analogy. The
+owner binding rests on the slot's arbiter verdict for every side, through
+`depends_on`. Spawned objects become nodes of their own (2.2a): one per
+object of the mechanics sheet's spawn tree under each instance, `parent` the
+instance or its parent object, each with its own lifecycle; a glyph drawing
+the object's texture witnesses it, any other node is `possible` and stays in
+the owner's stream. Channel claims re-key to children and
+`ability_child_identity` is written; `slot_state` owns `ability-owner`.
+`player_x_drops` moves to `ability_timeline`, the tray's cast owner; the
+never-projected `smoke` and `ult_cast` lanes go. Still to retire: milestone C
 (`build_entities`, the three grouping rules, `light_refusals` with
 `ability_light` and `reticle ability-light`, `predict_ability_births`, the
 `ability-entities` command, the `ability-hypothesis` entry),
 `adjudication.phases` and `reticle ability-phases` (its two rules kept as
-tests), the `minimap.detect_ability_*` functions and the gallery's
-classifier.
+tests), the `minimap.detect_ability_*` functions, the gallery's classifier,
+and `detection_reality` asking `slot_state` in place of `glyph_placement`;
+out of sight, each enemy child keeps its timeline and region (2.6).
 
-Acceptance: `.\.venv\Scripts\python.exe -m reticle doctor`, then the harness's ability subcommand with `--side ally` on the six sessions.
-Evidence: doctor no longer reports `ability-owner`; per ally class,
-outcomes summing to the finds, kind and agent accuracy with intervals,
-beside harness steps 6 and 7's channel scores as the control; every
-unmapped class named.
+Acceptance: `.\.venv\Scripts\python.exe -m reticle doctor`, then `.\.venv\Scripts\python.exe -m reticle acceptance ability-lane --side all --tag TAG` on the six sessions.
+Evidence: doctor's KINDS no longer warns for any side; per side and class,
+outcomes summing to the finds, recall and false opens with round intervals;
+spawned-object nodes per class: recall, open and end error, `ends_on` cause
+agreement; the self side reproduces step 2's; every unmapped class named.
 
-**Step 4. The enemy's children.** Openers add enemy ult lines, enemy glyph
-and drone tracks inside vision, the always-visible set, the enemy Lockdown
-ring [domain:abilities/killjoy-lockdown-enemy-minimap-ring], and enemy
-ability kills. Out of sight, each enemy child keeps its timeline and region
-(2.6). `round_lifetimes.detection_reality` asks `slot_state` whether a
-child lies under a find, in place of `glyph_placement`, so a drone from any
-channel explains an enemy false accept.
-
-Acceptance: `.\.venv\Scripts\python.exe prototypes\question_acceptance.py lane --tag pgb --reality paired` on the development matches, then the harness's ability subcommand with `--side enemy`.
-Evidence: the enemy lane's 0.3.0 control reproduces; the paired difference
-in presence precision with its interval; per enemy class, recall over the
-truth children the drawing facts say the team sees, `undrawn_truth` counted
-apart; for children out of sight, the share of truth anchors inside the
-region, with the region's area.
+Step 3 done in part (2026-10-09, branch `ability-tree-step3-20261009`).
+Prediction `ability-tree-step3-20261009-A1` failed four of its
+pre-registered bounds: a team-owned drawing's loss ended self children
+early (self end-cause agreement
+[metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_end_cause_agreement=0.413], bound: within 0.10 of step
+2b), team false opens [metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#team_all_false_open_share=0.3966] exceeded
+0.35, object nodes recalled [metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_all_recall=0.095] of the
+actors (bound 0.50), and object end-cause agreement
+[metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_all_end_cause_agreement=0.2519] fell below 0.40. Self
+recall held ([metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_recall=0.8523]). A post-hoc revision
+(ability-child-0.2.1, rows marked `post_hoc`) is withdrawn: it carried two
+abilities' drawings to every ability. In its place (0.3.0) the mechanics
+sheet 0.4.2 asks per object whether it has ended when its drawing
+disappears (`drawing_loss`); no cell is answered yet, so a loss ends nothing
+and stores `no-fact`. Prediction `ability-tree-step3-20261009-A2` failed one
+bound on its run: witnessed object nodes, now scored apart from possible
+ones, open falsely at [metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_all_false_open_share=0.8247]
+(bound 0.70). Self reproduces step 2b
+([metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_end_cause_agreement=0.6014]); team recall
+[metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#team_all_recall=0.348], enemy recall
+[metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#enemy_all_recall=0.1026], possible-node recall
+[metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_possible_all_recall=0.0838].
 
 **Step 5. Kits for every slot.** `adjudication.ability_state` reads stored
 children as cast witnesses for allies and enemies and holds their charges

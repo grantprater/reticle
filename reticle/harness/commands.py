@@ -16,8 +16,9 @@ owns each command only when it runs:
   the stored read-schedule arms (`schedule`);
 * `draw-persist`, `draw-smokes` -- T1d's persistence and smoke census (`draw`);
 * `slots` -- B1, both sides' slot regions against replay truth (`run`);
-* `ability-lane` -- the `ability` lane's children of the player per class
-  against the replay's casts (`run`, docs/ABILITY_ENTITIES.md step 2).
+* `ability-lane` -- the `ability` lane's children of every slot side per
+  class against the replay's casts, and the spawned-object nodes per class
+  against the replay's actors (`run`, docs/ABILITY_ENTITIES.md step 3).
 
 `summary` stays in `cli` beside them: it rescores stored rows on
 `reticle.acceptance` alone.
@@ -81,13 +82,15 @@ def add_parsers(sub) -> None:
     p = sub.add_parser("slots", help="B1: both sides' slot regions (slot_state) against replay truth")
     p.add_argument("sessions", nargs="*", default=list(DEV) + list(NEW))
     p.add_argument("--record", action="store_true")
-    p = sub.add_parser("ability-lane", help="the ability lane's children per class against the "
-                                             "replay's casts (docs/ABILITY_ENTITIES.md step 2)")
+    p = sub.add_parser("ability-lane", help="the ability lane's children per side and class against "
+                                             "the replay's casts (docs/ABILITY_ENTITIES.md step 3)")
     p.add_argument("sessions", nargs="*", default=list(NEW) + list(DEV))
     p.add_argument("--tag", required=True)
-    p.add_argument("--side", choices=("self",), default="self",
-                   help="the player's own children; the team's come in step 3")
+    p.add_argument("--side", choices=("self", "team", "enemy", "all"), default="all",
+                   help="one slot side, or every side and the spawned objects in one run (step 3)")
     p.add_argument("--record", action="store_true")
+    p.add_argument("--post-hoc", action="store_true",
+                   help="a revision after the pre-registered run: every recorded row says so")
     p = sub.add_parser("budget-feats", help="the budget's features per miss and extra")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
@@ -156,7 +159,8 @@ def dispatch(a, cmd: str) -> int:
     if cmd == "slots":
         return run.run_slots(a.sessions or list(DEV) + list(NEW), a.record)
     if cmd == "ability-lane":
-        return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record)
+        return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record,
+                                    post_hoc=a.post_hoc)
     if cmd == "budget":
         return run.run_budget(a.tag, a.sessions or list(DEV), a.record, a.rewrite)
     if cmd.startswith("budget-"):
