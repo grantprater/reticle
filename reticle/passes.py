@@ -24,9 +24,11 @@ immutable baked minimap geometry. Session frames never define the map.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from types import SimpleNamespace
+from typing import NamedTuple, Protocol
 
 import numpy as np
 
@@ -149,12 +151,189 @@ class SessionContext:
         return cv2.cvtColor(self.map_reference(), cv2.COLOR_BGR2GRAY).astype(np.float64)
 
 
+# ---------------------------------------------------------------------------
+# The per-frame gate hook (BACKLOG item 1)
+# ---------------------------------------------------------------------------
+
+class GateDecision(NamedTuple):
+    """One gate answer at one grid instant.
+
+    `read`: the gate opened; `reason` says why it opened or refused;
+    `audit`: the instant lies in the declared audit cadence
+    (`ratchets.Audit`), so it is read whatever `read` says and stored apart.
+    """
+
+    read: bool
+    reason: str
+    audit: bool = False
+
+
+class GateLog:
+    """What a frame gate decided over a pass, kept on the reader as
+    `gate_log` for its owner to publish.
+
+    A refused instant is a NON-READ with a reason: never a null
+    observation, never "absent". Refusals are kept as runs of consecutive
+    offered instants that share a reason (`runs`: `[t_first, t_last, reason,
+    n]`); the instants the gate opened (`read_t`) and the audit instants
+    (`audit_t`, opened or not) are kept whole, so the owner can store the
+    gated rows and the audit rows apart.
+    """
+
+    def __init__(self, gate):
+        self.version = gate.version
+        self.rests_on = list(gate.rests_on)
+        self.audit = gate.audit.stamp() if gate.audit is not None else None
+        self.opened: Counter = Counter()
+        self.refused: Counter = Counter()
+        self.read_t: list[float] = []
+        self.audit_t: list[float] = []
+        self.runs: list[list] = []
+        self._open_run = False
+
+    def record(self, t_ms: float, d: GateDecision) -> None:
+        t = float(t_ms)
+        if d.audit:
+            self.audit_t.append(t)
+        if d.read:
+            self.opened[d.reason] += 1
+            self.read_t.append(t)
+        elif not d.audit:
+            self.refused[d.reason] += 1
+            if self._open_run and self.runs[-1][2] == d.reason:
+                self.runs[-1][1] = t
+                self.runs[-1][3] += 1
+            else:
+                self.runs.append([t, t, d.reason, 1])
+            self._open_run = True
+            return
+        self._open_run = False
+
+    def extend(self, other: "GateLog") -> None:
+        """Append a later run's log (`process_shards` merges in run order)."""
+        self.opened.update(other.opened)
+        self.refused.update(other.refused)
+        self.read_t += other.read_t
+        self.audit_t += other.audit_t
+        self.runs += [list(r) for r in other.runs]
+        self._open_run = False
+
+    def summary(self) -> dict:
+        """The gate's block for its stream's coverage row."""
+        audit_only = len(set(self.audit_t) - set(self.read_t))
+        refused = int(sum(self.refused.values()))
+        return {"version": self.version, "rests_on": self.rests_on, "audit": self.audit,
+                "offered": len(self.read_t) + audit_only + refused,
+                "read": len(self.read_t), "audit_frames": len(self.audit_t),
+                "audit_only": audit_only, "refused": refused,
+                "opened_reasons": dict(sorted(self.opened.items())),
+                "refused_reasons": dict(sorted(self.refused.items()))}
+
+    def unread_rows(self) -> list[dict]:
+        """One row per refused run: the instants the gate did not read, and why."""
+        return [{"kind": "unread", "t_ms": a, "t_last_ms": b, "reason": why, "frames": int(n),
+                 "gate_version": self.version} for a, b, why, n in self.runs]
+
+
+def frame_gated(reader) -> bool:
+    """Does the hook gate `reader`? A `"frame"` gate declared
+    (`ratchets.declared_gate`), a `wants` method and a bound runtime gate
+    (`frame_gate`); a reader whose gate is not bound reads its grid."""
+    from .ratchets import declared_gate
+    g = declared_gate(reader)
+    return (g is not None and g.kind == "frame" and callable(getattr(reader, "wants", None))
+            and getattr(reader, "frame_gate", None) is not None)
+
+
+def gate_decide(reader, t_ms: float) -> GateDecision:
+    """Ask `reader`'s gate about one instant -- `wants(t_ms)` returns a
+    `GateDecision`, a `(read, reason)` pair or a bool -- and record the answer in its
+    `gate_log` (made on first use from the declared gate). The audit
+    cadence is the declaration's, applied here, so no gate can skip it."""
+    from .ratchets import declared_gate
+    g = declared_gate(reader)
+    log = getattr(reader, "gate_log", None)
+    if log is None:
+        log = reader.gate_log = GateLog(g)
+    d = reader.wants(float(t_ms))
+    if isinstance(d, tuple) and not isinstance(d, GateDecision):
+        d = GateDecision(bool(d[0]), str(d[1]))
+    elif not isinstance(d, GateDecision):
+        d = GateDecision(bool(d), "open" if d else "closed")
+    audit = g.audit is not None and g.audit.covers(t_ms, _span_start(reader, t_ms))
+    d = d._replace(audit=bool(audit))
+    log.record(t_ms, d)
+    return d
+
+
+def _span_index(reader) -> tuple:
+    """`(starts, ends)` of the reader's spans (sorted, disjoint), built once
+    per spans object; None spans are one span from 0 ms."""
+    spans = getattr(reader, "spans", None)
+    got = getattr(reader, "_gate_span_index", None)
+    if got is None or got[0] is not spans:
+        arr = (np.array([[0.0, np.inf]]) if spans is None
+               else np.asarray(spans, float).reshape(-1, 2))
+        got = reader._gate_span_index = (spans, arr[:, 0].copy(), arr[:, 1].copy())
+    return got[1], got[2]
+
+
+def _span_start(reader, t_ms: float) -> float | None:
+    """The start of the reader's span holding `t_ms`, or None."""
+    # The index is built once per spans object (`_span_index`); one lookup.
+    starts, ends = _span_index(reader)
+    i = np.searchsorted(starts, float(t_ms), side="right") - 1
+    return float(starts[i]) if i >= 0 and float(t_ms) <= ends[i] else None
+
+
+def gate_after(reader, t_ms: float, d: GateDecision) -> None:
+    """After a gated reader read `t_ms`: a read the gate opened feeds the
+    gate's belief back (`observed`); an audit-only read does not, so the
+    gate's belief never rests on its own audit."""
+    if d.read:
+        fn = getattr(reader, "observed", None)
+        if callable(fn):
+            fn(float(t_ms))
+
+
+def gated_times(readers: list, times, want):
+    """`times` (each a candidate instant) filtered lazily by the readers'
+    gates: yields each instant somebody reads, once `pending[t]` holds who
+    and with which decision (None for an ungated reader). `want(t)` names
+    the readers whose grid takes `t`. A generator, so each gate is asked
+    only after the caller fed every earlier sample."""
+    pending: dict[float, list] = {}
+    gated = {id(r) for r in readers if frame_gated(r)}
+
+    def gen():
+        for t in times:
+            t = float(t)
+            keep = []
+            for r in want(t):
+                if id(r) in gated:
+                    d = gate_decide(r, t)
+                    if d.read or d.audit:
+                        keep.append((r, d))
+                else:
+                    keep.append((r, None))
+            if keep:
+                pending[t] = keep
+                yield t
+    return gen(), pending
+
+
 def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     """Drive every reader over ONE decode. Returns frames retrieved.
 
     A reader is fed only the frames it asked for -- `decode.sample_multi`
     decides that from each one's `hz` and `spans` -- so adding a slow reader
     over a narrow window costs that window, not another pass over the file.
+
+    A frame-gated reader (`frame_gated`) is asked `wants(t_ms)` at each
+    instant of its grid before the retrieve (`gate_decide`); a refusal is
+    recorded in its `gate_log` and the frame is neither retrieved for it
+    nor fed. After a read the gate opened, the reader's `observed` feeds its
+    gate's belief (`gate_after`).
     """
     from .decode import sample_multi
 
@@ -167,7 +346,16 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     backend = {}
     if usage is not None:
         usage.decode_backend = backend      # filled when the capture opens
-    frames = sample_multi(str(ctx.media), ctx.fps, req, info=backend)
+    decided: dict[str, GateDecision] = {}
+
+    def gate_of(r):
+        def ask(t_ms):
+            d = decided[r.name] = gate_decide(r, t_ms)
+            return d.read or d.audit
+        return ask
+    gates = {r.name: gate_of(r) for r in readers if frame_gated(r)}
+    frames = sample_multi(str(ctx.media), ctx.fps, req, info=backend,
+                          **({"gates": gates} if gates else {}))
     for who, smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
         # In the readers' order, as `run_cached` feeds them: a reader may read
@@ -176,6 +364,8 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
         for r in readers:
             if r.name in who:
                 _feed(r, smp, usage)
+                if r.name in gates:
+                    gate_after(r, smp.t_ms, decided[r.name])
         if progress is not None:
             progress(n, smp)
     for r in readers:
@@ -204,7 +394,10 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
     the cache was written at its rate -- so the cache's timestamps are the
     frames `run` would have fed it, and each frame holds those pixels bit for
     bit. A `cache_resample` reader slower than the cache reads its own grid
-    of cached times instead (`cache_feed`). Returns frames fed.
+    of cached times instead (`cache_feed`). A frame-gated reader's gate is
+    asked at each of its cached times before the crop is fetched
+    (`gated_times`), so a refused time costs no crop decode. Returns frames
+    fed.
     """
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
     for r in readers:
@@ -213,11 +406,19 @@ def run_cached(ctx: SessionContext, readers: list, cache, progress=None,
         usage.decode_backend = cache_backend(cache)
     n = 0
     times, want = cache_feed(readers, cache)
-    frames = cache.samples(times, rois=rois)
+    if any(frame_gated(r) for r in readers):
+        lazy, pending = gated_times(readers, times, lambda t: want(SimpleNamespace(t_ms=t)))
+        frames = cache.samples(lazy, rois=rois)
+        who = lambda smp: pending.pop(float(smp.t_ms), ())  # noqa: E731
+    else:
+        frames = cache.samples(times, rois=rois)
+        who = lambda smp: [(r, None) for r in want(smp)]  # noqa: E731
     for smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
-        for r in want(smp):
+        for r, d in who(smp):
             _feed(r, smp, usage)
+            if d is not None:
+                gate_after(r, smp.t_ms, d)
         if progress is not None:
             progress(n, smp)
     for r in readers:

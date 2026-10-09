@@ -40,65 +40,109 @@ ERROR, WARN = "ERROR", "WARN"
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class Audit:
+    """A frame gate's audit cadence, fixed in advance (AGENTS.md: audit a
+    prior on a cadence fixed in advance, stored apart).
+
+    Inside each of the reader's spans -- the opportunity the reader already
+    waits for, a live round -- the windows `[s0 + phase + k every, + window)`
+    are read at the reader's full grid whatever the gate says. The cadence
+    depends on the span's start alone, never on a read, so an audit sample
+    is an opportunity-gated sample and never a surprise-triggered one. The
+    hook (`passes`) marks each such frame `audit`; its owner stores the
+    audit reads apart from the gated stream.
+    """
+
+    every_ms: float
+    window_ms: float
+    phase_ms: float = 0.0
+
+    def __post_init__(self):
+        if not (0 < self.window_ms < self.every_ms) or self.phase_ms < 0:
+            raise ValueError("an audit reads a window shorter than its period, at a phase >= 0")
+
+    def covers(self, t_ms: float, span_start: float | None) -> bool:
+        """Is `t_ms` inside an audit window of the span that starts at
+        `span_start` and holds it? None: no span holds it."""
+        if span_start is None:
+            return False
+        k = float(t_ms) - float(span_start) - float(self.phase_ms)
+        return k >= 0 and (k % float(self.every_ms)) < float(self.window_ms)
+
+    def stamp(self) -> dict:
+        return {"every_ms": float(self.every_ms), "window_ms": float(self.window_ms),
+                "phase_ms": float(self.phase_ms), "anchor": "each span's start"}
+
+
+@dataclass(frozen=True)
 class Gate:
     """A reader's declared opportunity gate: what opens a read, and where the
     gate's belief comes from.
 
     A reader declares one as its CLASS attribute `opportunity_gate`, so
-    `doctor` can see it without running anything. `kind` says who applies it:
+    `doctor` can see it without running anything; an instance may bind its
+    own copy (`bound`), which `declared_gate` prefers. `kind` says who
+    applies it:
 
     - `"spans"`: the reader's `spans` are the opportunity windows, built from
       stored evidence before the pass (`clove_circle.stored_windows` builds
       Clove's). `decode.sample_multi` and `passes.cache_feed` already honour
       spans, so the gate needs no hook.
-    - `"frame"`: the reader's `wants(t_ms) -> bool` decides per sample, from
-      the gate's belief (`source`). The per-frame gate hook in `passes.run`
-      and `passes.run_cached` (BACKLOG item 1, second step) consumes it. Until
-      that hook exists (`FRAME_HOOK` is False) a `"frame"` gate converts
-      nothing: CONVERT errors on it unless the reader stays listed, and a
-      `"frame"` gate without a `wants` method always errors.
+    - `"frame"`: the reader's `wants(t_ms)` decides per sample, from the
+      gate's belief (`source`). The per-frame gate hook in `passes.run`,
+      `passes.run_cached` and `process_shards` consumes it (`FRAME_HOOK`):
+      it asks before the decode's retrieve or the crop's fetch, records each
+      refusal with its reason, and feeds the frame only where the gate opens
+      or the audit cadence covers it. A `"frame"` gate names its `version`
+      and its `audit` cadence; CONVERT errors on one without `wants`, a
+      version or an audit.
 
     `opportunity` names the event that opens a read ("an ally Clove's death
     window"); `source` names the stored stream or function the gate reads.
+    `version` stamps the gate's rule into every stream it gated. `rests_on`
+    names the prior the instance's gate reads (the slot belief's stamp), so
+    a result the gate shaped never counts that prior again; the class
+    declaration leaves it empty and `bound` fills it per instance.
 
-    What the passes-hook step must add to this contract (recorded here, not
-    built):
-
-    - A gate per instance or per ability, not only per class: one ability
-      reader serves many abilities, each with its own opportunity, so the
-      hook reads the gate from the reader object (and its abilities), and
-      `doctor` keeps reading the class declaration as the floor.
-    - Provenance: a gate `version` stamped into each gated stream, the
-      `rests_on` of the belief that opened each read (AGENTS.md: a prior is
-      evidence weighed once), and an audit cadence fixed in advance -- full
-      reads on opportunity-gated samples, stored apart -- until the gate's
-      efficacy is statistically significant.
-    - A gate that feeds `decode.sample_multi` (and `passes.cache_feed`), so a
-      closed gate saves the decode and the crop read, not only the reader's
-      CPU after the frame is already decoded.
+    One reader serving many abilities binds one gate per instance; `doctor`
+    reads the class declaration as the floor.
     """
 
     opportunity: str
     source: str
     kind: str = "spans"
+    version: str = ""
+    audit: Audit | None = None
+    rests_on: tuple = ()
 
     def __post_init__(self):
         if self.kind not in ("spans", "frame"):
             raise ValueError(f"a gate's kind is 'spans' or 'frame', not {self.kind!r}")
         if not self.opportunity or not self.source:
             raise ValueError("a gate names its opportunity and its source")
+        if self.kind == "frame" and (not self.version or self.audit is None):
+            raise ValueError("a 'frame' gate names its version and its audit cadence")
+
+    def bound(self, rests_on) -> "Gate":
+        """This declaration for one instance, naming the prior it rests on."""
+        from dataclasses import replace
+        return replace(self, rests_on=tuple(rests_on))
 
 
-#: Does `passes.run` apply `"frame"` gates yet? False until BACKLOG item 1's
-#: hook lands; the commit that adds the hook sets it.
-FRAME_HOOK = False
+#: Does `passes.run` apply `"frame"` gates? True since the hook landed
+#: (gate-hook-20261009): `passes.run`, `passes.run_cached` and
+#: `process_shards` ask a frame-gated reader's `wants` before each frame.
+FRAME_HOOK = True
 
 
 def declared_gate(reader) -> Gate | None:
-    """The `Gate` a reader declares, through any wrapper; None where it
-    declares none (a fixed-grid reader)."""
+    """The `Gate` a reader declares, through any wrapper: the instance's own
+    binding first, then its class's; None where it declares none (a
+    fixed-grid reader)."""
     inner = _unwrap(reader)
-    got = getattr(type(inner), "opportunity_gate", None)
+    got = getattr(inner, "__dict__", {}).get("opportunity_gate")
+    if not isinstance(got, Gate):
+        got = getattr(type(inner), "opportunity_gate", None)
     return got if isinstance(got, Gate) else None
 
 
@@ -135,9 +179,6 @@ CONVERT_LEGACY: dict[str, dict[str, str]] = {
     "reticle/cli.py::_MinimapPass": {
         "rate": "15 Hz (`--minimap-hz`) over the in-match spans",
         "converts": "BACKLOG 1: the slot model's gate, after the ally pass"},
-    "reticle/minimap.py::AllyIconReader": {
-        "rate": "15 Hz (`ALLY_DESCRIPTOR_HZ`, `--ally-hz`) over the in-match spans",
-        "converts": "BACKLOG 1: the ally pass, first"},
     "reticle/ping.py::PingReader": {
         "rate": "10 Hz (`--ping-hz`) over the in-match spans",
         "converts": "BACKLOG 1: after the ally pass"},
@@ -181,11 +222,13 @@ CONVERT_LEGACY: dict[str, dict[str, str]] = {
         "converts": "BACKLOG 1: with the ability readers it wraps"},
 }
 
-#: The keys CONVERT_LEGACY held when it was seeded, 2026-10-09. Frozen: doctor
-#: errors on a CONVERT_LEGACY key outside it, so the list cannot grow by an
-#: edit that adds one entry and drops another.
+#: The keys CONVERT_LEGACY held when it was seeded, 2026-10-09, less each
+#: reader converted since (removal is the one way it changes:
+#: `minimap.AllyIconReader`, gate-hook-20261009). Frozen: doctor errors on a
+#: CONVERT_LEGACY key outside it, so the list cannot grow by an edit that
+#: adds one entry and drops another.
 CONVERT_SEED = frozenset({
-    "reticle/cli.py::_MinimapPass", "reticle/minimap.py::AllyIconReader",
+    "reticle/cli.py::_MinimapPass",
     "reticle/ping.py::PingReader", "reticle/minimap_dark.py::DarkRegionReader",
     "reticle/ability_scan.py::AbilityShapeReader", "reticle/ability_icons.py::AbilityIconReader",
     "reticle/minimap_glyph.py::AbilityGlyphReader", "reticle/hud_reader.py::HudReader",
@@ -253,6 +296,8 @@ class ReaderClass:
     gate_kind: str | None
     wants: bool
     rate: str
+    #: The keyword fields the declaration names (`version`, `audit`, ...).
+    gate_fields: frozenset = frozenset()
 
 
 def _one_arg_feed(fn) -> bool:
@@ -289,13 +334,18 @@ def _class_facts(c: ast.ClassDef) -> dict:
                   and ((isinstance(v.func, ast.Name) and v.func.id == "Gate")
                        or (isinstance(v.func, ast.Attribute) and v.func.attr == "Gate")))
             kind = "spans"
+            named = set()
             if ok:
                 for kw in v.keywords:
                     if kw.arg == "kind" and isinstance(kw.value, ast.Constant):
                         kind = str(kw.value.value)
+                    named.add(kw.arg)
                 if len(v.args) >= 3 and isinstance(v.args[2], ast.Constant):
                     kind = str(v.args[2].value)
-            gate = (ok, kind)
+                # positional arguments name the fields in their declared order
+                named |= set(("opportunity", "source", "kind", "version", "audit",
+                              "rests_on")[:len(v.args)])
+            gate = (ok, kind, named)
     return {"node": c, "bases": _base_names(c),
             "protocol": "Protocol" in _base_names(c),
             "feed": "feed" in meths and _one_arg_feed(meths["feed"]),
@@ -364,7 +414,8 @@ def reader_classes(base: Path | None = None) -> list[ReaderClass]:
             out.append(ReaderClass(
                 key=f"{rel}::{name}", line=f["node"].lineno, gated=gate is not None,
                 gate_ok=bool(gate and gate[0]), gate_kind=gate[1] if gate else None,
-                wants=any(g["wants"] for _w, g in chain), rate=rate))
+                wants=any(g["wants"] for _w, g in chain), rate=rate,
+                gate_fields=frozenset(gate[2]) if gate else frozenset()))
     return sorted(out, key=lambda r: r.key)
 
 
@@ -376,7 +427,8 @@ def convert_findings(base: Path | None = None, legacy: dict | None = None,
     once `FRAME_HOOK` applies it. An unconverted reader with no
     `CONVERT_LEGACY` entry is an ERROR: a new fixed-grid reader. A listed one
     is a WARN naming its rate and the item that converts it. A `"frame"` gate
-    with no `wants` method is an ERROR. A listed reader that converted, or
+    with no `wants` method, or declared without its `version` or `audit`,
+    is an ERROR. A listed reader that converted, or
     no longer exists, is an ERROR until its entry goes; a listed key outside
     the frozen `CONVERT_SEED` is an ERROR, so the list only shrinks. Clove's
     circle (`clove_circle.CloveCircleReader`) declares a `"spans"` gate, its
@@ -395,6 +447,12 @@ def convert_findings(base: Path | None = None, legacy: dict | None = None,
         if r.gate_kind == "frame" and not r.wants:
             out.append((ERROR, f"{where} declares a \"frame\" gate and no `wants(t_ms)` "
                                "method for the hook to call"))
+        if r.gate_ok and r.gate_kind == "frame":
+            for need in ("version", "audit"):
+                if need not in r.gate_fields:
+                    out.append((ERROR, f"{where} declares a \"frame\" gate without its "
+                                       f"`{need}` (a stamp and an audit cadence fixed in "
+                                       "advance)"))
         done = r.gate_ok and (r.gate_kind == "spans" or FRAME_HOOK)
         frame_wait = r.gate_kind == "frame" and not FRAME_HOOK
         if done and r.key in legacy:

@@ -1314,7 +1314,13 @@ class RoiCache:
         keep = (set(range(len(held))) if rois is None
                 else {held.index(r) for r in rois if r in held})
         self._index_by_t()
-        if self.record.get("thinned_rois"):
+        if self.record.get("thinned_rois") and not isinstance(targets_ms, (list, tuple,
+                                                                             np.ndarray)):
+            # Targets that arrive one by one (`passes.gated_times`: a gate
+            # asked only after the earlier samples were fed) are checked one
+            # by one, so the check does not drain the gate ahead of the reads.
+            targets_ms = self._thinned_checked(targets_ms, keep, held)
+        elif self.record.get("thinned_rois"):
             # A grid-thinned ROI asked off its grid refuses the read: its
             # crop was dropped, and no neighbour or black stands in for it.
             targets_ms = list(targets_ms)
@@ -1344,6 +1350,20 @@ class RoiCache:
                     x0, y0, x1, y1 = self.record["rects"][int(self.rect[i])]
                     frame[y0:y1, x0:x1] = crop
                 yield Sample(frame_idx=int(self.frame_idx[got[0]]), t_ms=float(t), frame=frame)
+
+    def _thinned_checked(self, targets_ms, keep, held):
+        """`samples`' thinned-ROI check, one target at a time: a held target
+        that a thinned ROI asked does not hold raises `ThinnedOut`."""
+        times = {k: set(self.t_ms[self.rect == k].tolist()) for k in sorted(keep)
+                 if self.thinned(held[k]) is not None}
+        every = set(self.t_ms.tolist())
+        for t in targets_ms:
+            t = float(t)
+            if t in every:
+                for k, held_t in times.items():
+                    if t not in held_t:
+                        raise ThinnedOut(held[k], t, self.thinned(held[k]).get("step_s"))
+            yield t
 
     def _video_samples(self, targets_ms, keep, w, h):
         """`samples` for an FFV1 cache: one capture per rect, read in order,
@@ -1470,8 +1490,16 @@ class RoiCacheUnion:
         target order: each part's crops pasted into one black frame. A
         target outside is skipped, never yielded black; ask `refusal`."""
         parts = self._part_rois(rois)
-        held = [float(t) for t in targets_ms if self.refusal(t, rois) is None]
-        streams = [p.samples(held, want) for p, want in parts]
+        if isinstance(targets_ms, (list, tuple, np.ndarray)):
+            held = [float(t) for t in targets_ms if self.refusal(t, rois) is None]
+            streams = [p.samples(held, want) for p, want in parts]
+        else:
+            # Targets that arrive one by one (`passes.gated_times`) stay
+            # lazy: each part reads its own copy of the one stream.
+            from itertools import tee
+            lazy = (float(t) for t in targets_ms if self.refusal(t, rois) is None)
+            streams = [p.samples(copy, want)
+                       for (p, want), copy in zip(parts, tee(lazy, len(parts)))]
         for got in zip(*streams):
             frame = got[0].frame
             for (p, want), smp in zip(parts[1:], got[1:]):

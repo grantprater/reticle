@@ -23,6 +23,15 @@ said `no_prior`, and the parent refuses the merge rather than store a
 different row. Round caches leave the buy phase between runs, so the cuts
 fall between rounds.
 
+**A frame gate.** A reader the hook gates (`passes.frame_gated`) is split on
+its ungated times, and each child asks the gate before each crop fetch
+(`passes.gated_times`), feeding each read the gate opened back to it. The
+parent pickles the bound gate for the children, each child starts from that
+fresh gate, and the parent appends the children's `gate_log`s in run order.
+A gate whose belief restarts at a gap in the offered times longer than
+`teardrop.PRIOR_GAP_MS` (`ally_gate.RESET_GAP_MS`) answers each run as the
+serial pass would, since every cut lies at such a gap.
+
 **The merge.** Each child rebuilds the reader as `scan` does
 (`minimap.ally_icon_reader`), takes the parent's spans, clip and source, feeds
 its times through `passes._feed` and writes the reader's `shardable` lists.
@@ -137,7 +146,8 @@ class ProcessRun:
                     "hz": float(reader.hz), "spans": reader.spans,
                     "spans_clip": getattr(reader, "spans_clip", None),
                     "frames_from": reader.frames_from, "times": chunk,
-                    "seed_t_ms": before, "out": str(self.tmp / f"run{i}.pkl")}
+                    "seed_t_ms": before, "out": str(self.tmp / f"run{i}.pkl"),
+                    "gate": self._gate_spec(reader)}
             before = chunk[-1]
             sp = self.tmp / f"run{i}.json"
             sp.write_text(json.dumps(spec), encoding="utf-8")
@@ -147,9 +157,23 @@ class ProcessRun:
                 [sys.executable, "-m", "reticle.process_shards", str(sp)],
                 env=env, creationflags=flags), spec))
 
+    def _gate_spec(self, reader) -> str | None:
+        """The bound frame gate pickled once for every child, or None."""
+        from .passes import frame_gated
+        if not frame_gated(reader):
+            return None
+        path = self.tmp / "gate.pkl"
+        if not path.is_file():
+            with open(path, "wb") as f:
+                pickle.dump(reader.frame_gate, f, protocol=pickle.HIGHEST_PROTOCOL)
+        return str(path)
+
     @property
     def frames(self) -> int:
-        return sum(len(r) for r in self.runs)
+        """The frames the runs read: every offered frame, or after a gated
+        reader's merge the frames its gate or audit opened."""
+        read = getattr(self, "_gated_reads", None)
+        return sum(len(r) for r in self.runs) if read is None else read
 
     def merge(self) -> dict:
         """Wait, check the seeds, extend the reader's `shardable` lists in run
@@ -170,6 +194,14 @@ class ProcessRun:
             merged = getattr(self.reader, name)
             for g in got:
                 merged.extend(g["lists"][name])
+        if any(g.get("gate_log") is not None for g in got):
+            from .passes import GateLog
+            from .ratchets import declared_gate
+            log = self.reader.gate_log = GateLog(declared_gate(self.reader))
+            for g in got:
+                if g.get("gate_log") is not None:
+                    log.extend(g["gate_log"])
+            self._gated_reads = len(set(log.read_t) | set(log.audit_t))
         shutil.rmtree(self.tmp, ignore_errors=True)
         return {"processes": len(self.runs), "asked": self.k,
                 "frames": [len(r) for r in self.runs], "wall_s": round(wall, 3),
@@ -183,7 +215,7 @@ def _child(spec_path: str) -> int:
     import cv2
 
     from .minimap import ally_icon_reader
-    from .passes import SessionContext, _cache_rois, _feed
+    from .passes import SessionContext, _cache_rois, _feed, gate_after, gated_times
     from .profiles import get_profile
     from .roi_cache import cache_for, declare_set
     from .store import Store
@@ -203,13 +235,22 @@ def _child(spec_path: str) -> int:
     if cache is None:
         raise SystemExit(f"process run: no cache feeds {reader.name}: {why}")
     reader.frames_from = spec["frames_from"]
+    if spec.get("gate"):
+        with open(spec["gate"], "rb") as f:
+            reader.bind_gate(pickle.load(f))
     if spec["seed_t_ms"] is not None:
         reader.after_gap(float(spec["seed_t_ms"]))
     wall, cpu = time.perf_counter_ns(), time.process_time_ns()
-    for smp in cache.samples(spec["times"], rois=_cache_rois(reader)):
-        _feed(reader, smp, None)
+    # The hook's rule, as `passes.run_cached` applies it: a gated reader's
+    # gate is asked before each crop fetch.
+    lazy, pending = gated_times([reader], spec["times"], lambda t: [reader])
+    for smp in cache.samples(lazy, rois=_cache_rois(reader)):
+        for r, d in pending.pop(float(smp.t_ms), ()):
+            _feed(r, smp, None)
+            if d is not None:
+                gate_after(r, smp.t_ms, d)
     out = {"lists": {n: getattr(reader, n) for n in reader.shardable},
-           "candidates": reader.candidates,
+           "candidates": reader.candidates, "gate_log": getattr(reader, "gate_log", None),
            "wall_ns": time.perf_counter_ns() - wall, "cpu_ns": time.process_time_ns() - cpu}
     with open(spec["out"], "wb") as f:
         pickle.dump(out, f, protocol=pickle.HIGHEST_PROTOCOL)
