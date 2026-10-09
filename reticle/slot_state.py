@@ -106,7 +106,12 @@ unwitnessed fit: its disc together with the reach from the last witnessed
 fix), `crowd` (no fit; the last fix lay within one icon diameter of another
 slot that still has a fit [domain:minimap/coincident-icons]), `reach` (the
 disc of `v_max (t - t_fix) + r_fit` round the round's last witnessed fix),
-`unanchored` (no fix this round: the map). `v_max` is the top ground speed
+`unanchored` (no fix this round: the map). `spawn_anchor` can replace
+`unanchored` with `spawn` (the side's spawn disc from the callout-region
+owner, grown by reach from `gametime`'s barrier drop, the side from the
+rounds owner) until that disc covers the map; it ships off
+(`SPAWN_ANCHOR_SIDES`), because the callout `Spawn` volumes miss the area
+the barriers hold. `v_max` is the top ground speed
 from the game files [domain:game_data/character-movement-speeds] in metres
 [domain:game_data/game-units-centimetres]. Negative evidence is off.
 Reach is still a Euclidean disc: the walk reach the gate needs (BACKLOG item
@@ -137,7 +142,7 @@ bake: it floods the walk graph of the prototypes' 3D sightline table
 (`sightlines_3d`), which `reticle/` may not read, so the port waits for the
 walk-graph bake.
 
-Scored on the six replay sessions (`question_acceptance.py slots`), a living
+Scored on the six replay sessions (`reticle acceptance slots`), a living
 enemy lies inside his slot's region on
 [metric:question_acceptance/slots/enemy@all6#calibration=0.9881] of drawn
 frames in live play, and inside a fit's disc on
@@ -195,10 +200,9 @@ from .store import DEFAULT_STORE, Store
 #: promoted; agent spellings compare through `agent_names.agent_key`.
 #: 0.2.0 (2026-10-09): the five enemy slots join the entity axis after the
 #: ally five, fed by the stored `enemy_track` rows; ally rows are unchanged.
-#: 0.3.0 (2026-10-09): an open slot with no witnessed fix this round holds
-#: `spawn`, its side's spawn disc grown by reach from the barrier drop
-#: (`spawn_anchor`), until that disc would cover the map.
-SLOT_STATE_VERSION = "slot-state-0.3.0"
+#: The spawn anchor (`spawn_anchor`, 2026-10-09) ships off and changes no
+#: belief, so it keeps 0.2.0; turning it on bumps this.
+SLOT_STATE_VERSION = "slot-state-0.2.0"
 #: The enemy binding's own stamp.
 ENEMY_BINDING_VERSION = "enemy-binding-0.1.0"
 #: The binding law's own stamp (unchanged from the prototype).
@@ -1436,8 +1440,17 @@ def join_beliefs(Bs: list[dict]) -> dict:
 
 #: spawn-anchor-0.1.0 (2026-10-09): the anchor law's own stamp.
 SPAWN_ANCHOR_VERSION = "spawn-anchor-0.1.0"
-#: The sides whose slots the spawn anchors.
-SPAWN_ANCHOR_SIDES = ("ally", "enemy")
+#: The sides whose slots the spawn anchors: none. On the six replay sessions
+#: the callout `Spawn` volumes miss most players at the barrier drop (they
+#: walk past the volume to the barriers in the buy phase), so with both sides
+#: on the enemy calibration fell below its pre-registered bound and the
+#: `spawn` kind missed one player in eight (the store's notes/predictions.jsonl,
+#: enemy-spawn-anchor-20261009-S1-outcome). The held
+#: area needs the game files' `SpawnBarrier_C` placements, which the stored
+#: sightline tables list without transforms; a bake of those turns this on.
+SPAWN_ANCHOR_SIDES: tuple[str, ...] = ()
+SPAWN_ANCHOR_OFF = ("callout Spawn volumes miss the held area; awaits a bake of the "
+                    "SpawnBarrier_C placements")
 #: Side codes for the anchor arrays, in the rounds owner's words
 #: (`rounds.SIDES`); -1 is an unread side.
 SIDE_CODES = ("attack", "defence")
@@ -1479,6 +1492,22 @@ def spawn_discs(map_name: str, store_root: Path = DEFAULT_STORE) -> dict:
     return {"discs": discs, "map": map_name, "provenance": reg.provenance()}
 
 
+def team_sides(rounds: list[dict], starting: str | None) -> tuple[np.ndarray, Counter]:
+    """Each round's side for the player's team as codes into `SIDE_CODES`
+    (-1 unread), asked of the rounds owner (`rounds.side_in_round` at
+    `rounds.match_round`), and the count of each unread reason."""
+    from .rounds import match_round, side_in_round
+    team = np.full(len(rounds), -1, np.int64)
+    why = Counter()
+    for i, r in enumerate(rounds):           # one entry per round, not per frame
+        side, reason = side_in_round(match_round(r), starting)
+        if side is None:
+            why[reason] += 1
+        else:
+            team[i] = SIDE_CODES.index(side)
+    return team, why
+
+
 def round_sides(S: StoredRows, rounds: list[dict]) -> dict:
     """Each round's side for the player's team and its barrier drop, from
     their owners, in `rounds` order (`round_segments`' sorted rounds).
@@ -1491,19 +1520,12 @@ def round_sides(S: StoredRows, rounds: list[dict]) -> dict:
     the start, a wider region, never a narrower one). Returns `team` (codes
     into `SIDE_CODES`, -1 unread), `t_live` (ms), `starting_side`, and the
     reasons."""
-    from .rounds import match_round, side_in_round, starting_side
+    from .rounds import starting_side
     ev = S.root / "events"
     spike = list(_jsonl(ev / "spike" / f"{S.sid}.jsonl"))
     carrier = list(_jsonl(ev / "spike_carrier" / f"{S.sid}.jsonl"))
     st = starting_side(S.rounds, spike or None, carrier or None)
-    team = np.full(len(rounds), -1, np.int64)
-    why = Counter()
-    for i, r in enumerate(rounds):
-        side, reason = side_in_round(match_round(r), st["starting_side"])
-        if side is None:
-            why[reason] += 1
-        else:
-            team[i] = SIDE_CODES.index(side)
+    team, why = team_sides(rounds, st["starting_side"])
     t_start = np.asarray([float(r["t_start_ms"]) for r in rounds], float)
     t_live = t_start.copy()
     store = Store(S.root)
@@ -1672,8 +1694,10 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
     Bs = [beliefs(S.fr_t, b["X"], b["Y"], b["has"], b["open"], life["seg_start"],
                   r_fit=r_fit, r_icon=r_icon, v_max=v_max, wit=b["wit"]) for b in (ally, enemy)]
     # then each side's rows with no witnessed fix this round hold their spawn
-    SP = spawn_context(S, round_segments(S.fr_t, S.rounds)["rounds"], store_root)
-    spawn_stamp = {"refused": SP["refused"]} if "refused" in SP else dict(SP["stamp"], counts={})
+    SP = (spawn_context(S, round_segments(S.fr_t, S.rounds)["rounds"], store_root)
+          if SPAWN_ANCHOR_SIDES else {"refused": "off: " + SPAWN_ANCHOR_OFF})
+    spawn_stamp = ({"version": SPAWN_ANCHOR_VERSION, "refused": SP["refused"]} if "refused" in SP
+                   else dict(SP["stamp"], counts={}))
     if "refused" not in SP:
         for i, side in enumerate(("ally", "enemy")):
             if side in SPAWN_ANCHOR_SIDES:
@@ -1779,7 +1803,8 @@ def region_of_frame(G: dict, f: int, t_ms: float) -> dict:
     `y_m`, `r_m`: the fit disc for `fit` and `fit_unnamed`, the crowd core
     round the host for `crowd`) and the reach disc (`ax_m`, `ay_m`,
     `reach_m`: round the round's last witnessed fix, for `reach`, `crowd`
-    and an anchored `fit_unnamed`). A missing disc is NaN; `unanchored` is
+    and an anchored `fit_unnamed`; round the spawn disc's centre for
+    `spawn`). A missing disc is NaN; `unanchored` is
     the whole map (`reach_m` infinite); `closed` has neither. The same in
     baked widget pixels: `px`, `py`, `r_px`, `apx`, `apy`, `reach_px`.
     Returns `key` ((kind, id)) and `kind` per entity, `age_s` and `frame`.

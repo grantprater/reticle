@@ -1500,6 +1500,13 @@ def slot_region_scores(Q: dict, SF: dict, kinds: dict, *, unbounded: tuple) -> d
                                     "rows_share": round(float(m.mean()), 4),
                                     "area_m2": _quantiles(area[m]), "radius_m": _quantiles(R[m])}
     out["area_m2_bounded"] = _quantiles(area[~unb])
+    # the median region over every open row, the map counted as the largest
+    # region: "map" where unbounded rows are at least half of them
+    am = np.where(unb, np.inf, area)
+    am = am[~np.isnan(am)]
+    med = float(np.median(am)) if am.size else None
+    out["area_m2_median_map_counted"] = (None if med is None else
+                                         "map" if not np.isfinite(med) else round(med, 2))
     fo = np.asarray(Q["fit_out"], np.int64)
     out["fit_outcomes"] = {o: share(f"fit_{o}", rr, fo == i, fit) for i, o in enumerate(SLOT_FIT_OUTCOMES)}
     out["fit_not_joined"] = SLOT_NOT_JOINED
