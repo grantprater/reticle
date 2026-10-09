@@ -4355,6 +4355,7 @@ since = "2026-09-29"
 subject = "omen:dark-cover"
 source = "the player, 2026-09-29 (chat), asked which smoke menus could draw a range circle"
 see = ["abilities/clove-dead-smoke-range-circle"]
+superseded_by = "abilities/omen-dark-cover-body-relative-placement"
 
 [astra-nebula-global-placement]
 claim = """
@@ -7864,7 +7865,7 @@ use = """
 the aim is a phase of Omen's slot while he holds the ability: his position
 belief stays fixed through it (docs/ABILITY_ENTITIES.md, section 2.2b)
 """
-see = ["abilities/omen-dark-cover-global-placement", "abilities/omen-dark-cover",
+see = ["abilities/omen-dark-cover-body-relative-placement", "abilities/omen-dark-cover",
        "abilities/ability-rules-are-unique"]
 
 [astra-stars-placed-and-picked-up]
@@ -7893,11 +7894,14 @@ returns its count to the kit, never a new cast. The limit and its recharge
 are a count on Astra's kit (`ability_tray`), not on a star
 """
 exceptions = """
-the concurrent limit and the recharge time are unknown. The game files'
-MaxCharges and CooldownTime are class defaults whose meaning is the
-designers' word: whether MaxCharges is the concurrent limit or the most
-stars she may own, and whether CooldownTime is a picked-up star's recharge,
-is unread [domain:abilities/game-files-outrank-player-quantities]
+as first recorded: the concurrent limit and the recharge time are unknown.
+The game files' MaxCharges and CooldownTime are class defaults whose meaning
+is the designers' word: whether MaxCharges is the concurrent limit or the
+most stars she may own, and whether CooldownTime is a picked-up star's
+recharge, is unread [domain:abilities/game-files-outrank-player-quantities].
+Revised 2026-10-09: the player confirmed MaxCharges as the concurrent limit
+and CooldownTime as its recharge; the numbers stand in
+[domain:abilities/astra-star-limit-and-recharge]
 """
 see = ["abilities/astra-stars-shared", "abilities/astra-star-placed-then-turned",
        "abilities/astra-star-spent-is-final", "abilities/deployed-pickup-returns-charge",
@@ -7924,7 +7928,12 @@ use = """
 turning a star is a one-way change of the star's kind that keeps its key;
 the pickup no longer ends it, and its lifetime is the turned ability's own
 """
-exceptions = "Nova Pulse's lifetime is unknown: its game data names none"
+exceptions = """
+as first recorded: Nova Pulse's lifetime is unknown, since its game data
+names none. Revised 2026-10-09: a turned Nova Pulse lasts only its
+charge-up, and the lasting lifetime is its concuss effect's
+[domain:abilities/astra-nova-pulse-charge-then-concuss]
+"""
 see = ["abilities/astra-star-placed-then-turned", "abilities/astra-stars-placed-and-picked-up",
        "abilities/astra-star-minimap-states", "game_data/astra-gravity-well-game-data",
        "game_data/astra-nebula-dissipate-game-data", "game_data/astra-nova-pulse-game-data"]
@@ -7958,3 +7967,93 @@ depends_on = ["abilities/astra-star-minimap-states", "abilities/astra-stars-orig
 use = "the mechanics sheet's placement draft for Nova Pulse, for the player to confirm"
 exceptions = "inferred from the star's facts; the player has not confirmed it for this ability"
 see = ["abilities/astra-star-placed-then-turned", "abilities/ability-rules-are-unique"]
+
+[omen-dark-cover-body-relative-placement]
+claim = """
+Omen places Dark Cover within 80 m of himself, the game files' maximum
+distance [domain:game_data/omen-dark-cover-game-data]; its placement is
+body-relative, not global.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "omen:dark cover"
+source = """
+the player, 2026-10-09 (chat), correcting his 2026-09-29 answer. The range is
+the game files': ShooterGame/Content/Characters/Wraith/S0/Ability_4/
+Projectile_Wraith_4_Smoke.uasset
+Comp_Projectile_Charged_StraightLineDistance_GEN_VARIABLE.MaxDistance =
+8000.0 cm (80.0 m), release-13.06-shipping-18-5590001
+"""
+use = """
+a Dark Cover child opens within 80 m of Omen's region at the cast
+(`cast_region`, docs/ABILITY_ENTITIES.md section 2.6), never anywhere on
+the map
+"""
+supersedes = """
+[domain:abilities/omen-dark-cover-global-placement], whose claim that the
+placement is global the player withdrew
+"""
+see = ["game_data/omen-dark-cover-game-data", "abilities/omen-dark-cover-aim-still",
+       "abilities/ability-rules-are-unique"]
+
+[astra-nova-pulse-charge-then-concuss]
+claim = """
+Astra's Nova Pulse is a charge-up and then a concuss on everyone it hits. It
+leaves no lasting object: the turned star ends when the charge-up ends, and
+only the concuss on each player hit lasts.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "astra:nova pulse"
+source = """
+the player, 2026-10-09 (chat). The game files give the charge-up as
+ConcussDelay = 1.0 s and the concuss as ConcussDuration = 2.5 s on
+GameObject_Rift_Q_FlashBurst [domain:game_data/astra-nova-pulse-game-data]
+"""
+use = """
+model a turned Nova Pulse as an instant child that ends after its charge-up,
+with one concuss effect child per player hit carrying the concuss duration
+"""
+exceptions = """
+the field names are the designers' words: that ConcussDelay is the charge-up
+is read from its name and the player's description, not measured. Whether
+the concuss reaches Astra herself is unasked
+"""
+lifecycle_class = "instant"
+lifetime = "game_data/astra-nova-pulse-game-data#timing.concuss_delay_s"
+see = ["abilities/astra-star-spent-is-final", "abilities/astra-star-placed-then-turned",
+       "game_data/astra-nova-pulse-game-data", "abilities/ability-rules-are-unique"]
+
+[astra-star-limit-and-recharge]
+claim = """
+Astra may have at most 5 stars deployed at once, and the limit recharges in
+15.0 s. The game files of build 13.06 give both numbers; the player
+confirmed what each field means.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-09"
+subject = "astra:stars"
+source = """
+game-extract exports of release-13.06-shipping-18-5590001 under the store's
+reference/game-files/release-13.06-shipping-18-5590001/ability-states/:
+ShooterGame/Content/Characters/Rift/S0/Ability_Passive/Ability_Rift_Passive_RiftCharges.json
+EquipmentCharge_GEN_VARIABLE.MaxCharges = 5; ShooterGame/Content/Characters/
+Rift/Global/Comp_Rift_X_RiftTracker.json
+Default__Comp_Rift_X_RiftTracker_C.CooldownTime = 15.0 s. The player,
+2026-10-09 (chat), confirmed MaxCharges as the concurrent-star limit and
+CooldownTime as its recharge
+"""
+use = """
+a count on Astra's kit (`ability_tray`), not on a star: at most 5 unspent
+stars placed at once, the limit recharging in 15.0 s
+"""
+exceptions = """
+class defaults; a blueprint may change a value at run time. What starts the
+15.0 s recharge the player did not say
+"""
+values = { count = { max_stars = 5 }, timing = { recharge_s = 15.0 } }
+see = ["abilities/astra-stars-placed-and-picked-up", "abilities/astra-stars-shared",
+       "abilities/game-files-outrank-player-quantities"]

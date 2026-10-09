@@ -25,8 +25,13 @@ ability-entity plan needs (sections 2.4 and 6, question 4):
   2.2b), or not applicable; filled only from that ability's own placement
   fact (`PLACEMENT_FACT_CELLS`, or a fact whose id ends `-global-placement`
   or `-body-relative-placement`), never from a range field or a sibling.
+  A superseded fact fills nothing. A body-relative row shows its game-data
+  range where the row's classes give exactly one (Dark Cover's 80 m
+  [domain:abilities/omen-dark-cover-body-relative-placement]).
 * `lifetime_s`: a `life` value of the ability's `*-game-data` fact, read from
-  the row's own classes.
+  the row's own classes, or the value a player lifecycle fact's `lifetime`
+  names (Nova Pulse's charge-up
+  [domain:abilities/astra-nova-pulse-charge-then-concuss]).
 * `destructible`: whether the enemy can destroy it, yes or no.
 * `owner_death`: disabled, destroyed, persists, or not applicable.
 * `ends_on`: a set of `domain.ENDS_ON`; `round_end` is always a member.
@@ -98,7 +103,7 @@ from pathlib import Path
 
 from . import domain
 
-VERSION = "mechanics-sheet-0.4.0"
+VERSION = "mechanics-sheet-0.4.1"
 BUILD = "release-13.06-shipping-18-5590001"
 #: The game-data states table (`prototypes/ability_states_gamedata.py`).
 STATES_TABLE = ("reference/ability-states", "ability-states-gamedata-0.2.0")
@@ -430,7 +435,22 @@ def _parent(obj: str | None, ab: dict, objects: list[str], exports: "GameExports
     return _sheet_cell("confirm", parent, spawn, basis=f"spawn chain {chain}")
 
 
-def _lifecycle_class(gd: list, ab: dict, scope: Scope) -> dict:
+def _player_lifecycle(subject: str, facts: dict) -> list:
+    """Live player lifecycle facts on exactly this row's subject."""
+    return [f for k, f in sorted(facts.items())
+            if k.startswith("abilities/") and f.known == "player" and f.kind == "lifecycle"
+            and not f.superseded_by and f.subject
+            and _subject_norm(f.subject) == _subject_norm(subject)]
+
+
+def _lifecycle_class(gd: list, ab: dict, scope: Scope, subject: str = "",
+                     facts: dict | None = None) -> dict:
+    told = {f.lifecycle_class: f for f in _player_lifecycle(subject, facts or {})
+            if f.lifecycle_class}
+    if len(told) == 1:
+        (cls, f), = told.items()
+        return _sheet_cell("confirm", cls, [f"[domain:{f.key}]"],
+                           basis="the player's lifecycle fact outranks the game files' draft")
     found: dict[str, list[str]] = {}
     if scope.split:
         found["deployed"] = [f"object class {scope.obj}"]
@@ -464,7 +484,24 @@ def _scoped_values(gd: list, group: str, scope: Scope):
                 yield f, name, v, where, assets.get(name)
 
 
-def _lifetime(gd: list, scope: Scope) -> dict:
+def _fact_value(facts: dict, ref: str):
+    """The number `<domain>/<id>#<group>.<field>` names, or None."""
+    key, _, path = ref.partition("#")
+    group, _, name = path.partition(".")
+    f = facts.get(key)
+    v = (f.values.get(group) or {}).get(name) if f is not None else None
+    return v if isinstance(v, (int, float)) else None
+
+
+def _lifetime(gd: list, scope: Scope, subject: str = "", facts: dict | None = None) -> dict:
+    for f in _player_lifecycle(subject, facts or {}):
+        v = _fact_value(facts, f.lifetime) if f.lifetime not in ("", "none", "player") else None
+        if v is not None:
+            name = f.lifetime.split(".")[-1]
+            cand = {"ref": f.lifetime, "s": float(v), "label": f"{name} = {v} s"}
+            src = [f"[domain:{f.key}]", f"[domain:{f.lifetime.split('#')[0]}]"]
+            return _sheet_cell("confirm", cand, src, basis="the player's lifecycle fact names it",
+                               candidates=[cand], display=cand["label"])
     cands = []
     for f, name, v, where, asset in _scoped_values(gd, "life", scope):
         if isinstance(v, (int, float)):
@@ -645,20 +682,30 @@ def _subject_names(subject: str) -> set[str]:
     return {norm}
 
 
-def _placement(subject: str, split: bool, facts: dict) -> dict:
-    """Body-relative or global, only from this row's own placement facts."""
+def _placement(subject: str, split: bool, facts: dict, gd: list | None = None,
+               scope: "Scope | None" = None) -> dict:
+    """Body-relative or global, only from this row's own live placement facts."""
     srcs: dict[str, list[str]] = {}
     names = _subject_names(subject)
     for key, f in facts.items():
-        if not key.startswith("abilities/") or not f.subject:
+        if not key.startswith("abilities/") or not f.subject or f.superseded_by:
             continue
         for suffix, value in PLACEMENT_SUFFIXES:
             if key.endswith(suffix) and _subject_norm(f.subject) in names:
                 srcs.setdefault(value, []).append(f"[domain:{key}]")
     named = PLACEMENT_FACT_CELLS.get(subject)
-    if named and named[1] in facts:
+    if named and named[1] in facts and not facts[named[1]].superseded_by:
         srcs.setdefault(named[0], []).append(f"[domain:{named[1]}]")
-    return _decide(srcs, "no placement fact for this ability" + (" object" if split else ""))
+    cell = _decide(srcs, "no placement fact for this ability" + (" object" if split else ""))
+    if cell["value"] == "body_relative" and gd is not None and scope is not None:
+        ranges = [(f, name, v) for f, name, v, where, _a in _scoped_values(gd, "range", scope)
+                  if where == "own" and isinstance(v, (int, float))]
+        if len(ranges) == 1:
+            f, name, v = ranges[0]
+            cell["range_m"] = float(v)
+            cell["sources"].append(f"[domain:{f.key}]")
+            cell["display"] = f"within reach ({v:g} m)"
+    return cell
 
 
 def _visible(subject: str, ability_subject: str, facts: dict) -> dict:
@@ -731,9 +778,9 @@ def _row(agent, slot, ab, obj, split, objects, gdata, facts, exports, views, tab
     effects, level_effects = _effects(gd, scope)
     cells = {
         "parent": _parent(obj, ab, objects, exports, table_ref),
-        "lifecycle_class": _lifecycle_class(gd, ab, scope),
-        "placement": _placement(subject, split, facts),
-        "lifetime_s": _lifetime(gd, scope),
+        "lifecycle_class": _lifecycle_class(gd, ab, scope, subject, facts),
+        "placement": _placement(subject, split, facts, gd, scope),
+        "lifetime_s": _lifetime(gd, scope, subject, facts),
         "destructible": _destructible(subject, evidence, facts),
         "owner_death": _owner_death(subject, evidence, facts),
         "engine_states": _states(ab, scope, ref),
@@ -962,7 +1009,8 @@ def cell_question(row: dict, column: str, answers: dict, sub: str = "") -> tuple
         return f"What kind of thing is {name}?", opts, sug
     if column == "placement":
         opts = [(f"anywhere on the map, wherever {agent} is standing", "global"),
-                (f"only within reach of where {agent} stands", "body_relative"),
+                (f"only within reach of where {agent} stands"
+                 + (f" ({cell['range_m']:g} m)" if cell.get("range_m") else ""), "body_relative"),
                 ("doesn't apply: it isn't put anywhere", "not_applicable")]
         sug = dict((v, w) for w, v in opts).get(value, "") if cell["status"] == "confirm" else ""
         return f"Where can {agent} put {name}?", opts, sug

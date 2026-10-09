@@ -367,5 +367,69 @@ class PlacementAndModesTest(unittest.TestCase):
         self.assertEqual(ms.resolve(astra, {})[0], None)
 
 
+REVISED = GD + """
+[zed-trap-global-placement]
+claim = "Zed's trap placement is global."
+kind = "rule"
+known = "player"
+since = "2026-09-29"
+subject = "zed:trap"
+superseded_by = "abilities/zed-trap-body-relative-placement"
+
+[zed-trap-body-relative-placement]
+claim = "Zed places his trap within 30 m."
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "zed:trap"
+supersedes = "the global placement"
+
+[zed-dash-burst]
+claim = "Zed's dash is a burst, then a slow."
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "zed:dash"
+lifecycle_class = "instant"
+lifetime = "game_data/zed-dash-game-data#life.a_s"
+"""
+
+
+class RevisedFactsTest(unittest.TestCase):
+    """A superseded placement fills nothing; a player lifecycle fact outranks drafts."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        dom = root / "domain"
+        dom.mkdir()
+        (dom / "abilities.toml").write_text(REVISED, encoding="utf-8")
+        (dom / "game_data.toml").write_text(GAME_DATA.replace(
+            "values = { life = { initial_life_span_s = 8.0 } }",
+            "values = { life = { initial_life_span_s = 8.0 }, range = { max_distance_m = 30.0 } }"),
+            encoding="utf-8")
+        facts = domain.load(dom)
+        self.rows = {r["slot"]: r for r in ms.build_rows(STATES, facts, ms.GameExports(root), {})}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_revision_wins_and_shows_its_range(self):
+        trap = self.rows["C"]
+        cell = trap["cells"]["placement"]
+        self.assertEqual((cell["status"], cell["value"], cell["display"]),
+                         ("confirm", "body_relative", "within reach (30 m)"))
+        self.assertNotIn("[domain:" + "abilities/zed-trap-global-placement]", cell["sources"])
+        text, _ = ms.render(trap, "placement", ms.cell_key(trap, "placement"), {})
+        self.assertIn("    2 only within reach of where Zed stands (30 m)\n", text)
+
+    def test_a_player_lifecycle_fact_sets_class_and_lifetime(self):
+        dash = self.rows["Q"]["cells"]
+        self.assertEqual((dash["lifecycle_class"]["status"], dash["lifecycle_class"]["value"]),
+                         ("confirm", "instant"))
+        self.assertEqual(dash["lifetime_s"]["value"]["s"], 1.0)
+        self.assertEqual(dash["ends_on"]["value"], ["lifetime", "round_end"])
+
+
 if __name__ == "__main__":
     unittest.main()
