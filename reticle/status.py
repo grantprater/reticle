@@ -272,7 +272,8 @@ def ratchet_state(root: Path) -> dict:
         _found, unwired = doctor.promote_state(doctor.ledger_rows(Path(root)))
     except OSError as e:
         unwired = [f"unread ({e})"]
-    return {"progress": ratchets.progress(), "unwired": unwired}
+    return {"progress": ratchets.progress(), "unwired": unwired,
+            "ability": ratchets.ability_progress()}
 
 
 def render(data: dict, markdown: bool = False) -> str:
@@ -289,6 +290,9 @@ def render(data: dict, markdown: bool = False) -> str:
     if data.get("ratchets"):
         from .ratchets import progress_line
         L.extend(progress_line(data["ratchets"]["progress"], data["ratchets"]["unwired"]))
+        if data["ratchets"].get("ability"):
+            from .ratchets import ability_progress_line
+            L.append(ability_progress_line(data["ratchets"]["ability"]))
         L.append("")
     scored = [s for s in ss if s["known"] and s["kills"] is not None]
     exact = [s for s in scored

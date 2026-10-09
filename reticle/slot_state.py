@@ -39,6 +39,28 @@ A second kind joins by three extension points, never by a second module:
 `stack_entities` joins the blocks; `beliefs` then runs once over all rows.
 No ability kind is built here.
 
+Ability children and effects (declared, not built)
+--------------------------------------------------
+docs/ABILITY_ENTITIES.md makes this module the owner of ability instances
+(`ability` children) and what they do to players (`effect` entities). They
+form a tree: slot, ability instance, spawned objects nested to any depth,
+effects; each node has its own lifecycle and a revisable parent binding to
+any entity key. The owner holds
+[owns:ability-child], [owns:ability-effect] and [owns:ability-owner], each
+`partial` until its migration step builds it (step 2 the player's children
+and effects, step 3 the team's and the caster verdict). Step 1 ships only the
+declaration: `CHANNELS`, every input the child owner may read and what each
+may do (open a child, join one, end one, name its kind, claim its agent),
+stamped `ABILITY_CHANNELS_VERSION`, and `ABILITY_LANES`, the two lanes
+ability entities reach consumers through. The ABILITY ratchet
+(`ratchets.ability_findings`, run by `doctor`) errors on any ability stream,
+lane or ownership entry these two tables and this owner do not account for,
+and the event validator (`entity_contract.check_ability_row`) rejects an
+ability or effect row outside lane `ability`, from another producer, or
+named by another key's verdict without `depends_on`. No agent name is
+decided here: a child's agent will be the `agent-identity` arbiter's verdict
+on the child key.
+
 Names
 -----
 This module decides no agent name. Each player slot's agent is the
@@ -177,6 +199,142 @@ RATES = ("coarse", "fine")
 
 SPECTATE_RESTS_ON = ("tray_kit spectating witness (kit_agents_at lookahead 0 ms; each span's agent "
                      "pooled over the whole span: a post-round tray_kit verdict)")
+
+
+# --- ability children and effects: the declaration (docs/ABILITY_ENTITIES.md step 1)
+
+#: Entity kinds the child owner will hold beside `player` (section 2.2).
+KIND_ABILITY = "ability"
+KIND_EFFECT = "effect"
+#: The ownership entries this module answers for ability entities.
+ABILITY_ENTRIES = ("ability-child", "ability-effect", "ability-owner")
+
+#: ability-channels-0.1.0 (2026-10-09): section 2.3's witness table, as code.
+#: A change to any row restamps this table, never the player slots.
+ABILITY_CHANNELS_VERSION = "ability-channels-0.1.0"
+
+#: What an input may open: any child, a child of the player's team only, or
+#: either only where no child of that ability is live.
+OPENS = ("any", "team", "if_none_live", "team_if_none_live")
+
+#: Every input the child owner may read, one row per witness (section 2.3),
+#: and what it may do:
+#:
+#: - `opens`: one of `OPENS`, or None where it never opens a child;
+#: - `joins`: may join a live child of the same instance;
+#: - `ends`: the end it may witness, or None;
+#: - `kind`: what names the child's kind, or None;
+#: - `agent_claim`: how the row bears on the child's agent (a channel's claim
+#:   re-keyed to the child, or `depends_on` another key's verdict), or None;
+#: - `position`: what places the child, or None;
+#: - `effect`: the effect it witnesses (section 2.5), or None.
+#: - `parent`: the entity key the row binds the new node to, a revisable
+#:   binding: a player slot, an ability instance or a spawned object.
+#:
+#: `owners` are the ownership entries whose verdicts the row reads; each
+#: declares `feeds` with the row's `feeds`. `readers` are the entries beneath
+#: them. `streams` are the stored streams the row rests on. A row with
+#: `wired` False names a witness no code reads yet: no owner, no stream.
+#: Ability entities form a tree (player, 2026-10-09): slot -> ability
+#: instance -> spawned objects, nested to any depth -> effects. Each node is
+#: its own entity with its own lifecycle (Cypher's tracking dart is a child
+#: of his Spycam and ends at his death while the camera persists), and its
+#: parent may be any entity key, rebound when the evidence moves.
+#: Each ability's own facts decide what a witness means for it; no row
+#: extends one ability's mechanics to another
+#: [domain:abilities/ability-rules-are-unique].
+CHANNELS: tuple[dict, ...] = (
+    {"witness": "player_tray_cast", "parent": "the self slot",
+     "wired": True,
+     "owners": ("ability-cast", "ability-state"), "readers": ("tray-drop",),
+     "streams": ("tray_drop", "ability_state"), "feeds": ("ability-child",),
+     "opens": "any", "joins": False, "ends": None,
+     "kind": "the tray slot of the player's kit",
+     "agent_claim": "depends_on the self slot's verdict",
+     "position": "the self slot's belief at the cast", "effect": None},
+    {"witness": "spectated_kit_drop", "parent": "the spectated teammate's slot",
+     "wired": True,
+     "owners": ("tray-kit",), "readers": ("tray-icon", "tray-drop"),
+     "streams": ("tray_kit", "tray_kit_identity", "tray_drop"), "feeds": ("ability-child",),
+     "opens": "any", "joins": False, "ends": None,
+     "kind": "the spectated kit's slot", "agent_claim": "channel tray_kit",
+     "position": "the spectated slot's belief", "effect": None},
+    {"witness": "ult_line", "parent": "the caster's slot, by the template's class and side",
+     "wired": True,
+     "owners": ("ult-cast",), "readers": ("ult-line",),
+     "streams": ("ult_cast", "ult_cast_identity", "ult_line"), "feeds": ("ability-child",),
+     "opens": "any", "joins": True, "ends": None,
+     "kind": "the template's class", "agent_claim": "channel ult_line",
+     "position": None, "effect": None},
+    {"witness": "smoke_track", "parent": "the caster's slot, by the smoke rule",
+     "wired": True,
+     "owners": ("minimap-smoke", "smoke-owner"), "readers": ("minimap-dark",),
+     "streams": ("smoke", "smoke_owner", "smoke_owner_identity", "minimap_dark"),
+     "feeds": ("ability-child",),
+     "opens": "team", "joins": True, "ends": "an observed end",
+     "kind": "the smoke rule's agent and slot", "agent_claim": "channel smoke_owner",
+     "position": "the disc", "effect": None},
+    {"witness": "glyph_track", "parent": "unknown at the open; the caster's slot or a spawned object, bound later",
+     "wired": True,
+     "owners": ("ability-glyph-name", "ability-disc-track"),
+     "readers": ("ability-icon", "ability-glyph"),
+     "streams": ("ability_glyph_name", "ability_glyph_identity", "ability_disc_track",
+                 "ability_icon", "ability_glyph"),
+     "feeds": ("ability-child",),
+     "opens": "any", "joins": True, "ends": "the verify's loss where the disc would show",
+     "kind": "the verdict key", "agent_claim": "channel minimap_glyph",
+     "position": "the track", "effect": None},
+    {"witness": "shape_fit", "parent": "unknown at the open; bound later",
+     "wired": True,
+     "owners": ("ability-shape", "ability-gate"), "readers": ("ability-candidates",),
+     "streams": ("ability_fit", "ability_wall", "ability_shape", "ability_gate"),
+     "feeds": ("ability-child",),
+     "opens": "any", "joins": True, "ends": "the fit's absence where it would show",
+     "kind": "the descriptor", "agent_claim": None,
+     "position": "the fit", "effect": None},
+    {"witness": "dead_clove_circle", "parent": "the dead Clove's slot",
+     "wired": True,
+     "owners": ("clove-circle",), "readers": (),
+     "streams": ("clove_circle",), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": None,
+     "kind": None, "agent_claim": "channel dead_clove_circle (through smoke-owner)",
+     "position": "the circle's centre bounds the disc", "effect": None},
+    {"witness": "killfeed_ability_kill", "parent": "the killer's live node of that ability, else the killer's slot",
+     "wired": True,
+     "owners": ("killfeed-weapon",), "readers": ("killfeed-weapon-descriptor",),
+     "streams": ("killfeed_weapon", "death"), "feeds": ("ability-child", "ability-effect"),
+     "opens": "if_none_live", "joins": True, "ends": None,
+     "kind": "the weapon verdict", "agent_claim": "depends_on the killer verdict",
+     "position": None, "effect": "a kill, on the victim"},
+    {"witness": "assist_icon", "parent": "the assister's live node of that ability, else the assister's slot",
+     "wired": True,
+     "owners": ("kill-assists",), "readers": ("killfeed-assist-panel",),
+     "streams": ("assist", "killfeed_assist"), "feeds": ("ability-child", "ability-effect"),
+     "opens": "team_if_none_live", "joins": True, "ends": None,
+     "kind": "the icon's ability", "agent_claim": "depends_on the assister verdict",
+     "position": None, "effect": "an assist, on the victim"},
+    {"witness": "own_ability_audio", "parent": "the self slot",
+     "wired": True,
+     "owners": ("ability-audio",), "readers": (), "streams": (), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": None,
+     "kind": "the scored slot", "agent_claim": None, "position": None, "effect": None},
+    {"witness": "device_destroyed", "parent": "the destroyed node's own parent, unchanged",
+     "wired": False,
+     "owners": (), "readers": (), "streams": (), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": "destroyed by the enemy",
+     "kind": None, "agent_claim": None, "position": None, "effect": None},
+    {"witness": "others_ability_audio", "parent": "unknown; bound later",
+     "wired": False,
+     "owners": (), "readers": (), "streams": (), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": None,
+     "kind": "the class", "agent_claim": None, "position": None, "effect": None},
+)
+
+#: The lanes ability entities reach consumers through (section 2.9): the
+#: child owner's, and the kit owner's. Any other ability lane is ABILITY debt.
+ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-effect`); "
+                            "built in step 2",
+                 "ability_tray": "the kit (`ability-state`)"}
 
 
 @dataclass(frozen=True)
