@@ -2378,16 +2378,37 @@ owner = "map_regions"
 role = ["assign"]
 status = "partial"
 produces = ["Regions", "MAP_REGIONS_VERSION", "api_callouts", "label_volumes", "SITES",
-            "OFF_SITE", "spawn_points", "SPAWN_SUPER", "plan_corners", "spawn_footprints"]
+            "OFF_SITE", "spawn_points", "SPAWN_SUPER", "plan_corners", "spawn_footprints",
+            "PRE_ROUND_AREA_VERSION", "PRE_ROUND_AREA_RULE", "pre_round_areas", "walk_cells",
+            "barrier_frames", "in_boxes", "crosses_boxes", "BRIDGE_GRID_STEPS"]
 consumers = ["episodes", "slot_state"]
 not_for = """
 Minimap pixels: it places world points (cm), not widget pixels, and reads
 the game's callout volumes stored with each 3D sightline table. A volume's
 label comes from valorant-api's callout points inside it, never from its
 name; a volume holding none takes the nearest point's label, and the label
-says so (`basis`).
+says so (`basis`). The pre-round area is where a side may stand before the
+drop, not where it stands: the slot model holds the belief.
 """
 evidence = "tests/test_episodes.py"
+
+[[entry]]
+id = "spawn-barriers"
+question = "Where does the game place each map's spawn barriers, which side does each hold, and what box blocks?"
+owner = "spawn_barriers"
+role = ["constrain"]
+status = "partial"
+produces = ["SPAWN_BARRIERS_VERSION", "GAME_BUILD", "LEVELS", "CLASSES", "bake", "build", "load",
+            "level_barriers", "class_defaults", "mesh_bounds", "rotator", "transform",
+            "box_corners", "side_footprints", "barrier_table_path"]
+consumers = ["map_regions"]
+not_for = """
+Whether a barrier is up: it reads the placements from the game files, and the
+drop's time is `gametime`'s. Nor the geometry: the table sits apart from the
+sightline and (map, profile) tables, so no geometry stamp moves. Abyss's
+ledge barriers carry no TeamRole and keep side null.
+"""
+evidence = "tests/test_spawn_barriers.py"
 
 [[entry]]
 id = "wall-penetration"

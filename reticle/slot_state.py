@@ -107,11 +107,11 @@ fix), `crowd` (no fit; the last fix lay within one icon diameter of another
 slot that still has a fit [domain:minimap/coincident-icons]), `reach` (the
 disc of `v_max (t - t_fix) + r_fit` round the round's last witnessed fix),
 `unanchored` (no fix this round: the map). `spawn_anchor` can replace
-`unanchored` with `spawn` (the side's spawn disc from the callout-region
-owner, grown by reach from `gametime`'s barrier drop, the side from the
-rounds owner) until that disc covers the map; it ships off
-(`SPAWN_ANCHOR_SIDES`), because the callout `Spawn` volumes miss the area
-the barriers hold. `v_max` is the top ground speed
+`unanchored` with `spawn` (the disc round the side's pre-round area from
+the callout-region owner, which the game files' spawn barriers bound, grown
+by reach from `gametime`'s barrier drop, the side from the rounds owner)
+until that disc covers the map, on the sides `SPAWN_ANCHOR_SIDES` names.
+`v_max` is the top ground speed
 from the game files [domain:game_data/character-movement-speeds] in metres
 [domain:game_data/game-units-centimetres]. Negative evidence is off.
 Reach is still a Euclidean disc: the walk reach the gate needs (BACKLOG item
@@ -205,7 +205,9 @@ from .store import DEFAULT_STORE, Store
 #: 0.3.0 (2026-10-09): the module builds the player's ability children and
 #: effects (`build_abilities`, stamped `ABILITY_CHILD_VERSION` and
 #: `ABILITY_EFFECT_VERSION`); the slot rows are unchanged.
-SLOT_STATE_VERSION = "slot-state-0.3.0"
+#: 0.4.0 (2026-10-09): the spawn anchor (spawn-anchor-0.2.0) is on for both
+#: sides: an unwitnessed slot holds the disc round its side's pre-round area.
+SLOT_STATE_VERSION = "slot-state-0.4.0"
 #: The enemy binding's own stamp.
 ENEMY_BINDING_VERSION = "enemy-binding-0.1.0"
 #: The binding law's own stamp (unchanged from the prototype).
@@ -2880,57 +2882,76 @@ def join_beliefs(Bs: list[dict]) -> dict:
 # ----------------------------------------------------------------- the spawn anchor
 
 #: spawn-anchor-0.1.0 (2026-10-09): the anchor law's own stamp.
-SPAWN_ANCHOR_VERSION = "spawn-anchor-0.1.0"
-#: The sides whose slots the spawn anchors: none. On the six replay sessions
-#: the callout `Spawn` volumes miss most players at the barrier drop (they
-#: walk past the volume to the barriers in the buy phase), so with both sides
-#: on the enemy calibration fell below its pre-registered bound and the
-#: `spawn` kind missed one player in eight (the store's notes/predictions.jsonl,
-#: enemy-spawn-anchor-20261009-S1-outcome). The held
-#: area needs the game files' `SpawnBarrier_C` placements, which the stored
-#: sightline tables list without transforms; a bake of those turns this on.
-SPAWN_ANCHOR_SIDES: tuple[str, ...] = ()
-SPAWN_ANCHOR_OFF = ("callout Spawn volumes miss the held area; awaits a bake of the "
-                    "SpawnBarrier_C placements")
+#: spawn-anchor-0.2.0 (2026-10-09): the disc encloses the side's pre-round
+#: area (`map_regions.pre_round_areas`, bounded by the game files'
+#: `SpawnBarrier_C` placements), not its callout `Spawn` volumes alone.
+SPAWN_ANCHOR_VERSION = "spawn-anchor-0.2.0"
+#: The sides whose slots the spawn anchors. 0.1.0 shipped off: on the six
+#: replay sessions the callout `Spawn` volumes missed most players at the
+#: barrier drop, who walk up to the barriers in the buy phase (the store's
+#: notes/predictions.jsonl, enemy-spawn-anchor-20261009-S1-outcome). 0.2.0
+#: is on for both: on the same sessions the enemy calibration held within the
+#: anchor-off interval while the enemy and ally unanchored shares fell
+#: (spawn-barriers-20261009-S1-outcome).
+SPAWN_ANCHOR_SIDES: tuple[str, ...] = ("ally", "enemy")
+SPAWN_ANCHOR_OFF = "off by SPAWN_ANCHOR_SIDES"
 #: Side codes for the anchor arrays, in the rounds owner's words
 #: (`rounds.SIDES`); -1 is an unread side.
 SIDE_CODES = ("attack", "defence")
-SPAWN_RESTS_ON = ("callout-region: each side's `Spawn` callout volumes (map_regions.spawn_footprints, "
-                  "the map's own callout actors)",
+SPAWN_RESTS_ON = ("callout-region: each side's pre-round area (map_regions.pre_round_areas: the 3D "
+                  "table's walk cells flooded from the side's `Spawn` callout volumes, stopped by the "
+                  "spawn barriers)",
+                  "spawn-barriers: the game files' SpawnBarrier_C placements and TeamRole "
+                  "(spawn_barriers, a table apart from the geometry)",
                   "round-bounds: rounds.starting_side over the stored spike and spike_carrier rows, "
                   "then rounds.side_in_round at each round's match_round",
                   "gametime: each round's barrier drop (t_live_ms) from the stored HUD clock")
 
 
 def spawn_discs(map_name: str, store_root: Path = DEFAULT_STORE) -> dict:
-    """Each side's spawn disc in metres, from the map's callout volumes.
+    """Each side's spawn disc in metres, round its pre-round area.
 
-    The callout-region owner names the volumes (`map_regions.spawn_footprints`);
-    the disc is the smallest circle round their plan corners
+    The callout-region owner draws each side's pre-round area
+    (`map_regions.pre_round_areas`: where the side may walk before the drop,
+    bounded by its spawn barriers from the game files, `spawn_barriers`);
+    the disc is the smallest circle round that polygon
     (`cv2.minEnclosingCircle`), and `r_map` the distance from its centre to
     the farthest corner of any callout volume, so a disc of radius `r_map`
     covers every place the map names. Returns `discs` (side -> (cx, cy, r,
-    r_map)), `provenance` and `map`, or `{"refused": why}`. Reads no capture."""
+    r_map)), `provenance`, `areas` (each side's basis and size) and `map`, or
+    `{"refused": why}`. Reads no capture."""
     import cv2
 
-    from . import map_regions
+    from . import map_regions, spawn_barriers
     try:
         reg = map_regions.Regions.load(map_name, store_root)
     except FileNotFoundError:
         return {"refused": f"no_callout_volumes:{map_name}"}
+    try:
+        bars = spawn_barriers.load(map_name, store_root)
+    except FileNotFoundError:
+        return {"refused": f"no_spawn_barriers:{map_name}"}
+    cells = map_regions.walk_cells(map_name, store_root)
+    areas = map_regions.pre_round_areas(reg, bars, cells)
     upm = units_per_m()
-    fp = map_regions.spawn_footprints(reg)
     corners = map_regions.plan_corners(reg).reshape(-1, 2) / upm
-    discs = {}
+    discs, info = {}, {}
     for side in SIDE_CODES:
-        if side not in fp:
+        if side not in areas:
             continue
-        (cx, cy), r = cv2.minEnclosingCircle((fp[side] / upm).astype(np.float32))
+        poly = (areas[side]["polygon"] / upm).astype(np.float32)
+        (cx, cy), r = cv2.minEnclosingCircle(poly)
         r_map = float(np.hypot(corners[:, 0] - cx, corners[:, 1] - cy).max())
         discs[side] = (float(cx), float(cy), float(r), r_map)
+        info[side] = {"basis": areas[side]["basis"], "fallback": areas[side].get("fallback"),
+                      "cells": areas[side].get("cells"), "area_m2": round(float(cv2.contourArea(poly)), 1)}
     if not discs:
-        return {"refused": f"no_spawn_volume:{map_name}"}
-    return {"discs": discs, "map": map_name, "provenance": reg.provenance()}
+        return {"refused": f"no_pre_round_area:{map_name}"}
+    prov = dict(reg.provenance(), pre_round_area=map_regions.PRE_ROUND_AREA_VERSION,
+                walk_table=(cells or {}).get("table"), bridges=(cells or {}).get("bridges"),
+                spawn_barriers={"version": bars["version"], "table": bars["path"],
+                                "sha16": bars["sha16"], "build": bars["provenance"]["build"]})
+    return {"discs": discs, "map": map_name, "provenance": prov, "areas": info}
 
 
 def team_sides(rounds: list[dict], starting: str | None) -> tuple[np.ndarray, Counter]:
@@ -3047,7 +3068,7 @@ def spawn_context(S: StoredRows, seg_rounds: list[dict], store_root: Path = DEFA
     team = RS["team"]
     other = np.where(team >= 0, 1 - team, -1)
     stamp = {"spawn_anchor_version": SPAWN_ANCHOR_VERSION, "sides": list(SPAWN_ANCHOR_SIDES),
-             "map": mname, "callout_regions": D["provenance"],
+             "map": mname, "callout_regions": D["provenance"], "areas": D["areas"],
              "discs_m": {k: [round(v, 2) for v in d] for k, d in D["discs"].items()},
              "starting_side": RS["starting_side"], "starting_side_reason": RS["starting_side_reason"],
              "starting_side_votes": RS["votes"], "reasons": RS["reasons"],
