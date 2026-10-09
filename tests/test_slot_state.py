@@ -283,6 +283,112 @@ class LaneRenameTest(unittest.TestCase):
         self.assertNotIn("slot_state", STATE_VOCABULARY)
 
 
+class SpawnAnchorTest(unittest.TestCase):
+    """A slot with no witnessed fix this round holds its side's spawn disc,
+    grown by reach from the barrier drop, until the disc covers the map."""
+
+    DISCS = {"attack": (0.0, 0.0, 5.0, 60.0), "defence": (100.0, 0.0, 6.0, 60.0)}
+
+    def _beliefs(self, X, seg_start):
+        F = X.shape[1]
+        Y = np.where(np.isfinite(X), 0.0, np.nan)
+        return ss.beliefs(_grid(F, 1000.0), X, Y, np.isfinite(X), np.ones(X.shape, bool),
+                          seg_start, r_fit=1.0, r_icon=0.5, v_max=7.0)
+
+    def test_anchors_at_round_start(self):
+        F = 12
+        t = _grid(F, 1000.0)
+        B = self._beliefs(np.full((1, F), np.nan), np.zeros(F, np.int64))
+        A, n = ss.spawn_anchor(B, t, np.zeros(F, np.int64), np.array([0]), np.array([2000.0]),
+                               self.DISCS, r_fit=1.0, v_max=7.0)
+        names = [ss.KINDS[int(k)] for k in A["kind"][0]]
+        # held in spawn until the drop at 2 s, then 7 m/s until 5 + 1 + 7 dt reaches 60 m
+        self.assertEqual(names[:10], ["spawn"] * 10)
+        self.assertEqual(names[10:], ["unanchored"] * 2)
+        np.testing.assert_allclose(A["R"][0, :4], [6.0, 6.0, 6.0, 13.0])
+        self.assertEqual((A["ax"][0, 0], A["ay"][0, 0]), (0.0, 0.0))
+        C = ss.contains(A, np.array([0, 0]), np.array([0, 0]), np.array([5.5, 30.0]), np.zeros(2))
+        self.assertEqual(C["region"].tolist(), [True, False])
+        self.assertAlmostEqual(float(ss.region_area(A, np.array([0]), np.array([0]))[0]), math.pi * 36.0)
+        self.assertEqual(n["spawn"], 10)
+        self.assertEqual(n["past_map"], 2)
+        self.assertEqual(B["kind"][0, 0], ss.UNANCHORED)       # the input is left alone
+
+    def test_the_anchor_resets_at_each_round(self):
+        F = 8
+        t = _grid(F, 1000.0)
+        X = np.full((1, F), np.nan)
+        X[0, 1] = 40.0                                         # a witnessed fix in round 0
+        seg = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+        B = self._beliefs(X, np.array([0, 0, 0, 0, 4, 4, 4, 4]))
+        A, _ = ss.spawn_anchor(B, t, seg, np.array([0, 1]), np.array([0.0, 5000.0]),
+                               self.DISCS, r_fit=1.0, v_max=7.0)
+        names = [ss.KINDS[int(k)] for k in A["kind"][0]]
+        self.assertEqual(names, ["spawn", "fit", "reach", "reach", "spawn", "spawn", "spawn", "spawn"])
+        # round 1 is played on defence: its disc and its own drop
+        self.assertEqual(A["ax"][0, 4], 100.0)
+        np.testing.assert_allclose(A["R"][0, 4:], [7.0, 7.0, 14.0, 21.0])
+        np.testing.assert_allclose(A["R"][0, 2], 7.0 + 1.0)     # reach from the fix, untouched
+
+    def test_side_swaps_at_half_and_in_overtime(self):
+        rounds = [{"score_us": n - 1, "score_them": 0} for n in (1, 12, 13, 24, 25, 26)]
+        team, why = ss.team_sides(rounds, "attack")
+        self.assertEqual([ss.SIDE_CODES[k] for k in team],
+                         ["attack", "attack", "defence", "defence", "attack", "defence"])
+        team, why = ss.team_sides(rounds + [{"score_us": None, "score_them": None}], None)
+        self.assertTrue((team == -1).all())
+        self.assertEqual(why["starting_side_unread"], 7)
+
+    def test_an_unread_side_leaves_the_slot_unanchored(self):
+        F = 3
+        B = self._beliefs(np.full((1, F), np.nan), np.zeros(F, np.int64))
+        A, n = ss.spawn_anchor(B, _grid(F, 1000.0), np.zeros(F, np.int64), np.array([-1]),
+                               np.array([0.0]), self.DISCS, r_fit=1.0, v_max=7.0)
+        self.assertTrue((A["kind"] == ss.UNANCHORED).all())
+        self.assertEqual(n["side_unread"], 3)
+
+    def test_footprints_come_from_the_callout_volumes(self):
+        from reticle import map_regions as mr
+        inv = np.tile(np.eye(4), (2, 1, 1))
+        reg = mr.Regions(inv, [[0, 0, 0], [50, 50, 0]], [[10, 20, 5], [60, 70, 5]],
+                         [{"region": "Spawn", "super": "Attacker Side"},
+                          {"region": "Site", "super": "A"}])
+        fp = mr.spawn_footprints(reg)
+        self.assertEqual(set(fp), {"attack"})
+        np.testing.assert_allclose(sorted(map(tuple, fp["attack"])),
+                                   [(0, 0), (0, 20), (10, 0), (10, 20)])
+
+    def test_no_capture_pixels_are_read(self):
+        # the anchor's code names no capture, crop or session-pixel source
+        import ast
+        import inspect
+        banned = {"barriers", "roi_cache", "decode", "VideoCapture", "imread", "clip_preflight",
+                  "path_of", "crop", "read_frame"}
+        for fn in (ss.spawn_discs, ss.round_sides, ss.team_sides, ss.spawn_anchor, ss.spawn_context):
+            names = {n.id for n in ast.walk(ast.parse(inspect.getsource(fn)))
+                     if isinstance(n, ast.Name)}
+            names |= {n.attr for n in ast.walk(ast.parse(inspect.getsource(fn)))
+                      if isinstance(n, ast.Attribute)}
+            names |= {a.name for n in ast.walk(ast.parse(inspect.getsource(fn)))
+                      if isinstance(n, ast.ImportFrom) for a in n.names}
+            self.assertFalse(names & banned, (fn.__name__, names & banned))
+
+    @unittest.skipUnless((STORE / "sightlines" / "choice.json").is_file(), "no sightline tables")
+    def test_spawn_discs_read_no_capture(self):
+        import cv2
+        from unittest import mock
+
+        from reticle import barriers
+        boom = mock.Mock(side_effect=AssertionError("a capture was read"))
+        with mock.patch.object(cv2, "VideoCapture", boom), mock.patch.object(cv2, "imread", boom), \
+                mock.patch.object(barriers, "load", boom):
+            D = ss.spawn_discs("ascent", STORE)
+        self.assertEqual(set(D["discs"]), {"attack", "defence"})
+        self.assertEqual(D["provenance"]["owner"], "callout-region")
+        for cx, cy, r, r_map in D["discs"].values():
+            self.assertTrue(0.0 < r < r_map)
+
+
 @unittest.skipUnless((STORE / "events" / "ally_icon" / f"{DEV}.jsonl").is_file(),
                      "no stored ally_icon rows for the development match")
 class StoredRowRegressionTest(unittest.TestCase):

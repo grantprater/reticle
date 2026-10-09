@@ -207,6 +207,38 @@ def label_volumes(reg: Regions, callouts: list[dict], names: list[str]) -> list[
     return labels
 
 
+#: valorant-api's super-region of each side's spawn, keyed by the rounds
+#: owner's side words (`rounds.SIDES`).
+SPAWN_SUPER = {"attack": "Attacker Side", "defence": "Defender Side"}
+
+
+def plan_corners(reg: Regions, k: np.ndarray | None = None) -> np.ndarray:
+    """(K, 4, 2) the plan corners (game units) of volumes `k` (default all):
+    each oriented box's four corners at its floor, in world x and y."""
+    k = np.arange(len(reg.inv)) if k is None else np.asarray(k, int)
+    lo, hi = reg.lo[k], reg.hi[k]
+    xs = np.stack([lo[:, 0], hi[:, 0], hi[:, 0], lo[:, 0]], axis=1)
+    ys = np.stack([lo[:, 1], lo[:, 1], hi[:, 1], hi[:, 1]], axis=1)
+    local = np.stack([xs, ys, np.repeat(lo[:, 2:3], 4, axis=1), np.ones_like(xs)], axis=-1)
+    world = np.einsum("kcj,kji->kci", local, np.linalg.inv(reg.inv[k]))
+    return world[..., :2]
+
+
+def spawn_footprints(reg: Regions) -> dict[str, np.ndarray]:
+    """Each side's spawn as the plan corners (game units, (n, 2)) of the
+    volumes labelled region `Spawn` in that side's super-region, keyed
+    `attack` and `defence`; a side without one is left out. The volumes are
+    the map's own callout actors; the label is the owner's
+    (`label_volumes`)."""
+    out = {}
+    for side, sup in SPAWN_SUPER.items():
+        k = [i for i, lab in enumerate(reg.labels)
+             if lab.get("region") == "Spawn" and lab.get("super") == sup]
+        if k:
+            out[side] = plan_corners(reg, np.asarray(k)).reshape(-1, 2)
+    return out
+
+
 def spawn_points(map_name: str, root=DEFAULT_STORE) -> dict[str, np.ndarray]:
     """valorant-api's `Spawn` callout point of each side, keyed `attack` and
     `defence`; a side without one is left out."""
