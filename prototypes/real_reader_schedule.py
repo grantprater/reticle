@@ -2792,17 +2792,36 @@ HOOK_DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
 HOOK_NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
 #: Hook arms: V15h's fits kept only on the frames ally-gate-0.1.0 reads
 #: (`Vhook`), and on those plus its audit windows (`Vhook+a`).
-REF.update({"Vhook": "V15h", "Vhook+a": "V15h"})
-ORDER = ORDER + ("Vhook", "Vhook+a")
+REF.update({"Vhook": "V15h", "Vhook+a": "V15h", "Vgated": "V15h"})
+ORDER = ORDER + ("Vhook", "Vhook+a", "Vgated")
+#: Stored beside every hook result: what the simulated arms leave out.
+HOOK_CAVEAT = ("Vhook and Vhook+a keep V15h's fits and its causal binding, both made on the "
+               "continuous 15 Hz pass, whose pose priors never see a gap; a gated pass refits "
+               "after gaps (full pose searches) and binds from its own frames, so the simulated "
+               "arms overstate it. Vgated scores a real gated stream, rebuilt through "
+               "slot_state.build_slots from its own rows.")
+#: The real gated streams scored as `Vgated`, by session.
+HOOK_REAL = {"cadaadeb2d8b": "ally_icon_gated"}
 #: The 15 Hz pass's ally_icon CPU per frame (ms), from each session's last
 #: completed `vod_scan` usage record that fed ally_icon (`notes/usage.jsonl`).
 ALLY_MS_KEYS = ("thread_cpu_ns", "feed.total_ns")
 
 
 def ally_ms_per_frame(sid: str) -> dict:
-    """The stored 15 Hz pass's ally_icon cost per frame: the last completed
-    scan record's thread CPU, else its feed time, over the frames fed."""
-    last = None
+    """The stored 15 Hz arm's ally_icon cost per frame, from the scan record
+    that wrote it, chosen explicitly: a completed `vod_scan` whose ally_icon
+    ran at 15 Hz and fed exactly the stored `ally_icon` stream's frame count,
+    recorded at most 10 minutes after that file was last written (publish
+    moves the file before the record is written; a later gated reread offers
+    the same count and must never stand in). Thread CPU, else feed time,
+    over the frames fed."""
+    import datetime as _dt
+    path = STORE / "events" / "ally_icon" / f"{sid}.jsonl"
+    with path.open(encoding="utf-8") as fh:
+        head = json.loads(fh.readline())
+    frames = int(head["frames"])
+    written = _dt.datetime.fromtimestamp(path.stat().st_mtime, _dt.timezone.utc)
+    pick = None
     for line in (STORE / "notes" / "usage.jsonl").open(encoding="utf-8"):
         if "vod_scan" not in line or sid not in line or "ally_icon" not in line:
             continue
@@ -2811,15 +2830,20 @@ def ally_ms_per_frame(sid: str) -> dict:
             continue
         rd = r.get("readers") or {}
         a = rd.get("ally_icon") if isinstance(rd, dict) else None
-        if a and a.get("fed"):
-            last = (r, a)
-    if last is None:
-        return {"ms": None, "reason": "no completed ally_icon scan record"}
-    r, a = last
+        if not a or float(a.get("hz") or 0) != 15.0 or a.get("fed") != frames:
+            continue
+        if _dt.datetime.fromisoformat(r["recorded_at"]) > written + _dt.timedelta(minutes=10):
+            continue
+        pick = (r, a)
+    if pick is None:
+        return {"ms": None, "reason": f"no completed 15 Hz scan record feeding {frames} frames "
+                                      f"before {written.isoformat()}"}
+    r, a = pick
     ns, what = (a["thread_cpu_ns"], "thread_cpu_ns") if a.get("thread_cpu_ns") else \
         (a["feed"]["total_ns"], "feed.total_ns (wall)")
     return {"ms": ns / 1e6 / a["fed"], "frames": a["fed"], "what": what, "source": r["source"],
-            "run_id": r["run_id"], "recorded_at": r["recorded_at"]}
+            "run_id": r["run_id"], "recorded_at": r["recorded_at"],
+            "rule": "15 Hz, fed == stored ally_icon frames, recorded within 10 min after the stream was written"}
 
 
 def stored_ally_frames(sid: str) -> dict:
@@ -2911,7 +2935,7 @@ def hook_arms(sid: str) -> tuple[list[dict], dict]:
     both = np.asarray(sorted(set(log.read_t) | set(log.audit_t)), float)
     info = {"session": sid, "gate": sim["summary"], "offered": sim["offered"], "spans": sim["spans"],
             "gate_us_per_offered": sim["gate_us_per_offered"], "params": sim["params"],
-            "rests_on": sim["rests_on"], "ally_cost": cost_ms}
+            "rests_on": sim["rests_on"], "ally_cost": cost_ms, "caveat": HOOK_CAVEAT}
     for arm, keep in (("Vhook", read_t), ("Vhook+a", both)):
         Vh = dict(V)
         Vh["has"] = V["has"] & np.isin(V["fr_t"], keep)[None, :]
@@ -2920,13 +2944,49 @@ def hook_arms(sid: str) -> tuple[list[dict], dict]:
         cost["gate_frame_share"] = keep.size / max(sim["offered"], 1)
         if cost_ms.get("ms"):
             cost["ally_cpu_s_15hz"] = round(cost_ms["ms"] * sim["offered"] / 1000.0, 1)
-            cost["ally_cpu_s_est"] = round(cost_ms["ms"] * keep.size / 1000.0
+            # The pass reads the audit frames whichever arm scores them.
+            cost["ally_cpu_s_est"] = round(cost_ms["ms"] * both.size / 1000.0
                                            + sim["gate_us_per_offered"] * sim["offered"] / 1e6, 1)
         M.A[arm] = _answers(M, {**tr, **enemies}, {**gp, **egaps}, M.events, arm)
         rows.append(_arm_row(M, arm, cost, {"read_ratio_vs_ref": cost["reads"] / max(costV["reads"], 1)}))
+    stream = HOOK_REAL.get(sid)
+    if stream is not None:
+        Vg = gated_slots(M, stream)
+        tr, gp, cost = M.v15_tracks(Vg)
+        cost["gate_frames"] = int(Vg["fr_t"].size)
+        cost["gate_frame_share"] = Vg["fr_t"].size / max(sim["offered"], 1)
+        cost["stream"] = stream
+        M.A["Vgated"] = _answers(M, {**tr, **enemies}, {**gp, **egaps}, M.events, "Vgated")
+        rows.append(_arm_row(M, "Vgated", cost,
+                             {"read_ratio_vs_ref": cost["reads"] / max(costV["reads"], 1)}))
+        info["real_stream"] = {"stream": stream, "frames": int(Vg["fr_t"].size),
+                               "slots": {M.sid[s]: k for s, k in Vg["slot_of"].items()}}
     _log(f"  {sid} hook arms in {time.time() - t0:.0f} s: gate frames {read_t.size}/{sim['offered']} "
          f"(+audit {both.size}), Vhook share {rows[1]['cost']['share']:.4f}")
     return rows, info
+
+
+def gated_slots(M, stream: str) -> dict:
+    """`M.vision_slots()` rebuilt from a stored gated stream instead of the
+    15 Hz `ally_icon`: `slot_state` reads its ally rows from `stream` for
+    this call only, so the binding and the beliefs are the gated pass's own."""
+    import reticle.slot_state as ss
+    real = ss._jsonl
+    want = f"{M.cap}.jsonl"
+
+    def redirected(path):
+        path = Path(path)
+        if path.name == want and path.parent.name == "ally_icon":
+            path = path.parent.parent / stream / path.name
+        return real(path)
+    ss._jsonl = redirected
+    try:
+        V = M.vision_slots()
+    finally:
+        ss._jsonl = real
+    if "refused" in V:
+        raise SystemExit(f"{M.cap}: build_slots on {stream} refused: {V['refused']}")
+    return V
 
 
 def run_hook(sessions: list[str]) -> int:
@@ -2953,7 +3013,8 @@ def report_hook(record: bool = False) -> int:
     infos = {i["session"]: i for i in json.loads((HOOK_OUT / "info.json").read_text(encoding="utf-8"))}
     pools = {"dev3": [r for r in rows if r["session"] in HOOK_DEV],
              "new3": [r for r in rows if r["session"] in HOOK_NEW], "all6": rows}
-    res = {"rule": "QA5r3", "tol": QA5R3_TOL, "cap": QA5R2_CAP,
+    pools["cadaadeb2d8b"] = [r for r in rows if r["session"] == "cadaadeb2d8b"]
+    res = {"rule": "QA5r3", "tol": QA5R3_TOL, "cap": QA5R2_CAP, "caveat": HOOK_CAVEAT,
            "pools": {k: qa5r2_pool(v, "QA5r3") for k, v in pools.items() if v}, "sessions": {}}
     print("session        offered  gate  +audit  frame_share  +audit  slot_share(V15h)  "
           "cpu_15hz_s  cpu_gated_s  ms/frame")
@@ -2979,7 +3040,7 @@ def report_hook(record: bool = False) -> int:
               f"  {c.get('ally_cpu_s_est')!s:>10}  {ms if ms is None else round(ms, 1)}")
     for pname, P in res["pools"].items():
         print(f"\n== QA5r3 pool {pname}: acc vs T1 | loss vs V15h [95% CI] | pass")
-        for arm in ("Vhook", "Vhook+a"):
+        for arm in ("Vhook", "Vhook+a", "Vgated"):
             o = P.get(arm)
             if o is None:
                 continue
@@ -3001,12 +3062,13 @@ def report_hook(record: bool = False) -> int:
                                  f"{q}.ci_hi": v["ci"][1], f"{q}.n": v["n"]})
                 rec("real_reader_schedule", part=f"hook/{arm}", session=pname, values=vals,
                     deps={"version": VERSION, "gate": "ally-gate-0.1.0", "rule": "QA5r3"},
-                    context={"task": HOOK_TASK, "ref": o["ref"]})
+                    context={"task": HOOK_TASK, "ref": o["ref"], "caveat": HOOK_CAVEAT})
         for s, v in res["sessions"].items():
             rec("real_reader_schedule", part="hook/cost", session=s,
                 values={k: (round(x, 4) if isinstance(x, float) else x) for k, x in v.items()
                         if not isinstance(x, dict)},
-                deps={"version": VERSION, "gate": "ally-gate-0.1.0"}, context={"task": HOOK_TASK})
+                deps={"version": VERSION, "gate": "ally-gate-0.1.0"},
+                context={"task": HOOK_TASK, "caveat": HOOK_CAVEAT})
     return 0
 
 

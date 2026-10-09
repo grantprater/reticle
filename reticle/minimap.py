@@ -1650,17 +1650,25 @@ class AllyIconReader:
     @staticmethod
     def gated_streams(events: list[dict], log) -> tuple[list[dict], list[dict]]:
         """A gated pass's published rows split in two: the gated stream (the
-        frames the gate opened, its icons and one `unread` row per refused
-        run) and the audit stream (every frame of the audit windows, opened
-        or not, and its icons), each with its own recounted coverage row
-        carrying the gate's block (`passes.GateLog.summary`) and `read`
-        (`gate` or `audit`). The gate's belief never read an audit-only frame."""
+        frames the gate opened, each with `gate_reason` and `gate_rests_on`,
+        its icons, and one `unread` row per refused run) and the audit stream
+        (every frame of the audit windows, opened or not, and its icons),
+        each with its own recounted coverage row carrying the gate's block
+        (`passes.GateLog.summary`) and `read` (`gate` or `audit`). Every
+        offered instant has exactly one answer in the gated stream: a frame
+        the gate read, or an `unread` row with the refusal, even where the
+        audit read that instant. The gate's belief never read an audit-only
+        frame."""
         head, rest = events[0], events[1:]
-        read_t, audit_t = set(log.read_t), set(log.audit_t)
+        reads, audit_t = log.reads, set(log.audit_t)
+        read_t = set(reads)
         gate = log.summary()
 
         def part(keep: set, read: str, extra: list[dict]) -> list[dict]:
             frames = [r for r in rest if r.get("kind") == "frame" and float(r["t_ms"]) in keep]
+            if read == "gate":
+                frames = [{**f, "gate_reason": reads[float(f["t_ms"])][0],
+                           "gate_rests_on": list(reads[float(f["t_ms"])][1])} for f in frames]
             fi = {r["frame_idx"] for r in frames}
             icons = [r for r in rest if r.get("kind") == "icon" and r["frame_idx"] in fi]
             refused = Counter(r["reason"] for r in icons if r.get("reason"))

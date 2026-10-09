@@ -197,14 +197,17 @@ class ProcessRun:
         if any(g.get("gate_log") is not None for g in got):
             from .passes import GateLog
             from .ratchets import declared_gate
-            log = self.reader.gate_log = GateLog(declared_gate(self.reader))
+            log = self.reader.gate_log = GateLog(
+                declared_gate(self.reader), getattr(self.reader.frame_gate, "sources", None))
             for g in got:
                 if g.get("gate_log") is not None:
                     log.extend(g["gate_log"])
             self._gated_reads = len(set(log.read_t) | set(log.audit_t))
         shutil.rmtree(self.tmp, ignore_errors=True)
         return {"processes": len(self.runs), "asked": self.k,
-                "frames": [len(r) for r in self.runs], "wall_s": round(wall, 3),
+                "frames": [len(r) for r in self.runs],
+                "fed": [g.get("fed", len(r)) for g, r in zip(got, self.runs)],
+                "wall_s": round(wall, 3),
                 "child_wall_s": [round(g["wall_ns"] / 1e9, 3) for g in got],
                 "child_cpu_s": [round(g["cpu_ns"] / 1e9, 3) for g in got],
                 "cpu_ns": sum(g["cpu_ns"] for g in got)}
@@ -241,16 +244,24 @@ def _child(spec_path: str) -> int:
     if spec["seed_t_ms"] is not None:
         reader.after_gap(float(spec["seed_t_ms"]))
     wall, cpu = time.perf_counter_ns(), time.process_time_ns()
-    # The hook's rule, as `passes.run_cached` applies it: a gated reader's
-    # gate is asked before each crop fetch.
-    lazy, pending = gated_times([reader], spec["times"], lambda t: [reader])
-    for smp in cache.samples(lazy, rois=_cache_rois(reader)):
-        for r, d in pending.pop(float(smp.t_ms), ()):
-            _feed(r, smp, None)
-            if d is not None:
-                gate_after(r, smp.t_ms, d)
+    fed = 0
+    if spec.get("gate"):
+        # The hook's rule, as `passes.run_cached` applies it: a gated
+        # reader's gate is asked before each crop fetch.
+        lazy, pending = gated_times([reader], spec["times"], lambda t: [reader])
+        for smp in cache.samples(lazy, rois=_cache_rois(reader)):
+            for r, d in pending.pop(float(smp.t_ms), ()):
+                _feed(r, smp, None)
+                fed += 1
+                if d is not None:
+                    gate_after(r, smp.t_ms, d)
+    else:
+        for smp in cache.samples(spec["times"], rois=_cache_rois(reader)):
+            _feed(reader, smp, None)
+            fed += 1
     out = {"lists": {n: getattr(reader, n) for n in reader.shardable},
            "candidates": reader.candidates, "gate_log": getattr(reader, "gate_log", None),
+           "fed": fed,
            "wall_ns": time.perf_counter_ns() - wall, "cpu_ns": time.process_time_ns() - cpu}
     with open(spec["out"], "wb") as f:
         pickle.dump(out, f, protocol=pickle.HIGHEST_PROTOCOL)

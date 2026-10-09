@@ -470,7 +470,9 @@ class ScanUsage:
         process's own in `cpu_ns`."""
         self.processes[name] = {k: v for k, v in cost.items() if k != "cpu_ns"}
         r = self.readers[name]
-        r["offered"] = r["fed"] = sum(cost["frames"])
+        # A gated reader's children feed fewer frames than they are offered.
+        r["offered"] = sum(cost["frames"])
+        r["fed"] = sum(cost.get("fed", cost["frames"]))
         r["thread_cpu_ns"] = cost["cpu_ns"]
         r["thread_cpu_reason"] = None
         self.child_cpu_ns += cost["cpu_ns"]

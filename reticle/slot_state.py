@@ -1539,8 +1539,11 @@ def gate_belief(sid: str, store_root: Path = DEFAULT_STORE, hz: float = 15.0) ->
     _mf, _to_m, m_per_px = wf
     dur = float(manifest["source"].get("duration_ms") or 0.0)
     t = np.arange(0.0, dur + 1000.0 / hz, 1000.0 / hz)
-    deaths = [d for d in _jsonl(root / "events" / "death" / f"{sid}.jsonl")
-              if d.get("kind") == "death_verdict"]
+    rows = list(_jsonl(root / "events" / "death" / f"{sid}.jsonl"))
+    deaths = [d for d in rows if d.get("kind") == "death_verdict"]
+    # The death owner places X-mark births through `death.stored_xmark_births`,
+    # which reads the stored 15 Hz `ally_icon`: a prior that rests on it.
+    death_inputs = next((d.get("inputs") or {} for d in rows if d.get("inputs")), {})
     S = SimpleNamespace(fr_t=t, rounds=st.read_rounds(sid, date).to_pylist(), deaths=deaths)
     L = lineup_slots(sid, root)
     if "refused" in L:
@@ -1556,6 +1559,7 @@ def gate_belief(sid: str, store_root: Path = DEFAULT_STORE, hz: float = 15.0) ->
     r_fit = r_px * m_per_px + v_max / hz
     stamp = {"gate_belief_version": GATE_BELIEF_VERSION, "slot_state_version": SLOT_STATE_VERSION,
              "inputs": {"death": deaths[0].get("death_adjudication_version") if deaths else None,
+                        "death_ally_icon": death_inputs.get("ally_icon"),
                         "lineup": lineup.view_stamp(sid, root) if "refused" not in L
                         else f"refused: {L['refused']}",
                         "rounds": manifest.get("ingested_at")},
@@ -1605,13 +1609,16 @@ def ally_gate_for(sid: str, store_root: Path = DEFAULT_STORE):
         return got
     enemy, ver = stored_enemy_icons(sid, store_root)
     st = got["stamp"]
-    rests_on = (f"slot_state.GateBelief {st['gate_belief_version']} ({st['slot_state_version']}) "
-                f"over death {st['inputs']['death']}, lineup {st['inputs']['lineup']}, "
-                f"rounds {st['inputs']['rounds']}",
-                f"death verdicts {st['inputs']['death']} (cue)",
-                f"minimap_object enemy icons {ver} (cue)" if enemy is not None
-                else "minimap_object: not stored (no enemy cue)")
-    return AllyGate(got["belief"], got["deaths_t"], enemy, rests_on)
+    deaths = (f"death verdicts {st['inputs']['death']}, whose X-mark births "
+              f"(`death.stored_xmark_births`) read the stored 15 Hz ally_icon "
+              f"{st['inputs']['death_ally_icon']}")
+    sources = {"belief": f"slot_state.GateBelief {st['gate_belief_version']} "
+                         f"({st['slot_state_version']}) over the lineup {st['inputs']['lineup']}, "
+                         f"rounds {st['inputs']['rounds']} and the {deaths}",
+               "death": f"{deaths} (cue)"}
+    if enemy is not None:
+        sources["enemy"] = f"minimap_object enemy icons {ver} (cue)"
+    return AllyGate(got["belief"], got["deaths_t"], enemy, sources)
 
 
 # ----------------------------------------------------------------- storage

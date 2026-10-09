@@ -159,37 +159,47 @@ class GateDecision(NamedTuple):
     """One gate answer at one grid instant.
 
     `read`: the gate opened; `reason` says why it opened or refused;
-    `audit`: the instant lies in the declared audit cadence
+    `rests_on`: the keys of the priors this answer read (the gate's
+    `sources`); `audit`: the instant lies in the declared audit cadence
     (`ratchets.Audit`), so it is read whatever `read` says and stored apart.
     """
 
     read: bool
     reason: str
     audit: bool = False
+    rests_on: tuple = ()
 
 
 class GateLog:
     """What a frame gate decided over a pass, kept on the reader as
     `gate_log` for its owner to publish.
 
-    A refused instant is a NON-READ with a reason: never a null
-    observation, never "absent". Refusals are kept as runs of consecutive
-    offered instants that share a reason (`runs`: `[t_first, t_last, reason,
-    n]`); the instants the gate opened (`read_t`) and the audit instants
-    (`audit_t`, opened or not) are kept whole, so the owner can store the
-    gated rows and the audit rows apart.
+    Every offered instant gets exactly one answer in the gated stream: a
+    read the gate opened (`reads[t]`: its reason and the priors it rests
+    on), or a NON-READ with its refusal reason -- never a null observation,
+    never "absent" -- even where the audit read that instant. Refusals are
+    kept as runs of consecutive offered instants sharing a reason and its
+    priors (`runs`: `[t_first, t_last, reason, n, rests_on]`). The audit
+    instants (`audit_t`, opened or not) are kept whole, so the owner stores
+    the audit rows apart. `sources` maps each `rests_on` key to the prior it
+    names, with its stamp.
     """
 
-    def __init__(self, gate):
+    def __init__(self, gate, sources: dict | None = None):
         self.version = gate.version
         self.rests_on = list(gate.rests_on)
+        self.sources = dict(sources or {})
         self.audit = gate.audit.stamp() if gate.audit is not None else None
         self.opened: Counter = Counter()
         self.refused: Counter = Counter()
-        self.read_t: list[float] = []
+        self.reads: dict[float, tuple] = {}
         self.audit_t: list[float] = []
         self.runs: list[list] = []
         self._open_run = False
+
+    @property
+    def read_t(self) -> list[float]:
+        return list(self.reads)
 
     def record(self, t_ms: float, d: GateDecision) -> None:
         t = float(t_ms)
@@ -197,42 +207,45 @@ class GateLog:
             self.audit_t.append(t)
         if d.read:
             self.opened[d.reason] += 1
-            self.read_t.append(t)
-        elif not d.audit:
-            self.refused[d.reason] += 1
-            if self._open_run and self.runs[-1][2] == d.reason:
-                self.runs[-1][1] = t
-                self.runs[-1][3] += 1
-            else:
-                self.runs.append([t, t, d.reason, 1])
-            self._open_run = True
+            self.reads[t] = (d.reason, tuple(d.rests_on))
+            self._open_run = False
             return
-        self._open_run = False
+        self.refused[d.reason] += 1
+        key = tuple(d.rests_on)
+        if self._open_run and self.runs[-1][2] == d.reason and self.runs[-1][4] == key:
+            self.runs[-1][1] = t
+            self.runs[-1][3] += 1
+        else:
+            self.runs.append([t, t, d.reason, 1, key])
+        self._open_run = True
 
     def extend(self, other: "GateLog") -> None:
         """Append a later run's log (`process_shards` merges in run order)."""
         self.opened.update(other.opened)
         self.refused.update(other.refused)
-        self.read_t += other.read_t
+        self.reads.update(other.reads)
         self.audit_t += other.audit_t
         self.runs += [list(r) for r in other.runs]
+        self.sources.update(other.sources)
         self._open_run = False
 
     def summary(self) -> dict:
         """The gate's block for its stream's coverage row."""
-        audit_only = len(set(self.audit_t) - set(self.read_t))
+        audit_only = len(set(self.audit_t) - set(self.reads))
         refused = int(sum(self.refused.values()))
-        return {"version": self.version, "rests_on": self.rests_on, "audit": self.audit,
-                "offered": len(self.read_t) + audit_only + refused,
-                "read": len(self.read_t), "audit_frames": len(self.audit_t),
+        return {"version": self.version, "rests_on": self.rests_on, "sources": self.sources,
+                "audit": self.audit, "offered": len(self.reads) + refused,
+                "read": len(self.reads), "audit_frames": len(self.audit_t),
                 "audit_only": audit_only, "refused": refused,
                 "opened_reasons": dict(sorted(self.opened.items())),
                 "refused_reasons": dict(sorted(self.refused.items()))}
 
     def unread_rows(self) -> list[dict]:
-        """One row per refused run: the instants the gate did not read, and why."""
+        """One row per refused run: the instants the gate did not read, why,
+        and the priors that answer rests on (an audit may have read some)."""
         return [{"kind": "unread", "t_ms": a, "t_last_ms": b, "reason": why, "frames": int(n),
-                 "gate_version": self.version} for a, b, why, n in self.runs]
+                 "rests_on": list(key), "gate_version": self.version}
+                for a, b, why, n, key in self.runs]
 
 
 def frame_gated(reader) -> bool:
@@ -247,17 +260,18 @@ def frame_gated(reader) -> bool:
 
 def gate_decide(reader, t_ms: float) -> GateDecision:
     """Ask `reader`'s gate about one instant -- `wants(t_ms)` returns a
-    `GateDecision`, a `(read, reason)` pair or a bool -- and record the answer in its
-    `gate_log` (made on first use from the declared gate). The audit
-    cadence is the declaration's, applied here, so no gate can skip it."""
+    `GateDecision`, a `(read, reason[, rests_on])` tuple or a bool -- and
+    record the answer in its `gate_log` (made on first use from the
+    declared gate and the runtime gate's `sources`). The audit cadence is
+    the declaration's, applied here, so no gate can skip it."""
     from .ratchets import declared_gate
     g = declared_gate(reader)
     log = getattr(reader, "gate_log", None)
     if log is None:
-        log = reader.gate_log = GateLog(g)
+        log = reader.gate_log = GateLog(g, getattr(reader.frame_gate, "sources", None))
     d = reader.wants(float(t_ms))
     if isinstance(d, tuple) and not isinstance(d, GateDecision):
-        d = GateDecision(bool(d[0]), str(d[1]))
+        d = GateDecision(bool(d[0]), str(d[1]), False, tuple(d[2]) if len(d) > 2 else ())
     elif not isinstance(d, GateDecision):
         d = GateDecision(bool(d), "open" if d else "closed")
     audit = g.audit is not None and g.audit.covers(t_ms, _span_start(reader, t_ms))

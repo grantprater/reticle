@@ -124,7 +124,7 @@ class RunHookTests(unittest.TestCase):
         expect = sorted({t for t in offered if t % 1000.0 == 0.0} | set(audit))
         self.assertEqual(g.fed, expect)
         log = g.gate_log
-        refused = [t for t in offered if t not in expect]
+        refused = [t for t in offered if t % 1000.0 != 0.0]
         self.assertEqual(log.summary()["refused"], len(refused))
         self.assertEqual(log.summary()["refused_reasons"], {"half_second": len(refused)})
         rows = log.unread_rows()
@@ -178,7 +178,9 @@ class CachedHookTests(unittest.TestCase):
         cache = FakeCache(times)
         run_cached(SimpleNamespace(), [g], cache)
         self.assertEqual(cache.fetched, g.fed)
-        self.assertEqual(len(g.fed) + g.gate_log.summary()["refused"], 30)
+        log = g.gate_log
+        self.assertEqual(len(log.reads) + log.summary()["refused"], 30)
+        self.assertEqual(log.summary()["offered"], 30)
         self.assertEqual(g.gate_log.summary()["refused"], sum(r["frames"] for r in
                                                                 g.gate_log.unread_rows()))
 
@@ -189,7 +191,7 @@ class CachedHookTests(unittest.TestCase):
         b.record(9000.0, GateDecision(True, "open"))
         b.record(9500.0, GateDecision(False, "x"))
         a.extend(b)
-        self.assertEqual(a.runs, [[0.0, 500.0, "x", 2], [9500.0, 9500.0, "x", 1]])
+        self.assertEqual(a.runs, [[0.0, 500.0, "x", 2, ()], [9500.0, 9500.0, "x", 1, ()]])
         self.assertEqual(a.read_t, [9000.0])
 
 
@@ -208,7 +210,7 @@ class AllyGateRuleTests(unittest.TestCase):
         grid = np.arange(1000.0, 8000.0, 1000.0 / 15)
         reads = []
         for t in grid:
-            ok, why = g.wants(t)
+            ok, why = g.wants(t)[:2]
             if ok:
                 reads.append((round(t), why))
                 g.observed(t, [(10.0 * k, 0.0) for k in range(4)])
@@ -221,7 +223,7 @@ class AllyGateRuleTests(unittest.TestCase):
         g = self._gate()
         g.wants(1000.0)
         g.observed(1000.0, [(0.0, 0.0)])             # 1 of 4 found
-        self.assertEqual(g.wants(1000.0 + 1000.0 / 15), (False, "retry_wait"))
+        self.assertEqual(g.wants(1000.0 + 1000.0 / 15)[:2], (False, "retry_wait"))
         self.assertEqual(g.belief.at(2000.0)["kind"], "unanchored")
 
     def test_a_death_opens_a_cue_at_5_hz(self):
@@ -232,7 +234,7 @@ class AllyGateRuleTests(unittest.TestCase):
         opened = []
         while t < 4500.0:
             t += 1000.0 / 15
-            ok, why = g.wants(t)
+            ok, why = g.wants(t)[:2]
             if ok:
                 opened.append((t, why))
                 g.observed(t, [(0.0, 0.0)] * 4)
@@ -246,26 +248,26 @@ class AllyGateRuleTests(unittest.TestCase):
         g = self._gate(enemy=enemy)
         g.wants(1900.0)
         g.observed(1900.0, [(0.0, 0.0), (100.0, 0.0), (300.0, 0.0), (400.0, 0.0)])
-        self.assertEqual(g.wants(2100.0), (True, "cue:enemy_near"))
+        self.assertEqual(g.wants(2100.0)[:2], (True, "cue:enemy_near"))
         far = AllyGate(_belief(), enemy=(np.array([2000.0]), np.array([900.0]), np.array([0.0])))
         far.wants(1900.0)
         far.observed(1900.0, [(0.0, 0.0)] * 4)
-        self.assertEqual(far.wants(2100.0), (False, "within_tolerance"))
+        self.assertEqual(far.wants(2100.0)[:2], (False, "within_tolerance"))
 
     def test_no_open_teammate_refuses(self):
-        self.assertEqual(self._gate(n_open=0).wants(1000.0), (False, "no_open_teammate"))
+        self.assertEqual(self._gate(n_open=0).wants(1000.0), (False, "no_open_teammate", ("belief",)))
 
     def test_a_gap_or_a_round_barrier_restarts_the_belief(self):
         g = self._gate(starts=(0.0, 50_000.0))
         g.wants(1000.0)
         g.observed(1000.0, [(0.0, 0.0)] * 4)
         self.assertEqual(g.wants(1000.0 + 1000.0 / 15)[1], "within_tolerance")
-        self.assertEqual(g.wants(1500.0), (True, "unanchored"))      # a 433 ms gap
+        self.assertEqual(g.wants(1500.0)[:2], (True, "unanchored"))      # a 433 ms gap
         g.observed(1500.0, [(0.0, 0.0)] * 4)
         t = 1500.0
         while t < 50_100.0:
             t += 1000.0 / 15
-            ok, _why = g.wants(t)
+            ok, _why = g.wants(t)[:2]
             if ok:
                 g.observed(t, [(0.0, 0.0)] * 4)
             if t >= 50_000.0:
@@ -289,6 +291,28 @@ class AllyGateRuleTests(unittest.TestCase):
         self.assertEqual(teammate_fits(icons), [(1.0, 2.0)])
 
 
+class OneRowPerInstantTests(unittest.TestCase):
+    def test_every_offered_instant_has_exactly_one_gated_row(self):
+        g = Gated()
+        cap = Cap(frames=60)
+        with _opened(cap):
+            run(SimpleNamespace(media="x", fps=2.0), [g])
+        offered = [i * 500.0 for i in range(60)]
+        frames = [{"kind": "frame", "frame_idx": i, "t_ms": t, "widget_drawn": True}
+                  for i, t in enumerate(g.fed)]
+        gated, audit = AllyIconReader.gated_streams([{"kind": "coverage"}] + frames, g.gate_log)
+        covered = [r["t_ms"] for r in gated if r["kind"] == "frame"]
+        for r in gated:
+            if r["kind"] == "unread":
+                covered += [t for t in offered if r["t_ms"] <= t <= r["t_last_ms"]]
+        self.assertEqual(sorted(covered), offered)
+        self.assertEqual(gated[0]["gate"]["offered"], 60)
+        # the audit read some refused instants: each still has its unread row
+        self.assertTrue(set(g.gate_log.audit_t) - set(g.gate_log.reads))
+        self.assertEqual(sorted(r["t_ms"] for r in audit if r["kind"] == "frame"),
+                         sorted(g.gate_log.audit_t))
+
+
 class AllyStreamTests(unittest.TestCase):
     def test_the_audit_is_stored_apart(self):
         head = {"kind": "coverage", "session_id": "s", "frames": 4}
@@ -297,21 +321,27 @@ class AllyStreamTests(unittest.TestCase):
         icons = [{"kind": "icon", "frame_idx": i, "t_ms": f["t_ms"], "reason": None}
                  for i, f in enumerate(frames)]
         log = GateLog(AllyIconReader.opportunity_gate)
-        log.record(0.0, GateDecision(True, "unanchored"))
-        log.record(500.0, GateDecision(False, "within_tolerance"))
-        log.record(1000.0, GateDecision(False, "within_tolerance", audit=True))
-        log.record(1500.0, GateDecision(True, "reach_exceeds_tolerance", audit=True))
+        log.record(0.0, GateDecision(True, "unanchored", rests_on=("belief",)))
+        log.record(500.0, GateDecision(False, "within_tolerance", rests_on=("belief",)))
+        log.record(1000.0, GateDecision(False, "within_tolerance", audit=True,
+                                        rests_on=("belief",)))
+        log.record(1500.0, GateDecision(True, "reach_exceeds_tolerance", audit=True,
+                                        rests_on=("belief", "death")))
         gated, audit = AllyIconReader.gated_streams([head] + frames + icons, log)
         self.assertEqual(gated[0]["read"], "gate")
         self.assertEqual([r["t_ms"] for r in gated if r["kind"] == "frame"], [0.0, 1500.0])
         self.assertEqual([r for r in gated if r["kind"] == "unread"],
-                         [{"kind": "unread", "t_ms": 500.0, "t_last_ms": 500.0,
-                           "reason": "within_tolerance", "frames": 1,
+                         [{"kind": "unread", "t_ms": 500.0, "t_last_ms": 1000.0,
+                           "reason": "within_tolerance", "frames": 2, "rests_on": ["belief"],
                            "gate_version": AllyIconReader.opportunity_gate.version}])
+        read = [r for r in gated if r["kind"] == "frame"]
+        self.assertEqual([(r["gate_reason"], r["gate_rests_on"]) for r in read],
+                         [("unanchored", ["belief"]), ("reach_exceeds_tolerance", ["belief", "death"])])
         self.assertEqual(audit[0]["read"], "audit")
         self.assertEqual([r["t_ms"] for r in audit if r["kind"] == "frame"], [1000.0, 1500.0])
         self.assertEqual(audit[0]["frames"], 2)
         self.assertEqual(gated[0]["gate"]["audit_only"], 1)
+        self.assertEqual(gated[0]["gate"]["offered"], 4)
         self.assertEqual(gated[0]["gate"]["version"], "ally-gate-0.1.0")
 
     def test_the_reader_declares_a_frame_gate(self):
@@ -320,10 +350,10 @@ class AllyStreamTests(unittest.TestCase):
         self.assertIsNotNone(g.audit)
         r = AllyIconReader.__new__(AllyIconReader)
         self.assertFalse(passes.frame_gated(r))
-        gate = AllyGate(_belief(), rests_on=("belief stamp",))
+        gate = AllyGate(_belief(), sources={"belief": "belief stamp"})
         r.bind_gate(gate)
         self.assertTrue(passes.frame_gated(r))
-        self.assertEqual(r.opportunity_gate.rests_on, ("belief stamp",))
+        self.assertEqual(r.opportunity_gate.rests_on, ("belief: belief stamp",))
         r.frames, r.icons = [], []
         r.spans = None
         d = gate_decide(r, 1000.0)

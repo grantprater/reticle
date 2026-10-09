@@ -62,27 +62,36 @@ _EPS_MS = 1.0
 
 
 class AllyGate:
-    """The runtime gate: `wants(t_ms)` -> `(read, reason)`, which the hook
-    makes a `passes.GateDecision`;
-    `observed(t_ms, fits_px)` feeds a read the gate opened back into the
-    belief. `rests_on` names every prior it reads, with stamps.
+    """The runtime gate: `wants(t_ms)` -> `(read, reason, rests_on)`, which
+    the hook makes a `passes.GateDecision`; `observed(t_ms, fits_px)` feeds a
+    read the gate opened back into the belief.
+
+    `sources` maps each prior the gate may read to its name and stamp:
+    `belief` (the `slot_state.GateBelief`, whose lifecycle reads the death
+    verdicts), `death` (the death verdicts' times, a cue) and `enemy` (the
+    stored enemy icons, a cue). Each answer's `rests_on` names the keys it
+    read, so every read and refusal carries its own priors; `rests_on` (the
+    instance's) lists them all as `key: name`.
 
     `belief` is a `slot_state.GateBelief` (built by the CLI, which may read
     the adjudication layer this module may not import); `deaths_t` the death
     verdicts' times; `enemy` `(t_ms, x, y)` arrays of stored enemy icons in
     widget pixels, sorted by time, or None where no stream is stored."""
 
-    def __init__(self, belief, deaths_t=(), enemy=None, rests_on=()):
+    def __init__(self, belief, deaths_t=(), enemy=None, sources: dict | None = None):
         self.belief = belief
         self.deaths_t = np.sort(np.asarray(list(deaths_t), float))
+        self.has_enemy = enemy is not None
         if enemy is None:
             enemy = (np.zeros(0), np.zeros(0), np.zeros(0))
         self.et, self.ex, self.ey = (np.asarray(a, float) for a in enemy)
-        self.rests_on = tuple(rests_on)
+        self.sources = dict(sources or {"belief": "GateBelief (unstamped)"})
+        self.rests_on = tuple(f"{k}: {v}" for k, v in self.sources.items())
         self.version = ALLY_GATE_VERSION
         self.retry_ms = belief.age_for(TOL_M) * 1000.0
         self.local_px = LOCAL_M / belief.m_per_px
         self._t_prev = None
+        self._cued = ("belief", "death") + (("enemy",) if self.has_enemy else ())
 
     def _cue(self, t: float, fix_px: np.ndarray) -> str | None:
         lo = t - CUE_HOLD_MS
@@ -98,25 +107,26 @@ class AllyGate:
                     return "cue:enemy_near"
         return None
 
-    def wants(self, t_ms: float) -> tuple[bool, str]:
+    def wants(self, t_ms: float) -> tuple[bool, str, tuple]:
         t = float(t_ms)
         if self._t_prev is not None and t - self._t_prev > RESET_GAP_MS:
             self.belief.reset()
         self._t_prev = t
         b = self.belief.at(t)
         if b["n_open"] <= 0:
-            return (False, "no_open_teammate")
+            return (False, "no_open_teammate", ("belief",))
         if b["t_read"] is None:
-            return (True, "unanchored")
+            return (True, "unanchored", ("belief",))
         since = t - b["t_read"]
         cue = self._cue(t, b["fix_px"])
+        on = self._cued
         if cue is not None and since >= CUE_PERIOD_MS - _EPS_MS:
-            return (True, cue)
+            return (True, cue, on)
         if b["radius_m"] > TOL_M:
             if since >= self.retry_ms - _EPS_MS:
-                return (True, "reach_exceeds_tolerance")
-            return (False, "cue_wait" if cue else "retry_wait")
-        return (False, "cue_wait" if cue else "within_tolerance")
+                return (True, "reach_exceeds_tolerance", on)
+            return (False, "cue_wait" if cue else "retry_wait", on)
+        return (False, "cue_wait" if cue else "within_tolerance", on)
 
     def observed(self, t_ms: float, fits_px) -> None:
         self.belief.observe(t_ms, fits_px)
