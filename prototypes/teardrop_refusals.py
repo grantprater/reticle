@@ -47,8 +47,10 @@ The scorer reads the reread rows by giving the prototypes' `STORE` a path
 whose `events/minimap_object` resolves to the tag's folder (`_Redirect`);
 every other input is the store's own.
 
-Stored data and the roi_cache only; no decode. The held-out capture
-(cea8ecbc94ab) is refused before any row is read. Not wired (`"wire":
+Stored data and the roi_cache only; no decode. `refuse` admits `SCORED`
+(the development matches and the 2026-10-07 replay captures, `NEW`); the
+held-out capture (cea8ecbc94ab) and every other session are refused before
+any row is read. Not wired (`"wire":
 "no"`): an evaluation over replay truth; the fix it measures lives in
 `reticle/teardrop.py` and `reticle/minimap_objects.py`.
 
@@ -85,11 +87,17 @@ from reticle.store import DEFAULT_STORE  # noqa: E402
 #: 0.2.0 (task teardrop-confusers-20261007): `pings`, `--pings`.
 #: 0.3.0 (task teardrop-review-fixes-20261007): `--ping-own-px`,
 #: `--no-owner-gate`, `gate`.
-VERSION = "teardrop-refusals-0.3.0"
+#: 0.4.0 (task teardrop-new-sessions-20261009): `refuse` admits `SCORED`, the
+#: development matches and the 2026-10-07 replay captures.
+VERSION = "teardrop-refusals-0.4.0"
 TASK = "teardrop-refusals-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
 DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+#: The 2026-10-07 replay captures, whose inputs are current (`reticle plan`).
+NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
+#: The sessions this task and `question_acceptance` read: one definition.
+SCORED = DEV + NEW
 HELD_OUT = "cea8ecbc94ab"
 # The harness's gates and bootstrap live in its core (one definition).
 from reticle.acceptance import N_BOOT, NEAR_CM, OFFSET_CM, SEED  # noqa: E402,F401
@@ -118,8 +126,8 @@ def _idle() -> None:
 def refuse(sid: str) -> None:
     if sid == HELD_OUT:
         raise SystemExit(f"{sid}: the held-out match is never read by this task")
-    if sid not in DEV:
-        raise SystemExit(f"{sid}: not a development match")
+    if sid not in SCORED:
+        raise SystemExit(f"{sid}: neither a development match nor a 2026-10-07 replay capture")
 
 
 # ----------------------------------------------------------------- reread
