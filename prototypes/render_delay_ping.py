@@ -44,6 +44,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from reticle.dev_set import FROZEN_HELD_OUT, FROZEN_HELD_OUT_REPLAY  # noqa: E402
+
 RENDER_DELAY_PING_VERSION = "render-delay-ping-0.1.0"
 STORE = Path.home() / "reticle-store"
 OUT = STORE / "analysis" / "render-delay-ping-20261006"
@@ -52,7 +54,7 @@ PARSED = STORE / "external" / "replays" / "parsed" / "vrfkit-0.2.5"
 MATCHES = {"9acf02f98283": "b03fecd3-8d80-4e6c-bae0-ac2ec0344567",
            "c817691bcd15": "60c7f1e0-095f-4944-87f9-ea613d595598",
            "d3dcfb182ab1": "16a475cb-546e-4fe3-8741-008750e01237"}
-HELD_OUT = ("cea8ecbc94ab", "bd7efa02")
+HELD_OUT = FROZEN_HELD_OUT + FROZEN_HELD_OUT_REPLAY
 PS_GROUP = "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C"
 GRID_MS = 100.0
 N_BOOT = 2000

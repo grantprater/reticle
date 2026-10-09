@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from reticle import dev_sample as ds
+from reticle import dev_set
 from reticle.metrics import rule_of_three, wilson
 
 
@@ -24,11 +25,11 @@ def _rounds(n, t_round=100_000.0):
 class SampleTest(unittest.TestCase):
 
     def test_frozen_sample_is_versioned_and_stratified(self):
-        self.assertEqual(ds.DEV_SAMPLE_VERSION, "dev-sample-0.1.0")
+        self.assertEqual(ds.DEV_SAMPLE_VERSION, "dev-sample-0.2.0")
         per = Counter(w.session for w in ds.SAMPLE)
         self.assertEqual(set(per), set(ds.MATCHES))
         self.assertEqual(set(per.values()), {ds.PER_MATCH})
-        self.assertIn("4f207c0c4e39", per)      # the 1.15x variant widget
+        self.assertIs(ds.MATCHES, dev_set.DEV)   # the one split definition
         for w in ds.SAMPLE:
             self.assertTrue(w.reason.startswith(ds.DEV_SAMPLE_VERSION), w)
             self.assertLess(w.t0, w.t1)

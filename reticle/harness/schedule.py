@@ -16,13 +16,15 @@ share must stay at most `QA5R2_CAP`. `acceptance hook` runs the production
 ally gate (`reticle.ally_gate`) through the passes hook over each session's
 stored 15 Hz `ally_icon` frames and keeps V15h's fits where the gate reads
 (`Vhook`) or reads or audits (`Vhook+a`); `acceptance hook-report` pools the
-arms (dev3, new3, all6) under QA5r3 with read share and CPU per session;
+arms over `new3` (the development set, `reticle.dev_set.DEV`), and with
+`--with-frozen` over `dev3` and `all6` too, under QA5r3 with read share and CPU
+per session;
 `acceptance arms-report` scores the stored arms of
 `prototypes/real_reader_schedule.py run`. The arms' read schedules (Lp, Lpv,
 Vgate) stay in that prototype as development tooling.
 
-The held-out capture (cea8ecbc94ab, replay bd7efa02) is refused before any
-row is read.
+The frozen held-out capture (cea8ecbc94ab, replay bd7efa02) is refused
+before any row is read.
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ from pathlib import Path
 import numpy as np
 
 from reticle import slot_state as ss
+from reticle.dev_set import DEV, FROZEN_DEV, FROZEN_HELD_OUT, FROZEN_HELD_OUT_REPLAY
 from reticle.frame_join import grid_join
 from reticle.store import DEFAULT_STORE
 
@@ -71,7 +74,7 @@ VERSION = "real-reader-schedule-0.1.0"
 TASK = "real-reader-schedule-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
-HELD_OUT = ("cea8ecbc94ab", "bd7efa02")
+HELD_OUT = FROZEN_HELD_OUT + FROZEN_HELD_OUT_REPLAY
 
 
 #: The registered real-enemy development pair; 9acf02f98283 gained its
@@ -558,9 +561,11 @@ def report_qa5r2(record: bool = False, rule: str = "QA5r2") -> int:
             sh = "   -  " if o["share"] is None else f"{o['share']:.4f}"
             print(arm.ljust(11) + o["ref"].ljust(6) + sh + "  " + " ".join(cells)
                   + f"  {o['verdict']}{' (post hoc)' if (o['post_hoc'] or rule == 'QA5r3') else ''}")
-    (OUT / f"{rule.lower()}.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    from .extras import label
+    (OUT / f"{rule.lower()}.json").write_text(json.dumps(label(res, sorted({r["session"] for r in rows})),
+                                                      indent=1), encoding="utf-8")
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         for pname, P in res["pools"].items():
             for arm, o in P.items():
                 vals = {"pass": o["verdict"] == "pass"}
@@ -572,7 +577,8 @@ def report_qa5r2(record: bool = False, rule: str = "QA5r2") -> int:
                 rec("real_reader_schedule", part=f"{rule.lower()}/{arm}", session=pname, values=vals,
                     deps={"version": VERSION, "rule": rule, "tol": tol, "cap": QA5R2_CAP,
                           "boot": [BOOT_N, BOOT_SEED]},
-                    context={"task": TASK, "ref": o["ref"], "post_hoc": o["post_hoc"] or rule == "QA5r3"})
+                    context={"task": TASK, "ref": o["ref"], "post_hoc": o["post_hoc"] or rule == "QA5r3",
+                             "sessions": list(JUDGED) if pname == "dev2" else sorted({r["session"] for r in rows})})
     return 0
 
 
@@ -587,8 +593,6 @@ def hook_out(version: str) -> Path:
     return HOOK_BASE if version == "ally-gate-0.1.0" else HOOK_BASE / version
 
 
-HOOK_DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
-HOOK_NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
 #: Hook arms: V15h's fits kept only on the frames the gate reads
 #: (`Vhook`), and on those plus its audit windows (`Vhook+a`).
 REF.update({"Vhook": "V15h", "Vhook+a": "V15h", "Vgated": "V15h"})
@@ -808,15 +812,22 @@ def run_hook(sessions: list[str]) -> int:
     return 0
 
 
-def report_hook(record: bool = False) -> int:
-    """QA5r3 per pool for the hook arms, and read share and CPU per session."""
+def report_hook(record: bool = False, with_frozen: bool = False) -> int:
+    """QA5r3 per pool for the hook arms, and read share and CPU per session.
+    The pools are `new3` (`DEV`) and cadaadeb2d8b alone; `with_frozen` adds
+    `dev3` (the frozen development matches) and `all6`, labelled `frozen`."""
     from reticle.ally_gate import ALLY_GATE_VERSION
+
+    from .extras import label
     HOOK_OUT = hook_out(ALLY_GATE_VERSION)
     rows = [json.loads(x) for x in (HOOK_OUT / "rows.jsonl").read_text(encoding="utf-8").splitlines()
             if x.strip()]
+    if not with_frozen:
+        rows = [r for r in rows if r["session"] not in FROZEN_DEV]
     infos = {i["session"]: i for i in json.loads((HOOK_OUT / "info.json").read_text(encoding="utf-8"))}
-    pools = {"dev3": [r for r in rows if r["session"] in HOOK_DEV],
-             "new3": [r for r in rows if r["session"] in HOOK_NEW], "all6": rows}
+    pools = {"new3": [r for r in rows if r["session"] in DEV]}
+    if with_frozen:
+        pools.update({"dev3": [r for r in rows if r["session"] in FROZEN_DEV], "all6": rows})
     pools["cadaadeb2d8b"] = [r for r in rows if r["session"] == "cadaadeb2d8b"]
     res = {"rule": "QA5r3", "gate": ALLY_GATE_VERSION, "tol": QA5R3_TOL, "cap": QA5R2_CAP,
            "caveat": HOOK_CAVEAT,
@@ -856,9 +867,10 @@ def report_hook(record: bool = False) -> int:
                     print(f"   {q:22s} n {v['n']:>4d} acc {v['acc']:.3f} ref {v['acc_ref']:.3f} "
                           f"loss {v['loss']:+.4f} [{v['ci'][0]:+.4f}, {v['ci'][1]:+.4f}] "
                           f"{'pass' if v['pass'] else 'FAIL'}")
-    (HOOK_OUT / "qa5r3.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    (HOOK_OUT / "qa5r3.json").write_text(json.dumps(label(res, list(res["sessions"])), indent=1),
+                                         encoding="utf-8")
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         for pname, P in res["pools"].items():
             for arm, o in P.items():
                 vals = {"pass": o["verdict"] == "pass", "share": round(o["share"], 4)}

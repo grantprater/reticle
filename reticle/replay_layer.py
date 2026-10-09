@@ -59,12 +59,13 @@ from .replay_source import (MAX_GAP_MS, MINIMAP_LAG_MS, REPLAY_SOURCE_VERSION, S
                             VRFKIT_VERSION, Reference, Replay, capture_replay_context,
                             facing_px_deg, frames_to_replay, parsed_dir, parsed_root,
                             replay_entry, replay_manifest, sample_stats, spawn_teams, to_px)
+from .dev_set import FROZEN_HELD_OUT_REPLAY
 from .store import DEFAULT_STORE
 
 REPLAY_LAYER_VERSION = "replay-layer-0.2.0"
-#: The held-out match (docs/EXTERNAL_GROUND_TRUTH.md, "a match that scores a
+#: The frozen held-out match's replay (`dev_set`; docs/EXTERNAL_GROUND_TRUTH.md, "a match that scores a
 #: fitted reader or model is held out from its fit"): built, never summarised.
-HELD_OUT = ("bd7efa02",)
+HELD_OUT = FROZEN_HELD_OUT_REPLAY
 #: The values `source` may take. Only `truth` is written here.
 SOURCES = ("truth", "observed", "inferred", "unknown")
 #: A dead player's own damage or effects this long after his death show him

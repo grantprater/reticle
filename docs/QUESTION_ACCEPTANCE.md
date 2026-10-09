@@ -469,14 +469,20 @@ the first seer needs the gate open before the first damage.
 
 ### Sets
 
-Development: 9acf02f98283 (b03fecd3), c817691bcd15 (60c7f1e0) and
-d3dcfb182ab1 (16a475cb). d3dcfb182ab1's layer has no capture clock and no
-self until `replay_layer` names the player without Riot (BACKLOG, "Ingest
-wiring"); it joins when that lands, and if it never does development is the
-two Ascent matches. Held out: cea8ecbc94ab (bd7efa02), which no design
-reads, scored once per version at the end. Its killfeed prints the account
-name and its shooting-error readout covers killfeed slots 3 and 4, so its
-death lane is impaired; its score reports the kill-anchored kinds apart.
+The split lives in `reticle/dev_set.py` (player, 2026-10-09).
+
+Development: the three 2026-10-07 replay captures, cadaadeb2d8b,
+066741deafe5 and 9912c382130b (pool `new3`), whose streams are current.
+Held out: none until the player's next capture with a replay.
+
+Frozen: the development matches until 2026-10-09, 9acf02f98283 (b03fecd3),
+c817691bcd15 (60c7f1e0) and d3dcfb182ab1 (16a475cb) (pool `dev3`), and the
+old held-out match cea8ecbc94ab (bd7efa02). Their crop caches are deleted
+and the player excluded their rereads, so they stay at their stored
+versions. The old development matches are reported only as stale history:
+every output they feed is labelled `frozen: stale inputs` with its stale
+streams, and none pools with development by default. cea8ecbc94ab stays
+unread.
 
 ## 7. Predictions
 
@@ -496,7 +502,8 @@ states its falsifier.
 | QA7 | Vgate standing | carried samples hold the truth within `radius_cm` on 0.93-0.99; coarse reads that held hold it on at least 0.95 |
 
 QA5 is the acceptance: a gated reader passes when it meets QA5 on
-development and then once on the held-out match.
+development and then once on the held-out match (none until the next
+capture with a replay; section 6, "Sets").
 
 **Revisions of 2026-10-06** (the player's answers), appended as `kind:
 "revision"` rows that point at the originals, which stand unedited:

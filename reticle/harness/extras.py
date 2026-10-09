@@ -1,8 +1,12 @@
 r"""The scored sessions, the extras' classes and the store redirect.
 
 Moved from `prototypes/teardrop_refusals.py` on 2026-10-09 (task
-`harness-t1d-20261009`). `DEV`, `NEW` and `SCORED` name the sessions the
-harness reads; `refuse` refuses every other session and the held-out match.
+`harness-t1d-20261009`). The split comes from `reticle.dev_set`: `DEV`, the
+2026-10-07 replay captures, and `FROZEN_DEV`, the old development matches;
+`SCORED` names both, and `refuse` refuses every other session and the
+held-out matches. `frozen_note` names a frozen session's stale streams;
+`label` and `record` stamp them on every document and metric row a frozen
+session feeds.
 `class_extras` classes each extra (`visible_undrawn`, `enemy_3_8m`,
 `dead_enemy`, then `ping`, `x_mark` and `other`, the true false accepts
 `TRUE_FA`). `_point_store(tag)` points the harness modules' `STORE` at a
@@ -18,6 +22,8 @@ from pathlib import Path
 import numpy as np
 
 from reticle.acceptance import N_BOOT, NEAR_CM, OFFSET_CM, SEED  # noqa: F401
+from reticle.dev_set import DEV, FROZEN_DEV, FROZEN_LABEL, frozen_in, never_read, pool_name, refusal  # noqa: F401
+from reticle.dev_set import SCORABLE as SCORED
 from reticle.store import DEFAULT_STORE
 
 
@@ -26,16 +32,13 @@ from reticle.store import DEFAULT_STORE
 #: `--no-owner-gate`, `gate`.
 #: 0.4.0 (task teardrop-new-sessions-20261009): `refuse` admits `SCORED`, the
 #: development matches and the 2026-10-07 replay captures.
-VERSION = "teardrop-refusals-0.4.0"
+#: 0.5.0 (task dev-set-new3-20261009): `DEV` is the 2026-10-07 three
+#: (`reticle.dev_set`); the old development matches are frozen and labelled.
+VERSION = "teardrop-refusals-0.5.0"
 TASK = "teardrop-refusals-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
-DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
-#: The 2026-10-07 replay captures, whose inputs are current (`reticle plan`).
-NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
-#: The sessions this task and `question_acceptance` read: one definition.
-SCORED = DEV + NEW
-HELD_OUT = "cea8ecbc94ab"
+_FROZEN_NOTES: dict[str, dict] = {}
 
 
 def _idle() -> None:
@@ -59,10 +62,49 @@ def _idle() -> None:
 
 
 def refuse(sid: str) -> None:
-    if sid == HELD_OUT:
-        raise SystemExit(f"{sid}: the held-out match is never read by this task")
-    if sid not in SCORED:
-        raise SystemExit(f"{sid}: neither a development match nor a 2026-10-07 replay capture")
+    """Refuse a session outside `SCORED`; announce a frozen one's stale streams."""
+    why = refusal(sid)
+    if why:
+        raise SystemExit(why)
+    if sid in FROZEN_DEV:
+        n = frozen_note(sid)
+        print(f"{sid}: {n['frozen']}; stale streams {', '.join(n['stale_streams'])}", flush=True)
+
+
+def frozen_note(sid: str) -> dict:
+    """`{"frozen": FROZEN_LABEL, "stale_streams": [...]}` for a frozen
+    session: the reader and derived streams `reticle plan` lists as stale."""
+    if sid not in _FROZEN_NOTES:
+        from reticle import plan
+        from reticle.store import Store
+        st = plan.stale(Store(DEFAULT_STORE), [sid])[sid]
+        _FROZEN_NOTES[sid] = {"frozen": FROZEN_LABEL, "stale_streams": sorted(
+            {e["stream"] for k in ("decode", "derived") for e in st.get(k, []) if e.get("stream")})}
+    return _FROZEN_NOTES[sid]
+
+
+def frozen_notes(sessions) -> dict[str, dict]:
+    """`frozen_note` per frozen session among `sessions`, pool names expanded."""
+    return {s: frozen_note(s) for s in frozen_in(sessions)}
+
+
+def label(doc, sessions):
+    """A copy of `doc` with `frozen` holding each frozen session's note when
+    any of `sessions` (or a pool they name) is frozen; any other doc passes as
+    is."""
+    notes = frozen_notes(sessions)
+    return {**doc, "frozen": notes} if notes and isinstance(doc, dict) else doc
+
+
+def record(tool, *, session="", context=None, **kw):
+    """`metrics.record`, with `context["frozen"]` holding the frozen sessions'
+    notes when the row's session, its pool or `context["sessions"]` holds one."""
+    from reticle.metrics import record as rec
+    ctx = dict(context or {})
+    notes = frozen_notes([session] + list(ctx.get("sessions") or []))
+    if notes:
+        ctx["frozen"] = notes
+    return rec(tool, session=session, context=ctx, **kw)
 
 
 def rows_path(tag: str, sid: str) -> Path:

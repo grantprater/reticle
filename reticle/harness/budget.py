@@ -611,10 +611,10 @@ def budget(tag: str, sessions: list[str], record: bool = False) -> dict:
            "tables": qa._budget_tables(C, sessions, "cls", {"miss": list(MISS_ORDER),
                                                             "extra": list(EXTRA_ORDER)})}
     p = OUT / tag / ("budget.json" if len(sessions) > 1 else f"budget_{sessions[0]}.json")
-    p.write_text(json.dumps(res, indent=1), encoding="utf-8")
+    p.write_text(json.dumps(tr.label(res, sessions), indent=1), encoding="utf-8")
     print(f"\n-> {p}", flush=True)
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         for scope, tb in res["tables"].items():
             vals, ci = {}, {}
             for st in ("miss", "extra"):
@@ -625,7 +625,7 @@ def budget(tag: str, sessions: list[str], record: bool = False) -> dict:
                     ci[f"{st}.{r['cls']}.n"] = r["n_ci"]
                     ci[f"{st}.{r['cls']}.share"] = r["share_ci"]
             rec("enemy_error_budget", part=f"budget/{tag}",
-                session=scope if scope != "pooled" else "dev3", values=vals, ci=ci,
+                session=scope if scope != "pooled" else tr.pool_name(sessions), values=vals, ci=ci,
                 deps={"version": VERSION, "rule": "T1d", "scorer": tr.VERSION, "cuts": res["cuts"],
                       "order_miss": list(MISS_ORDER), "order_extra": list(EXTRA_ORDER)},
                 context={"task": TASK, "boot": res["boot"], "sessions": sessions},
@@ -811,9 +811,9 @@ def eye_score(tag: str, record: bool = False) -> dict:
         print(f"{key:28s} n {n:2d} " + " ".join(f"{k[:5]} {c[k]:2d}" for k in VERDICTS)
               + f"  reader {out[key]['reader_share']:.2f} [{lo:.2f},{hi:.2f}] weighted "
               + " ".join(f"{k[:5]} {ws[k]:.2f}" for k in VERDICTS))
-    (OUT / tag / "eye_score.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    (OUT / tag / "eye_score.json").write_text(json.dumps(tr.label(out, b["sessions"]), indent=1), encoding="utf-8")
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         vals = {}
         for key, o in out.items():
             vals[f"{key}.n"] = o["n"]
@@ -821,7 +821,7 @@ def eye_score(tag: str, record: bool = False) -> dict:
                 vals[f"{key}.{k}"] = o[k]
                 vals[f"{key}.weighted.{k}"] = o["weighted"][k]
             vals[f"{key}.reader_share"] = o["reader_share"]
-        rec("enemy_error_budget", part=f"eye/{tag}", session="dev3", values=vals,
+        rec("enemy_error_budget", part=f"eye/{tag}", session=tr.pool_name(b["sessions"]), values=vals,
             ci={f"{k}.reader_share": o["reader_ci"] for k, o in out.items()},
             deps={"version": VERSION, "verdicts": str(OUT / tag / "eye_verdicts.json")},
             context={"task": TASK, "by": "the agent, by eye; not player labels"},
@@ -909,9 +909,9 @@ def levers(tag: str, record: bool = False) -> dict:
               + (f"  extras -{pl['n']} (eye -{pl['n_eye']:.0f}); true false accepts {pl['false_accepts']} "
                  f"{pl['d_false_accepts']:+d} (eye {pl['d_false_accepts_eye']:+d})"
                  if eff == "unaccept" else ""))
-    (OUT / tag / "levers.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    (OUT / tag / "levers.json").write_text(json.dumps(tr.label(out, b["sessions"]), indent=1), encoding="utf-8")
     if record:
-        from reticle.metrics import record as rec
+        from .extras import record as rec
         for scope in b["tables"]:
             vals = {}
             for name, L in out.items():
@@ -919,7 +919,7 @@ def levers(tag: str, record: bool = False) -> dict:
                 for k in ("n", "n_eye", "hit_rate_bound", "d_hit_rate", "hit_rate_eye", "d_hit_rate_eye",
                           "d_false_accepts", "d_false_accepts_eye"):
                     vals[f"{key}.{k}"] = L["scopes"][scope][k]
-            rec("enemy_error_budget", part=f"levers/{tag}", session=scope if scope != "pooled" else "dev3",
+            rec("enemy_error_budget", part=f"levers/{tag}", session=scope if scope != "pooled" else tr.pool_name(b["sessions"]),
                 values=vals, deps={"version": VERSION, "rule": "T1d", "levers": {k: list(v[2]) for k, v in LEVERS.items()}},
                 context={"task": TASK, "eye": "the agent's verdicts by eye, weighted to class size per match"},
                 note="upper bounds per lever if its classes were fully fixed; eye: weighted by the eye check's verdict share")

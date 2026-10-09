@@ -23,10 +23,12 @@ from pathlib import Path
 import numpy as np
 
 from reticle import episodes as ep
+from reticle.dev_set import FROZEN_HELD_OUT_REPLAY
 from reticle.store import DEFAULT_STORE
 
 
-HELD_OUT_PREFIX = "bd7efa02"
+#: The frozen held-out replay (`reticle.dev_set`), never read.
+HELD_OUT_PREFIX = FROZEN_HELD_OUT_REPLAY
 
 
 FRAME_MS = 1000.0 / 15.0          # today's minimap reading rate

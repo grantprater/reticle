@@ -69,6 +69,7 @@ from .lineup import LineupReader
 from .roster import RosterReader
 from . import stalls
 from . import gametime
+from . import dev_set
 from .ocr import (GLYPH_H, GLYPH_W, Templates, cluster_glyphs, crop_gray, game_font_templates,
                   read_bottom_hud, read_scoreline, scoreline_roi, segment_glyphs)
 from .primitives import PrimitiveExtractor
@@ -4154,18 +4155,23 @@ def cmd_acceptance(args) -> int:
     return commands.dispatch(args, args.acceptance_cmd)
 
 
-#: The development matches the acceptance harness scores by default.
-ACCEPTANCE_DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+#: The development set the acceptance harness scores by default.
+ACCEPTANCE_DEV = dev_set.DEV
 
 
 def _acceptance_summary(store_root: Path, a) -> int:
-    """`reticle acceptance summary`: see `cmd_acceptance`."""
+    """`reticle acceptance summary`: see `cmd_acceptance`. A frozen session's
+    lines carry `dev_set.FROZEN_LABEL` and its stale streams."""
     import json
     from . import acceptance as acc
+    from .harness.extras import frozen_notes
     base = store_root / "analysis" / "question-acceptance" / a.tag
     arm = "" if a.reality == "off" else "_reality"
     rows = {}
     for sid in a.sessions or list(ACCEPTANCE_DEV):
+        if dev_set.refusal(sid):
+            print(dev_set.refusal(sid), file=sys.stderr)
+            return 1
         p = (base / f"classes{arm}_{sid}.jsonl" if a.file == "classes" else base / f"label{arm}" / f"{sid}.jsonl")
         if not p.is_file():
             print(f"{sid}: no stored {a.file} rows ({p}); run `reticle acceptance lane` or `label` first",
@@ -4175,9 +4181,13 @@ def _acceptance_summary(store_root: Path, a) -> int:
             rows[sid] = [json.loads(ln) for ln in f if ln.strip()]
     doc = acc.summarize_rows(rows)
     print(f"{doc['acceptance_version']}: {a.tag} {a.file} rows; {doc['boot']} over {doc['rounds']}")
+    notes = frozen_notes(rows)
+    for sid, n in notes.items():
+        print(f"  {sid}: {n['frozen']}; stale streams {', '.join(n['stale_streams'])}")
     scopes = list(doc["sessions"].items()) + ([("pooled", doc["pooled"])] if doc["pooled"] else [])
     for scope, c in scopes:
-        print(f"  {scope}: {c['finds']} finds")
+        frozen = f" ({dev_set.FROZEN_LABEL})" if frozen_notes([scope] if scope != "pooled" else rows) else ""
+        print(f"  {scope}: {c['finds']} finds{frozen}")
         for o in acc.CLASS_OUTCOMES:
             print(f"    {o:16s} {c['outcomes'][o]:6d} {c['outcomes_ci'].get(o)}")
     return 0

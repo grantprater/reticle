@@ -1,18 +1,25 @@
 """Which sessions the acceptance harness admits (`reticle.harness.extras.refuse`).
 
-No store is read: `refuse` checks only the session id.
+No store is read: `refuse` checks only the session id, and a frozen session's
+stale streams come from a stub.
 """
 import unittest
+from unittest import mock
 
+from reticle import dev_set
 from reticle.harness import extras as tr
 from reticle.harness import run as qa
 
 
 class RefuseScopeTests(unittest.TestCase):
-    def test_the_development_matches_and_the_new_captures_are_admitted(self):
-        for sid in ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1",
-                    "cadaadeb2d8b", "066741deafe5", "9912c382130b"):
-            self.assertIsNone(tr.refuse(sid))
+    def test_the_development_set_and_the_frozen_matches_are_admitted(self):
+        note = {"frozen": dev_set.FROZEN_LABEL, "stale_streams": ["ally_icon"]}
+        with mock.patch.object(tr, "frozen_note", return_value=note) as fn:
+            for sid in ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1",
+                        "cadaadeb2d8b", "066741deafe5", "9912c382130b"):
+                self.assertIsNone(tr.refuse(sid))
+        # only the frozen three are announced with their stale streams
+        self.assertEqual(sorted(c.args[0] for c in fn.call_args_list), sorted(dev_set.FROZEN_DEV))
 
     def test_the_held_out_match_is_refused(self):
         with self.assertRaisesRegex(SystemExit, "held-out"):
@@ -23,10 +30,12 @@ class RefuseScopeTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "neither a development match"):
             tr.refuse("b7d24102a6f6")
 
-    def test_the_harness_takes_its_set_from_teardrop_refusals(self):
+    def test_the_harness_takes_its_set_from_dev_set(self):
         self.assertIs(qa.SCORED, tr.SCORED)
-        self.assertIs(qa.NEW, tr.NEW)
-        self.assertNotIn(tr.HELD_OUT, tr.SCORED)
+        self.assertIs(qa.DEV, dev_set.DEV)
+        self.assertIs(qa.FROZEN_DEV, dev_set.FROZEN_DEV)
+        for sid in dev_set.FROZEN_HELD_OUT:
+            self.assertNotIn(sid, tr.SCORED)
 
     def test_the_lane_check_refuses_outside_the_scored_set(self):
         from reticle.harness import sets as elc
