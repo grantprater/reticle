@@ -89,6 +89,8 @@ def add_parsers(sub) -> None:
     p.add_argument("--side", choices=("self", "team", "enemy", "all"), default="all",
                    help="one slot side, or every side and the spawned objects in one run (step 3)")
     p.add_argument("--record", action="store_true")
+    p.add_argument("--post-hoc", action="store_true",
+                   help="a revision after the pre-registered run: every recorded row says so")
     p = sub.add_parser("budget-feats", help="the budget's features per miss and extra")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
@@ -157,7 +159,8 @@ def dispatch(a, cmd: str) -> int:
     if cmd == "slots":
         return run.run_slots(a.sessions or list(DEV) + list(NEW), a.record)
     if cmd == "ability-lane":
-        return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record)
+        return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record,
+                                    post_hoc=a.post_hoc)
     if cmd == "budget":
         return run.run_budget(a.tag, a.sessions or list(DEV), a.record, a.rewrite)
     if cmd.startswith("budget-"):

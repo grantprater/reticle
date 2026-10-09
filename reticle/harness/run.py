@@ -3610,7 +3610,8 @@ def _object_finds(sid: str) -> tuple[list[dict], set]:
     return nodes, classes
 
 
-def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> int:
+def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
+                     post_hoc: bool = False) -> int:
     """`ability-lane`: the `ability` lane's children scored per slot side and
     class against the replay (`reticle.acceptance.score_ability_lane`), and
     the owner's spawned-object nodes per side and class
@@ -3620,7 +3621,9 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> 
     scores every side in one run. A side's finds pair only with that side's
     truth casts; a find on another side's cast is `other_entity`. Finds no
     witness bound to a slot score apart, as `unbound`, against every
-    non-player cast."""
+    non-player cast. Witnessed object nodes are the primary object measure;
+    possible nodes score in their own block (`objects_possible`). `post_hoc`
+    marks every recorded row a revision after the pre-registered run."""
     from reticle import entity_events as ee
     from reticle import slot_state as ss
     from reticle.store import Store
@@ -3628,7 +3631,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> 
     st = Store(STORE)
     out_dir = OUT / "ability_lane" / tag
     out_dir.mkdir(parents=True, exist_ok=True)
-    docs, arrays, obj_arrays = {}, defaultdict(list), []
+    docs, arrays, obj_arrays, poss_arrays = {}, defaultdict(list), [], []
     for sid in sessions:
         ents, held, stale = _ability_lane_rows(sid)
         if not ents:
@@ -3690,25 +3693,31 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> 
                                                               bars, x["open_ms"])})
             od, oarr = acc.score_ability_objects(nodes, acts, starts)
             doc["objects"] = od
-            obj_arrays.append(oarr)
-            print(f"{sid} [objects]: truth {od['all']['truth']}, nodes {od['all']['finds']} "
-                  f"(witnessed {od['all']['witnessed_finds']}), recall {od['all']['recall']} "
-                  f"{od['all']['recall_ci']}, witnessed recall {od['all']['witnessed_recall']}, "
-                  f"cause {od['all']['end_cause_agreement']}", flush=True)
+            obj_arrays.append(oarr["witnessed"])
+            poss_arrays.append(oarr["possible"])
+            w, pb = od["all"], od["possible"]["all"]
+            print(f"{sid} [objects]: truth {w['truth']}, witnessed nodes {w['finds']}, recall "
+                  f"{w['recall']} {w['recall_ci']}, false opens {w['false_open_share']}, cause "
+                  f"{w['end_cause_agreement']}; possible nodes {pb['finds']}, recall {pb['recall']}",
+                  flush=True)
         docs[sid] = doc
         (out_dir / f"{sid}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
     if not docs:
         return 1
     pooled = {sd: acc.pool_ability_lane(arr) for sd, arr in arrays.items() if arr}
     pooled_obj = acc.pool_ability_lane(obj_arrays) if obj_arrays else {}
+    pooled_poss = acc.pool_ability_lane(poss_arrays) if poss_arrays else {}
     (out_dir / "pooled.json").write_text(json.dumps({"sessions": sorted(docs), "sides": pooled,
-                                                     "objects": pooled_obj},
+                                                     "objects": pooled_obj,
+                                                     "objects_possible": pooled_poss,
+                                                     "post_hoc": post_hoc},
                                                     indent=1, default=str), encoding="utf-8")
     print(f"\npooled over {len(docs)} sessions")
     head = (f"{'side':8s} {'class':34s} {'truth':>5s} {'finds':>5s} {'pair':>4s} {'recall':>7s} "
             f"{'recall CI':>16s} {'false':>6s} {'false CI':>16s} {'open med':>8s} {'end med':>8s} {'cause':>6s}")
     print(head)
-    for sd, blocks in list(pooled.items()) + ([("objects", pooled_obj)] if pooled_obj else []):
+    for sd, blocks in list(pooled.items()) + ([("objects", pooled_obj)] if pooled_obj else []) \
+            + ([("possible", pooled_poss)] if pooled_poss else []):
         for cls, b in sorted(blocks.items(), key=lambda kv: (kv[0] == "_all", kv[0])):
             print(f"{sd:8s} {cls[:34]:34s} {b['truth']:5d} {b['finds']:5d} {b['paired']:4d} "
                   f"{str(b['recall']):>7s} {str(b['recall_ci']):>16s} {str(b['false_open_share']):>6s} "
@@ -3717,10 +3726,14 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> 
     if record:
         from reticle.metrics import record as rec
         scopes = [(sid, {sd: {**d["classes"], "_all": d["all"]} for sd, d in doc["sides"].items()}
-                   | ({"objects": {**doc["objects"]["classes"], "_all": doc["objects"]["all"]}}
+                   | ({"objects": {**doc["objects"]["classes"], "_all": doc["objects"]["all"]},
+                        "objects_possible": {**doc["objects"]["possible"]["classes"],
+                                             "_all": doc["objects"]["possible"]["all"]}}
                       if "objects" in doc else {}))
                   for sid, doc in docs.items()]
-        scopes.append((_pool_name(sorted(docs)), {**pooled, **({"objects": pooled_obj} if pooled_obj else {})}))
+        scopes.append((_pool_name(sorted(docs)), {**pooled, **({"objects": pooled_obj,
+                                                                 "objects_possible": pooled_poss}
+                                                                if pooled_obj else {})}))
         for scope, by_side in scopes:
             vals, ci = {}, {}
             for sd, blocks in by_side.items():
@@ -3741,7 +3754,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool) -> 
                       "gate_ms": acc.ABILITY_OPEN_GATE_MS, "end_tol_ms": acc.ABILITY_END_TOL_MS,
                       "ability_child": ss.ABILITY_CHILD_VERSION},
                 context={"task": "ability-tree-step3-20261009", "side": side,
-                         "sessions": sorted(docs)},
+                         "sessions": sorted(docs), "post_hoc": post_hoc},
                 note="docs/ABILITY_ENTITIES.md step 3: the ability lane's children of every slot "
                      "side against the replay's casts and actors, per side and class; spawned-"
                      "object nodes per class against the replay's actors of that class")

@@ -1695,18 +1695,29 @@ def truth_end_cause(end_ms, deaths_ms, barriers_ms, open_ms, tol_ms: float = ABI
     return "other"
 
 
+#: The two kinds of spawned-object node, scored apart: a witness read the
+#: object (`witnessed`), or only the spawn tree says its parent can spawn it
+#: (`possible`), its open the parent's whole life.
+OBJECT_EXISTS = ("witnessed", "possible")
+
+
 def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
                           gate_ms: float = ABILITY_OBJECT_GATE_MS) -> tuple[dict, dict]:
     """Spawned-object nodes per class against the replay's actors of that
-    class (section 2.10): open recall over the truth actors (any node, and
-    witnessed nodes only), nodes no actor pairs, open and end error, and
-    agreement of the node's end basis with the actor's end cause.
+    class (section 2.10), witnessed and possible nodes scored apart: open
+    recall over the truth actors, nodes no actor pairs (false opens), open
+    and end error, and agreement of the node's end basis with the actor's end
+    cause. The witnessed block is the primary measure; a possible node's open
+    spans its parent's life, so its pairing measures the spawn tree's reach,
+    never a find, and reports in its own block.
 
     `nodes`: `{key, cls, side, agent, exists, open_lo, open_hi, end_hi,
     end_basis}`; `actors`: `{cls, side, agent, open_ms, close_ms, end_cause}`,
-    the classes of the spawn tree only. A node pairs one to one, nearest
-    first, with an actor of its class, side and agent whose open lies within
-    `gate_ms` of the node's open interval. Intervals resample rounds."""
+    the classes of the spawn tree only. Within each kind a node pairs one to
+    one, nearest first, with an actor of its class, side and agent whose open
+    lies within `gate_ms` of the node's open interval. Intervals resample
+    rounds. Returns the document (`classes` and `all` witnessed, `possible`
+    its own `classes` and `all`) and the arrays per kind."""
     starts = np.sort(np.asarray(list(round_starts), float))
     rounds_of = lambda t: int(np.searchsorted(starts, t, side="right"))
     nodes = [dict(n) for n in nodes]
@@ -1723,12 +1734,12 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
         return n["cls"] == a["cls"] and n["side"] == a["side"] and \
             str(n.get("agent") or "").casefold() == str(a.get("agent") or "").casefold()
 
-    def pairs_of(keep):
+    def pairs_of(kind):
         order = sorted(range(len(actors)), key=lambda j: actors[j]["open_ms"])
         times = np.asarray([actors[j]["open_ms"] for j in order], float)
         cand = []
         for i, n in enumerate(nodes):
-            if not keep(n):
+            if n["exists"] != kind:
                 continue
             f = {"open_lo": n["open_lo"], "open_hi": n["open_hi"]}
             for k in _near_casts(actors, times, f, gate_ms):
@@ -1745,8 +1756,7 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
             out[j] = i
         return out
 
-    pair_any = pairs_of(lambda n: True)
-    pair_seen = pairs_of(lambda n: n["exists"] == "witnessed")
+    pairs = {kind: pairs_of(kind) for kind in OBJECT_EXISTS}
 
     def per_round(idx, items):
         a = np.zeros(nr)
@@ -1754,16 +1764,17 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
             a[ri[items[k]["_r"]]] += 1
         return a
 
-    def block(key) -> tuple[dict, dict]:
-        ns = [i for i, n in enumerate(nodes) if key is None or (n["side"], n["cls"]) == key]
+    def block(key, kind) -> tuple[dict, dict]:
+        pair = pairs[kind]
+        ns = [i for i, n in enumerate(nodes) if n["exists"] == kind
+              and (key is None or (n["side"], n["cls"]) == key)]
         ts = [j for j, a in enumerate(actors) if key is None or (a["side"], a["cls"]) == key]
-        hit = [j for j in ts if j in pair_any]
-        seen_hit = [j for j in ts if j in pair_seen]
-        paired_nodes = set(pair_any.values())
+        hit = [j for j in ts if j in pair]
+        paired_nodes = set(pair.values())
         lone = [i for i in ns if i not in paired_nodes]
         open_err, end_err, agree, conf = [], [], [], Counter()
         for j in hit:
-            n, a = nodes[pair_any[j]], actors[j]
+            n, a = nodes[pair[j]], actors[j]
             open_err.append(n["open_hi"] - a["open_ms"])
             if a["close_ms"] is None:
                 conf[f"{n['end_basis']}|no_truth_close"] += 1
@@ -1775,12 +1786,9 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
                          abs(n["end_hi"] - a["close_ms"]) <= ABILITY_END_TOL_MS)
         num, den = per_round(hit, actors), per_round(ts, actors)
         fnum, fden = per_round(lone, nodes), per_round(ns, nodes)
-        doc = {"truth": len(ts), "finds": len(ns), "paired": len(hit),
-               "witnessed_finds": sum(nodes[i]["exists"] == "witnessed" for i in ns),
-               "witnessed_paired": len(seen_hit),
+        doc = {"exists": kind, "truth": len(ts), "finds": len(ns), "paired": len(hit),
                "recall": round(len(hit) / len(ts), 4) if ts else None,
                "recall_ci": boot_share(rounds, num, den) if ts and nr else None,
-               "witnessed_recall": round(len(seen_hit) / len(ts), 4) if ts else None,
                "false_opens": len(lone),
                "false_open_share": round(len(lone) / len(ns), 4) if ns else None,
                "false_open_ci": boot_share(rounds, fnum, fden) if ns and nr else None,
@@ -1792,14 +1800,18 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
                      "agree_n": len(agree), "open_err": open_err, "end_err": end_err}
 
     keys = sorted({(n["side"], n["cls"]) for n in nodes} | {(a["side"], a["cls"]) for a in actors})
-    per, arrays = {}, {}
-    for k in keys:
-        name = f"{k[0]}|{k[1]}"
-        per[name], arrays[name] = block(k)
-    allb, arrays["_all"] = block(None)
+    out, arrays = {}, {}
+    for kind in OBJECT_EXISTS:
+        per, arr = {}, {}
+        for k in keys:
+            name = f"{k[0]}|{k[1]}"
+            per[name], arr[name] = block(k, kind)
+        allb, arr["_all"] = block(None, kind)
+        out[kind], arrays[kind] = {"classes": per, "all": allb}, arr
     return {"acceptance_version": ACCEPTANCE_VERSION, "gate_ms": gate_ms,
             "boot": f"{N_BOOT} round resamples, seed {SEED}", "rounds": nr,
-            "classes": per, "all": allb}, arrays
+            "classes": out["witnessed"]["classes"], "all": out["witnessed"]["all"],
+            "possible": out["possible"]}, arrays
 
 
 def pool_ability_lane(arrays: list[dict]) -> dict:
