@@ -1181,7 +1181,7 @@ produces = ["detection_reality", "glyph_coincidence", "glyph_reach", "ALTERNATIV
 consumers = ["enemy_tracks"]
 stored_consumers = ["entity_events"]
 defers_to = ["ability-glyph-name"]
-evidence = "tests/test_round_lifetimes.py; prototypes/question_acceptance.py lane --tag pgb --reality paired"
+evidence = "tests/test_round_lifetimes.py; reticle acceptance lane --tag pgb --reality paired"
 not_for = """
 The reader gates. A reader measures and stores evidence with a score and a
 reason, keeps what it refuses beside what it accepts, and decides no find
@@ -1258,7 +1258,7 @@ widget, take their evidence as arguments, never treat a `Fix` or a region as
 evidence, and report observed and believed coverage apart. Reach is a
 Euclidean disc of `v_max` until a walk graph is baked with the geometry; the
 reachable sets of `prototypes/coaching_belief.py` and
-`prototypes/real_reader_schedule.py` are truth-side evaluations, not owners.
+`reticle/harness/schedule.py` are truth-side evaluations, not owners.
 Enemy slots and ability entities join later on the same entity axis.
 """
 defers_to = ["self-position", "widget-drawn", "domain-fact"]
@@ -1285,7 +1285,7 @@ match scores it once. The audit cadence is the declaration's, applied by the
 hook, never by the gate.
 """
 consumers = ["minimap"]
-evidence = "tests/test_gate_hook.py; prototypes/real_reader_schedule.py hook (QA5r3)"
+evidence = "tests/test_gate_hook.py; reticle acceptance hook (QA5r3)"
 
 [[entry]]
 id = "slot-state"
@@ -2306,7 +2306,11 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
            "plan", "input_stamps", "trial", "dev_sample", "roi_cache", "pipeline", "process_shards", "documents", "tiers", "clipserve",
-           "view_events", "round_view", "entity_contract", "ability_audio_fit"]
+           "view_events", "round_view", "entity_contract", "ability_audio_fit",
+           # the acceptance harness's commands and IO beside its owners
+           # (`acceptance`, `harness.draw`, `harness.schedule`)
+           "harness.commands", "harness.run", "harness.match", "harness.clock",
+           "harness.abilities", "harness.sets", "harness.extras", "harness.budget"]
 
 [[entry]]
 id = "identity-channel-reliability"
@@ -2535,8 +2539,11 @@ id = "replay-truth-under"
 question = "Which replay entity lies under a vision find?"
 owner = "acceptance"
 role = ["assign"]
-status = "partial"
-produces = ["summarize_rows", "step_summary", "pool_classes", "boot_pooled", "ACCEPTANCE_VERSION"]
+status = "shipped"
+produces = ["summarize_rows", "step_summary", "pool_classes", "boot_pooled", "ACCEPTANCE_VERSION",
+            "join_entities", "truth_under_rows", "score_finds", "class_lane", "score_lane",
+            "mark_truth", "census", "assign_per_frame"]
+consumers = ["cli"]
 not_for = """
 Reader inputs. Replay data is evaluation truth only: it scores a find and
 never feeds a reader, a gate, a threshold, a prior or an adjudicator; the
@@ -2544,15 +2551,55 @@ never feeds a reader, a gate, a threshold, a prior or an adjudicator; the
 Nor is it whether the find is real (`detection-reality`) or which agent it
 names (`agent-identity`); it states which truth entity, of any class, a find
 lies on, for scoring alone (AGENTS.md, "Replay truth covers every entity").
-The limit, and why the join waits: the core is pure over a truth grid its
-caller builds, and the grid with its T1d draw rule
-(`t1_draw_rule.RealDrawMatch`, `enemy_lane_check.build_sets`) is still a
-prototype. Only `prototypes/question_acceptance.py` (lane, label, the
-steps, replay-score, replay-abilities, budget) builds the grid and calls the
-join (`join_entities`, `truth_under_rows`, `score_finds`, `class_lane`,
-`score_lane`, `mark_truth`, `census`, `assign_per_frame`); `reticle
-acceptance` runs only `summary`, in process over the stored rows. No
-`reticle/` command reaches the join until the grid is promoted, so
-`produces` names only what `summary` reaches.
+The core is pure over the truth grid `reticle/harness/` builds (since
+2026-10-09): `harness.draw.RealDrawMatch` under T1d (`enemy-draw-truth`)
+and the join of `harness.sets.build_sets`. `reticle acceptance` runs every
+subcommand in process (lane, label, the steps, replay-score,
+replay-abilities, budget, hook, summary); the harness modules beside the
+core are its IO and are declared infrastructure.
 """
-evidence = "tests/test_acceptance_core.py"
+evidence = "tests/test_acceptance_core.py, tests/test_class_aware_harness.py"
+
+[[entry]]
+id = "enemy-draw-truth"
+question = "Does the capturing team's minimap draw an enemy player at a sample, on replay truth?"
+owner = "harness.draw"
+role = ["assign"]
+status = "shipped"
+produces = ["RealDrawMatch", "DrawRule", "RULES", "SMOKES", "UNMODELLED", "measured_p_ms",
+            "smoke_filter", "run_persist", "run_smokes"]
+consumers = ["harness.commands"]
+not_for = """
+What the reader or the enemy lane saw: T1d is replay truth, never a reader
+input, a gate or a prior (the `evaluation` layer). It draws a living enemy
+whose last smoke-blocked sight by a living capture-team player lies within
+the measured persistence, and marks a dead one `dead_mark`; enemy-owned
+children that draw like players follow their own facts and are scored as
+their own class by `replay-truth-under`. The persistence comes from the
+lane's own icon-to-"?" swaps (`draw-persist`), so a lane change can move it:
+rerun `reticle acceptance draw-persist` before trusting a new lane's score.
+Walls and fields without a shape fact (`UNMODELLED`) block nothing yet.
+"""
+evidence = "tests/test_class_aware_harness.py; reticle acceptance draw-persist"
+
+[[entry]]
+id = "read-schedule-loss"
+question = "Does a gated read schedule keep the sight questions' accuracy under QA5r3?"
+owner = "harness.schedule"
+role = ["corroborate"]
+status = "shipped"
+produces = ["qa5r2_pool", "run_hook", "report_hook", "report_qa5r2", "simulate_gate", "QA5R3_TOL",
+            "SIGHT_QS", "RealMatch"]
+consumers = ["harness.commands"]
+not_for = """
+Deciding when a reader reads (`ally-read-gate`) or where a teammate is
+(`position-belief`). It scores arms against replay truth after the fact: per
+sight question the loss against the reference arm with a paired bootstrap
+over (match, round) clusters, failing only when the interval's upper end lies
+below -0.05, beside the read share. The hook arms keep V15h's fits and
+binding, so they overstate a gated pass; `Vgated` scores a real gated stream.
+The arms' truth-side schedules (Lp, Lpv, Vgate) stay in
+`prototypes/real_reader_schedule.py`, a development tool.
+"""
+defers_to = ["ally-read-gate"]
+evidence = "tests/test_gate_hook.py; reticle acceptance hook-report (QA5r3)"

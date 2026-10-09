@@ -4138,15 +4138,20 @@ def cmd_trial(args) -> int:
 
 
 def cmd_acceptance(args) -> int:
-    """The acceptance harness (docs/QUESTION_ACCEPTANCE.md, B7), in process
-    on `reticle.acceptance` only: `summary --tag TAG [SESSION ...] [--file
-    classes|label] [--reality off|on]` recomputes the class-aware outcomes
-    and labels, with round intervals, from the find rows a `lane` or `label`
-    run stored (`acceptance.summarize_rows`), and writes nothing. Every
-    other subcommand (`lane`, `label`, `ally`, `smoke`, `glyph`, `marks`,
-    `replay-score`, `replay-abilities`, `budget`) stays on
-    `prototypes/question_acceptance.py` until the T1d truth grid is promoted."""
-    return _acceptance_summary(Path(args.store), args)
+    """The acceptance harness (docs/QUESTION_ACCEPTANCE.md, B7), in process.
+    `summary --tag TAG [SESSION ...] [--file classes|label] [--reality
+    off|on]` recomputes the class-aware outcomes and labels, with round
+    intervals, from the find rows a `lane` or `label` run stored
+    (`acceptance.summarize_rows`), and writes nothing. Every other
+    subcommand (`lane`, `label`, `ally`, `smoke`, `glyph`, `marks`,
+    `replay-score`, `replay-abilities`, `budget` and its tools, `hook`,
+    `hook-report`, `arms-report`, `draw-persist`, `draw-smokes`) runs
+    through `harness.commands.dispatch` over the T1d truth grid
+    (`harness.draw.RealDrawMatch`). Stored rows and replay truth only."""
+    if args.acceptance_cmd == "summary":
+        return _acceptance_summary(Path(args.store), args)
+    from .harness import commands
+    return commands.dispatch(args, args.acceptance_cmd)
 
 
 #: The development matches the acceptance harness scores by default.
@@ -6983,10 +6988,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_deaths)
 
-    s = sub.add_parser("acceptance", help="the acceptance harness in process: `summary` recomputes "
-                                          "class-aware outcomes from stored find rows (the other "
-                                          "subcommands stay on prototypes/question_acceptance.py)")
+    s = sub.add_parser("acceptance", help="the acceptance harness in process: emitted events scored "
+                                          "against replay truth (T1d), and `summary` over stored rows")
     acc_sub = s.add_subparsers(dest="acceptance_cmd", required=True)
+    from .harness import commands as acceptance_commands
+    acceptance_commands.add_parsers(acc_sub)
     a_ = acc_sub.add_parser("summary", help="outcomes and labels with round intervals from stored rows")
     a_.add_argument("sessions", nargs="*", default=list(ACCEPTANCE_DEV))
     a_.add_argument("--tag", required=True)

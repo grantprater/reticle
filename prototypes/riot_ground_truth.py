@@ -347,8 +347,11 @@ LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall
                 "clove-expiry")
 #: The furthest a stored minimap frame may be from the asked instant.
 FRAME_TOL_MS = 70.0
-#: Teammate gate in metres (Riot units are centimetres).
-GATE_M = 8.0
+# Moved into the acceptance harness (`reticle/harness/clock.py`, task
+# harness-t1d-20261009); these names stay for this module's callers.
+from reticle.harness.clock import (  # noqa: E402,F401
+    GATE_M)
+
 #: A minimap pair is ambiguous when another teammate lies within this many
 #: metres of the paired one's distance from the piece (0.6.0).
 AMBIGUOUS_MARGIN_M = 2.0
@@ -414,8 +417,6 @@ def resolve_lineup_player(d: dict, ident: dict, ref: Reference) -> dict:
         ident = dict(ident, basis=f"lineup_agent_ambiguous:{len(hits)}")
     return ident
 
-
-# ----------------------------------------------------------------- alignment
 
 # ----------------------------------------------------------------- coordinates
 

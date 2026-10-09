@@ -309,8 +309,11 @@ def truth(sid: str, rows_dir: str, tag: str) -> int:
     _idle()
     if sid == HELD_OUT:
         raise SystemExit(f"{sid}: the held-out match is never read by this task")
+    from reticle.harness import clock
+
     _Redirect.target = Path(rows_dir) / "events" / "ally_icon"
-    rt.STORE = _Redirect(STORE)
+    # the stream loaders live in the harness's clock since 2026-10-09
+    rt.STORE = clock.STORE = _Redirect(STORE)
     seen: dict = {}
 
     def grab(frame, event, _arg):

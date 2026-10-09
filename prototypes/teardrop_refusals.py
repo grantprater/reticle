@@ -1,5 +1,9 @@
 r"""Why the enemy teardrop refused visible enemy icons, and what its fix moves.
 
+Moved into the acceptance harness on 2026-10-09 (`reticle/harness/extras.py`,
+task `harness-t1d-20261009`): the scored sessions, `refuse`, `class_extras`
+and the store redirect. This file imports them back.
+
 Task `teardrop-refusals-20261007` (rows TR in the store's
 `notes/predictions.jsonl`). On the development matches the enemy lane scored
 against T1d (`t1_draw_rule.RealDrawMatch(rule="T1d")`, through
@@ -84,64 +88,20 @@ sys.path.insert(0, str(HERE))
 
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-#: 0.2.0 (task teardrop-confusers-20261007): `pings`, `--pings`.
-#: 0.3.0 (task teardrop-review-fixes-20261007): `--ping-own-px`,
-#: `--no-owner-gate`, `gate`.
-#: 0.4.0 (task teardrop-new-sessions-20261009): `refuse` admits `SCORED`, the
-#: development matches and the 2026-10-07 replay captures.
-VERSION = "teardrop-refusals-0.4.0"
-TASK = "teardrop-refusals-20261007"
-STORE = Path(DEFAULT_STORE)
-OUT = STORE / "analysis" / TASK
-DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
-#: The 2026-10-07 replay captures, whose inputs are current (`reticle plan`).
-NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
-#: The sessions this task and `question_acceptance` read: one definition.
-SCORED = DEV + NEW
-HELD_OUT = "cea8ecbc94ab"
+# Moved into the acceptance harness (`reticle/harness/extras.py`, task
+# harness-t1d-20261009); these names stay for this module's callers.
+from reticle.harness.extras import (  # noqa: E402,F401
+    _idle, _pings, _point_store, _Redirect, class_extras, DEV, HELD_OUT, NEW, OUT, ping_path,
+    refuse, rows_path, SCORED, STORE, TASK, TRUE_FA, VERSION)
+
 # The harness's gates and bootstrap live in its core (one definition).
 from reticle.acceptance import N_BOOT, NEAR_CM, OFFSET_CM, SEED  # noqa: E402,F401
 
 
-def _idle() -> None:
-    """Idle priority, one thread (the machine's compute rules; no psutil)."""
-    try:
-        # The pseudo-handle is a 64-bit HANDLE; without argtypes ctypes passes
-        # it as a 32-bit int, the call fails (ERROR_INVALID_HANDLE) and the
-        # process stays at Normal.
-        k32 = ctypes.windll.kernel32
-        k32.GetCurrentProcess.restype = ctypes.c_void_p
-        k32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
-        if not k32.SetPriorityClass(k32.GetCurrentProcess(), 0x40):
-            raise OSError(ctypes.get_last_error())
-    except Exception:
-        pass
-    try:
-        import cv2
-        cv2.setNumThreads(1)
-    except Exception:
-        pass
-
-
-def refuse(sid: str) -> None:
-    if sid == HELD_OUT:
-        raise SystemExit(f"{sid}: the held-out match is never read by this task")
-    if sid not in SCORED:
-        raise SystemExit(f"{sid}: neither a development match nor a 2026-10-07 replay capture")
-
-
 # ----------------------------------------------------------------- reread
-
-def rows_path(tag: str, sid: str) -> Path:
-    return (STORE / "events" / "minimap_object" / f"{sid}.jsonl" if tag == "stored"
-            else OUT / tag / f"{sid}.jsonl")
 
 
 PING_HZ = 10.0
-
-
-def ping_path(ptag: str, sid: str) -> Path:
-    return OUT / ptag / "ping" / f"{sid}.jsonl"
 
 
 class _PingStore:
@@ -238,55 +198,9 @@ def reread(sid: str, tag: str, ptag: str | None = None, ping_own_px: float | Non
 
 # ----------------------------------------------------------------- scoring
 
-class _Redirect(type(Path())):
-    """A store root whose `events/minimap_object` is another folder, and whose
-    other `events/<stream>` folders named in `streams` are others too
-    (`question_acceptance` points `enemy_track` at the tracks it built)."""
-
-    target: Path | None = None
-    streams: dict = {}
-
-    def with_segments(self, *segs):
-        p = type(self)(*segs)
-        if len(p.parts) >= 2 and p.parts[-2] == "events" and Path(*p.parts[:-2]) == STORE:
-            if p.parts[-1] == "minimap_object" and _Redirect.target is not None:
-                return Path(_Redirect.target)
-            if p.parts[-1] in _Redirect.streams:
-                return Path(_Redirect.streams[p.parts[-1]])
-        return p
-
-
-def _point_store(tag: str):
-    """Point the scoring prototypes' STORE at the tag's rows."""
-    import enemy_lane_check as elc
-    import real_reader_schedule as rrs
-    import replay_truth as rt
-    import t1_draw_rule as tdr
-
-    _Redirect.target = None if tag == "stored" else rows_path(tag, DEV[0]).parent
-    root = _Redirect(STORE)
-    for m in (elc, rrs, rt, tdr):
-        m.STORE = root
-
 
 from reticle.acceptance import boot_count as _boot_count  # noqa: E402
 from reticle.acceptance import boot_share as _boot_share  # noqa: E402
-
-
-def _pings(sid: str, ptag: str | None = None) -> np.ndarray:
-    """Confirmed pings (t0, t1, x, y) in capture ms and widget px: the stored
-    stream, or with `ptag` that `pings` reread."""
-    p = STORE / "events" / "ping" / f"{sid}.jsonl" if ptag is None else ping_path(ptag, sid)
-    on, out = {}, []
-    if p.is_file():
-        for line in p.open(encoding="utf-8"):
-            r = json.loads(line)
-            if r.get("event_kind") == "entity_state":
-                on[r["entity_id"]] = (r["t_ms"], r["position"])
-            elif r.get("event_kind") == "entity_deleted" and r["entity_id"] in on:
-                t0, (x, y) = on.pop(r["entity_id"])
-                out.append((t0, r["t_ms"], x, y))
-    return np.asarray(out, float).reshape(-1, 4)
 
 
 def miss_cause(r) -> str | None:
@@ -297,52 +211,6 @@ def miss_cause(r) -> str | None:
     if any(t.endswith("low_ncc") for t in td):
         return "low_ncc"
     return None
-
-
-#: The extras classes that are true false accepts (no living enemy near).
-TRUE_FA = ("ping", "x_mark", "other")
-
-
-def class_extras(sid: str, tag: str, R: dict, ptag: str | None = None) -> list[dict]:
-    """`R["extras"]` (from `enemy_lane_check.build_sets`), each with its class
-    `cls` (the module docstring's extras classes) from the tag's rows and the
-    confirmed pings (the stored stream, or with `ptag` that reread)."""
-    from reticle import minimap_objects as mo
-
-    scale = float(R["info"]["scale"])
-    pings = _pings(sid, ptag)
-    frames = {}
-    want = {e["frame_idx"] for e in R["extras"]}
-    for line in rows_path(tag, sid).open(encoding="utf-8"):
-        r = json.loads(line)
-        if r.get("kind") == "frame" and r["frame_idx"] in want:
-            frames[r["frame_idx"]] = r
-    near_px = mo.ICON_PX * scale
-    out = []
-    for e in R["extras"]:
-        d = e["nearest_enemy_m"]
-        alive = e["nearest_enemy_alive"]
-        x, y = e["icon_px"]
-        if alive and d is not None and d * 100 <= NEAR_CM:
-            c = "visible_undrawn"
-        elif alive and d is not None and d * 100 <= OFFSET_CM:
-            c = "enemy_3_8m"
-        elif not alive and d is not None and d * 100 <= NEAR_CM:
-            c = "dead_enemy"
-        else:
-            t = e["t_cap"]
-            on = (pings[:, 0] <= t) & (t <= pings[:, 1]) if pings.size else np.zeros(0, bool)
-            fr = frames.get(e["frame_idx"], {})
-            xs = [(q["x"], q["y"]) for col in ("blue", "red")
-                  for q in (fr.get("x_marks") or {}).get(col, [])]
-            if on.any() and np.hypot(pings[on, 2] - x, pings[on, 3] - y).min() <= near_px:
-                c = "ping"
-            elif any(math.hypot(a - x, b - y) <= mo.X_OWN_PX * scale for a, b in xs):
-                c = "x_mark"
-            else:
-                c = "other"
-        out.append(dict(e, cls=c))
-    return out
 
 
 def score(sid: str, tag: str, write: bool = True, ptag: str | None = None) -> dict:
