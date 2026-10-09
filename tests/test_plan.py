@@ -1305,8 +1305,8 @@ class EmptyRunTests(unittest.TestCase):
     """An identity stream a run left empty reads as run where the coverage row
     written beside it counts no event; a stream its owning rule says does not
     apply is listed apart, never as work. On the 2026-10-07 captures plan named
-    `combat_report_identity` (no panel opened) and `dead_ruse_cast` (no Clove
-    player) as never run."""
+    `combat_report_identity` (no panel opened) and the since-retired
+    `dead_ruse_cast` (no Clove player) as never run."""
 
     def _streams(self, store) -> dict:
         p = stale(store, ["s"])["s"]
@@ -1367,38 +1367,16 @@ class EmptyRunTests(unittest.TestCase):
             self.assertIn("combat_report_identity", derived)
             self.assertIn("combat_report_rows", unchecked)
 
-    def _smoke_owner(self, store, player) -> None:
-        store.events["smoke_owner:rows"] = [{"kind": "coverage", "player_agent": player}]
-
-    def test_dead_ruse_does_not_apply_without_a_clove_player(self):
+    def test_the_retired_dead_ruse_stream_is_no_work(self):
+        # Step 2 of docs/ABILITY_ENTITIES.md: a dead Clove's smokes open the
+        # player's children (`ability_child`); `dead_ruse_cast` is retired.
+        from reticle.plan import NEVER_RUN, RETIRED_STREAMS
+        self.assertIn("dead_ruse_cast", RETIRED_STREAMS)
         with tempfile.TemporaryDirectory() as d:
-            store = _current_store(Path(d))
-            self._smoke_owner(store, "Chamber")
-            derived, nap, _ = self._streams(store)
+            derived, nap, _ = self._streams(_current_store(Path(d)))
             self.assertNotIn("dead_ruse_cast", derived)
-            self.assertEqual(nap["dead_ruse_cast"]["status"], "not_applicable")
-            self.assertIn("Chamber", nap["dead_ruse_cast"]["why"])
-            self.assertIn("not applicable dead_ruse_cast: not_clove",
-                          render(stale(store, ["s"])))
-
-    def test_dead_ruse_with_an_unread_player_is_unknown(self):
-        with tempfile.TemporaryDirectory() as d:
-            store = _current_store(Path(d))
-            self._smoke_owner(store, None)
-            derived, nap, _ = self._streams(store)
-            self.assertNotIn("dead_ruse_cast", derived)
-            self.assertEqual(nap["dead_ruse_cast"]["status"], "unknown")
-
-    def test_dead_ruse_is_never_run_for_a_clove_player_or_before_the_owners(self):
-        from reticle.plan import NEVER_RUN
-        for player in ("Clove", "absent"):
-            with self.subTest(player=player), tempfile.TemporaryDirectory() as d:
-                store = _current_store(Path(d))
-                if player != "absent":
-                    self._smoke_owner(store, player)
-                derived, nap, _ = self._streams(store)
-                self.assertEqual(derived["dead_ruse_cast"]["inputs_moved"], [NEVER_RUN])
-                self.assertNotIn("dead_ruse_cast", nap)
+            self.assertNotIn("dead_ruse_cast", nap)
+            self.assertEqual(derived["ability_child"]["inputs_moved"], [NEVER_RUN])
 
     def test_the_writer_and_plan_ask_one_rule(self):
         from reticle.ability_timeline import dead_ruse_applies, dead_ruse_casts

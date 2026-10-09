@@ -181,6 +181,12 @@ STATE_VOCABULARY: dict[str, dict | None] = {
     "cast": {"ability": _STR, "slot": ("enum", SLOTS)},
     # `phase` is checked against the ability's own lifecycle facts
     "ability_object": {"ability": _STR, "slot": ("enum", SLOTS), "phase": _STR},
+    # docs/ABILITY_ENTITIES.md section 2.9, added 2026-10-09 with the
+    # `ability` lane: an owner death disables a child its facts say outlives
+    # it [domain:abilities/deployed-ability-ends]; an effect opens on its
+    # targets, who are its participants. Additive: no stored lane held them.
+    "ability_disabled": {"ability": _STR, "slot": ("enum", SLOTS)},
+    "effect": {"effect": _STR, "ability": _STR, "slot": ("enum", SLOTS)},
 }
 
 #: Orientation conventions the contract names. None yet: the icon-pose owner
@@ -548,8 +554,10 @@ def check_producer(producer, owners: frozenset | None) -> list[str]:
 ABILITY_LANE = "ability"
 ABILITY_PRODUCERS: dict[str, str] = {"ability_object": "ability-child",
                                      "ability_effect": "ability-effect"}
-#: Event kinds that only an ability child's owner emits.
-ABILITY_EVENT_KINDS = frozenset({"cast", "ability_object"})
+#: Event kinds that only the ability owners emit, and the family each concerns.
+ABILITY_EVENT_FAMILY = {"cast": "ability_object", "ability_object": "ability_object",
+                        "ability_disabled": "ability_object", "effect": "ability_effect"}
+ABILITY_EVENT_KINDS = frozenset(ABILITY_EVENT_FAMILY)
 #: The child and effect key scheme (`<sid>:child:R<round>:<n>`,
 #: `<sid>:effect:R<round>:<n>`); an event on such a key is an ability event.
 ABILITY_KEY = re.compile(r":(child|effect):R\d+:\d+$")
@@ -565,7 +573,7 @@ def _ability_family(row: dict) -> str | None:
         if m:
             return "ability_effect" if m.group(1) == "effect" else "ability_object"
         if row.get("kind") in ABILITY_EVENT_KINDS:
-            return "ability_object"
+            return ABILITY_EVENT_FAMILY[row["kind"]]
     return None
 
 

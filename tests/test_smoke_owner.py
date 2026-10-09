@@ -133,35 +133,20 @@ class SmokeOwner(unittest.TestCase):
         self.assertIn("no_lifetime_for Brimstone", r["reason"])
         self.assertEqual(r["by_channel"]["player_tray"]["reason"], "tray_drop_refused forced")
 
-    def test_a_track_links_the_players_cast_it_was_cast_from(self):
+    def test_rows_carry_no_cast_link(self):
+        # smoke-owner-0.4.0: binding a track to the player's cast is the child
+        # owner's (slot_state.build_abilities); the row keeps only its verdict.
         lu = lineup(["Omen", "Miks", "Sova", "Reyna", "Sage"], player_slot=0)
-        casts = [{"slot": "E", "t_ms": 47050.0, "player_cast": True, "reason": None},
-                 {"slot": "Q", "t_ms": 47500.0, "player_cast": True, "reason": None}]
+        casts = [{"slot": "E", "t_ms": 47050.0, "player_cast": True, "reason": None}]
         res = smoke_owner.adjudicate(
             SID, rows(track(0, 49.0, 11.7, onset="censored:unobserved"), track(1, 80, 18.0)),
             lu, tray_casts=casts, tray_reason=None)
-        got = owners(res)
-        self.assertEqual(got[0]["cast_ms"], 47050.0)
-        self.assertEqual(got[0]["rests_on"], ["s:tray_drop:E:47050"])
-        self.assertEqual(got[0]["cast"]["lag_s"], 1.95)
-        # A smoke with no player cast before it starts at its disc.
-        self.assertIsNone(got[1]["cast"])
-        self.assertEqual(got[1]["cast_reason"], "no_player_cast_in_window")
-        self.assertEqual(got[1]["rests_on"], [])
-        self.assertEqual(res["rows"][0]["cast_linked"], 1)
-
-    def test_a_cast_two_tracks_could_take_links_neither(self):
-        casts = [{"slot": "E", "t_ms": 9000.0, "player_cast": True, "reason": None}]
-        got = smoke_owner.cast_links(SID, [track(0, 10, 15.0), track(1, 11, 15.0)], "Omen", casts)
-        self.assertEqual(got[0], (None, "cast_shared_by_tracks"))
-        # A refused drop is no player cast; no tray read keeps its reason.
-        casts[0]["player_cast"] = False
-        got = smoke_owner.cast_links(SID, [track(0, 10, 15.0)], "Omen", casts)
-        self.assertEqual(got[0], (None, "no_player_cast_in_window"))
-        got = smoke_owner.cast_links(SID, [track(0, 10, 15.0)], "Omen", None, "tray_drops_stale")
-        self.assertEqual(got[0], (None, "tray_drops_stale"))
-        got = smoke_owner.cast_links(SID, [track(0, 10, 15.0)], "Miks", casts)
-        self.assertEqual(got[0], (None, "no_cast_window_for Miks"))
+        for r in owners(res).values():
+            for k in ("cast", "cast_reason", "cast_ms"):
+                self.assertNotIn(k, r)
+            self.assertEqual(r["rests_on"], [])
+        self.assertNotIn("cast_linked", res["rows"][0])
+        self.assertFalse(hasattr(smoke_owner, "cast_links"))
 
     def test_no_lineup_and_an_incomplete_side_refuse(self):
         res = smoke_owner.adjudicate(SID, rows(track(0, 10, 18.0)), None)

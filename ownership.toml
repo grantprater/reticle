@@ -450,7 +450,7 @@ names_agents = true
 produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
             "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
             "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts",
-            "smoke_entity_id", "cast_links", "drop_id", "circle_verdict", "circle_samples",
+            "smoke_entity_id", "circle_verdict", "circle_samples",
             "circle_id", "circle_runs", "circle_reach", "CIRCLE_AGENT", "CIRCLE_RUN_GAP_S",
             "CIRCLE_LINGER_S", "CIRCLE_AFTER_S", "RANGE_FACT"]
 not_for = """
@@ -2060,7 +2060,8 @@ status = "partial"
 entity_kind = "ability"
 names_agents = true
 produces = ["CHANNELS", "ABILITY_CHANNELS_VERSION", "ABILITY_LANES", "OPENS", "KIND_ABILITY",
-            "ABILITY_ENTRIES"]
+            "ABILITY_ENTRIES", "ABILITY_CHILD_VERSION", "ABILITY_STREAMS", "END_BASES",
+            "ability_lifecycle", "build_abilities", "ability_summary"]
 defers_to = ["agent-identity"]
 not_for = """
 A reader's or a channel owner's job: readers report pixel and audio evidence,
@@ -2070,12 +2071,14 @@ Nor the kit (`ability-state`: charges, equipped, castable), nor an agent name
 (`agent-identity`, on the child key). Each node of the tree (slot, instance,
 nested spawned objects, effects) keeps its own lifecycle; a parent binding is
 revisable and never part of the key. Nothing crosses a round barrier
-[domain:rounds/no-ability-crosses-round-barrier]. Limit: only `CHANNELS` and
-`ABILITY_LANES` exist; the `ability` kind, its lifecycle builder and binder,
-and the `ability` lane come in docs/ABILITY_ENTITIES.md step 2.
+[domain:rounds/no-ability-crosses-round-barrier]. Limit: since step 2
+(`ability_child`, the `ability` lane) only the player's own instances are
+built; a spawned object (a smoke, a shape, a glyph) joins its instance as a
+witness, not yet a node of its own, and the team's and enemies' children
+come in docs/ABILITY_ENTITIES.md step 3.
 """
-blocked_by = "docs/ABILITY_ENTITIES.md step 2: the player's own children in slot_state."
-evidence = "tests/test_ratchets.py (ABILITY), tests/test_entity_contract.py (ability rejections)"
+blocked_by = "docs/ABILITY_ENTITIES.md step 3: the team's children, spawned objects as nodes, channel claims re-keyed to children."
+evidence = "tests/test_ability_children.py, tests/test_entity_events.py (AbilityLaneTests), tests/test_ratchets.py (ABILITY), tests/test_entity_contract.py (ability rejections)"
 
 [[entry]]
 id = "ability-effect"
@@ -2085,18 +2088,20 @@ role = ["attribute", "lifecycle"]
 status = "partial"
 entity_kind = "ability"
 names_agents = true
-produces = ["CHANNELS", "KIND_EFFECT", "ABILITY_ENTRIES"]
+produces = ["CHANNELS", "KIND_EFFECT", "ABILITY_ENTRIES", "ABILITY_EFFECT_VERSION"]
 defers_to = ["agent-identity"]
 not_for = """
 The kill or assist verdict itself (`death-victim`, `kill-assists`, witnesses
 here), or an effect computed from a fact's `effect_query`, which is a
 prediction stored apart from a witnessed effect. Which targets an ability's
 effect reaches comes from that ability's facts, never by analogy
-[domain:abilities/ability-rules-are-unique]. Limit: only the declaration
-exists; the `effect` kind comes in docs/ABILITY_ENTITIES.md step 2.
+[domain:abilities/ability-rules-are-unique]. Limit: since step 2
+(`ability_effect`, written by `build_abilities`) only the player's ability
+kills, ability assists and the effects an ability's own `effects` fact
+predicts; no reveal or blind witness is read yet.
 """
-blocked_by = "docs/ABILITY_ENTITIES.md step 2: the player's effects in slot_state."
-evidence = "tests/test_ratchets.py (ABILITY), tests/test_entity_contract.py (ability rejections)"
+blocked_by = "docs/ABILITY_ENTITIES.md step 3: the team's effects; reveal and blind witnesses."
+evidence = "tests/test_ability_children.py, tests/test_entity_events.py (AbilityLaneTests), tests/test_ratchets.py (ABILITY)"
 
 [[entry]]
 id = "ability-detection"

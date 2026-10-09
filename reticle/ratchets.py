@@ -1563,9 +1563,6 @@ ABILITY_LEGACY: dict[str, dict[str, str]] = {
     "stream:ability_shape_scan": {
         "fate": "the gate's 2 Hz scan rows, read by prototypes only; merges into the gated fits",
         "step": "step 6"},
-    "stream:dead_ruse_cast": {
-        "fate": "becomes a query over the player's Ruse children",
-        "step": "step 2"},
     "stream:tray_countdown": {
         "fate": "a reader of the kit owner; nothing reads it until kits cover every slot",
         "step": "step 5"},
@@ -1608,17 +1605,18 @@ ABILITY_LEGACY: dict[str, dict[str, str]] = {
         "fate": "`detection_reality` asks the child owner in its place, so a child of any "
                 "channel explains a find",
         "step": "step 4"},
-    "code:reticle/adjudication/smoke_owner.py::cast_links": {
-        "fate": "binding a smoke to its cast moves to the child owner",
-        "step": "step 2"},
     "code:reticle/adjudication/ult_cast.py::player_x_drops": {
-        "fate": "binding an own ult line to its X drop moves to the child owner",
-        "step": "step 2"},
+        "fate": "binding an own ult line to its X drop moved to the child owner in step 2; "
+                "the function stays while `ult_cast` selects a sub-threshold peak an X cast "
+                "witnesses (`tray_x_cast`), a selection rule whose move changes `ult_cast` "
+                "itself",
+        "step": "step 3"},
 }
 
 #: ABILITY_LEGACY's keys when seeded, 2026-10-09. Frozen: doctor errors on a
 #: key outside it, so the list cannot grow by an edit that adds one entry and
-#: drops another.
+#: drops another. `status` counts a seed key no longer in the list as cleared:
+#: step 2 (2026-10-09) cleared `stream:dead_ruse_cast` and `smoke_owner.cast_links`.
 ABILITY_SEED: frozenset[str] = frozenset({
     "stream:ability_light", "stream:ability_shape_audit", "stream:ability_shape_scan",
     "stream:dead_ruse_cast", "stream:tray_countdown",
@@ -1654,6 +1652,9 @@ class AbilityInputs:
     retired: frozenset
     lanes: dict
     entries: dict
+    #: The streams the child owner writes (`slot_state.ABILITY_STREAMS`): its
+    #: own output, never an input `CHANNELS` must list.
+    child_streams: tuple = ()
 
 
 def _listed(entry: dict, field: str) -> list[str]:
@@ -1813,7 +1814,7 @@ def ability_findings(inputs: AbilityInputs, legacy: dict | None = None,
                        if e.get("entity_kind") == ABILITY_KIND}
     for s in ability_streams(inputs):
         found.add(f"stream:{s}")
-        if s in ch_streams:
+        if s in ch_streams or s in inputs.child_streams:
             accounted.add(f"stream:{s}")
         elif f"stream:{s}" not in legacy:
             out.append((ERROR, f"stream `{s}` is ability evidence outside CHANNELS -- "

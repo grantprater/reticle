@@ -896,24 +896,13 @@ def dead_ruse_applies(player_agent: str | None) -> tuple[str, str | None]:
     """Whether `dead_ruse_casts` reads a session whose player plays
     `player_agent`: ("applies", None), ("not_applicable", why) for any agent
     but Clove, or ("unknown", why) where the player's agent is unread. The
-    writer (`reticle smokes`) writes `dead_ruse_cast` only where it applies,
-    and `plan` asks this rule why a session holds none."""
+    child owner (`slot_state.build_abilities`) reads a dead Clove's smokes
+    only where it applies."""
     if player_agent is None:
         return "unknown", "the player's agent is unread"
     if player_agent != DEAD_RUSE[0]:
         return "not_applicable", f"not_clove: the player is {player_agent}"
     return "applies", None
-
-
-def stored_dead_ruse_applies(store, session_id: str) -> tuple[str, str | None] | None:
-    """`dead_ruse_applies` over the player's agent the stored `smoke_owner`
-    coverage row names, the value the writer reads; None where no
-    `smoke_owner` rows are stored, so nothing is known yet."""
-    from .input_stamps import head_row
-    head = head_row(store, "smoke_owner", session_id)
-    if head is None or head.get("kind") != "coverage":
-        return None
-    return dead_ruse_applies(head.get("player_agent"))
 
 
 def held_at_deaths(state_rows: list[dict], slot: str = DEAD_RUSE[1]) -> dict[float, int | None]:

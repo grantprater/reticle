@@ -8,8 +8,10 @@ adjudicator, and it decides nothing: every value on an `Item` is a stored
 field or a join of two stored rows on a stored key. A field the stream lacks
 stays None, and the viewer draws that absence rather than filling it.
 
-Three layers read the projected entity lanes through `entity_events`
-(`docs/ENTITY_EVENTS.md`, stage 1): round entities, deaths and the spike.
+Layers read the projected entity lanes through `entity_events`
+(`docs/ENTITY_EVENTS.md`, stage 1): round entities, deaths, the spike, the
+enemy, and the player's own ability children and effects (the `ability`
+lane, beside the ability owners' streams the layer still reads).
 Each lane is two streams: the consumer rows, drawn as usual, and the ledger's
 withheld rows, drawn apart in amber with their standing and reason. The round
 table comes through `entity_events` too. The other layers still read their
@@ -36,7 +38,10 @@ from pathlib import Path
 
 from . import entity_events as ee
 
-VIEW_EVENTS_VERSION = "view-events-0.5.0"
+VIEW_EVENTS_VERSION = "view-events-0.6.0"
+# 0.6.0 (2026-10-09): the ability layer draws the `ability` lane, the
+# player's own ability children and effects (docs/ABILITY_ENTITIES.md step 2),
+# beside the owners' streams it still reads until step 3.
 # 0.5.0 (2026-10-04): the round_entity lane labels a `spectated` entity
 # (`round_entities`, round-entity-0.15.0) "spectated" in the self colour;
 # it drew "unassigned" in the barrier colour before.
@@ -56,9 +61,9 @@ LAYERS = (
     ("1", "round_entity", ee.lane_streams("round_entity")),
     ("2", "team_vision", ("team_vision",)),
     ("3", "death", ee.lane_streams("death")),
-    ("4", "ability", ("ability_state", "ability_shape", "smoke", "smoke_owner",
-                      "smoke_owner_identity",
-                      "ult_cast", "ult_cast_identity")),
+    ("4", "ability", ee.lane_streams("ability") + (
+        "ability_state", "ability_shape", "smoke", "smoke_owner", "smoke_owner_identity",
+        "ult_cast", "ult_cast_identity")),
     ("5", "spike", ee.lane_streams("spike")),
     ("6", "ping", ("ping",)),
     ("7", "killfeed", ("killfeed_name", "killfeed_portrait", "killfeed_weapon")),
@@ -848,8 +853,68 @@ def _lane_enemy(ev, t0, t1):
     return out
 
 
+def _child_label(ent: dict) -> str:
+    life = ent.get("lifetime") or {}
+    ended = life.get("ended") or {}
+    who = _agent(ent.get("identity")) or "agent?"
+    return (f"{ent['entity_id'].rsplit(':', 2)[-2]}:{ent['entity_id'].rsplit(':', 1)[-1]} "
+            f"{ent.get('kind')} ({who}) {_hms(life['began']['hi_ms'])}-{_hms(ended['hi_ms'])} "
+            f"ends {ended.get('basis')}")
+
+
+def _lane_ability(ev, t0, t1):
+    """The player's ability children over their lives, in the panel and, where
+    a witness placed one, on the minimap; each `ability_disabled` and `effect`
+    event in the panel; ledger rows (withheld children) drawn apart in amber."""
+    consumer, ledger_stream = ee.lane_streams("ability")
+    version = _lane_version(ev, "ability")
+    out = []
+
+    def life_of(e):
+        life = e.get("lifetime") or {}
+        return life["began"]["lo_ms"], (life.get("ended") or life["began"])["hi_ms"]
+
+    for e in ev.entities(lane="ability"):
+        a, z = life_of(e)
+        if z < t0 or a > t1:
+            continue
+        if e["family"] == "ability_object":
+            out.append(Item("ability", consumer, "child", a, z, "panel", _child_label(e),
+                            event_id=e["entity_id"], version=version, entity_id=e["entity_id"],
+                            colour="ability", detail={"parent": e.get("parent")}))
+            for p in ev.events(entity_id=e["entity_id"], lane="ability"):
+                pos = p.get("position") or {}
+                if pos.get("x") is not None:
+                    out.append(Item("ability", consumer, p["kind"], p["observed_ms"], z, "minimap",
+                                    e.get("kind") or "ability", x=pos["x"], y=pos["y"],
+                                    event_id=p["event_id"], version=version,
+                                    entity_id=e["entity_id"], colour="ability"))
+    for p in ev.events(lane="ability", kinds=("ability_disabled", "effect"), t0_ms=t0, t1_ms=t1):
+        if p["kind"] == "effect":
+            tgt = ((p.get("participants") or {}).get("target") or {})
+            label = (f"{_hms(p['observed_ms'])} {p['state']['effect']} by "
+                     f"{p['state']['ability']} > {_agent(tgt.get('identity')) or 'target?'}")
+        else:
+            label = f"{_hms(p['observed_ms'])} {p['state']['ability']} disabled: owner died"
+        out.append(Item("ability", consumer, p["kind"], p["observed_ms"],
+                        p["observed_ms"] + 3000.0, "panel", label, event_id=p["event_id"],
+                        version=version, entity_id=p.get("entity_id"), colour="ability"))
+    for r in ev.ledger(lane="ability"):
+        v = ee.ledger_value(r)
+        if not (isinstance(v, dict) and v.get("row") == "entity"):
+            continue
+        a, z = life_of(v)
+        if z < t0 or a > t1:
+            continue
+        out.append(Item("ability", ledger_stream, "child", a, z, "panel", _child_label(v),
+                        r["standing"], r["reason"], event_id=r["ledger_id"], version=version,
+                        entity_id=v.get("entity_id"), colour="ability",
+                        detail={"ledger_id": r["ledger_id"]}))
+    return out
+
+
 _LANE_ITEMS = {"round_entity": _lane_round_entity, "death": _lane_death, "spike": _lane_spike,
-               "enemy": _lane_enemy}
+               "enemy": _lane_enemy, "ability": _lane_ability}
 
 
 def load_lanes(store, session_id: str, t0: float, t1: float):

@@ -646,7 +646,7 @@ Evidence: 0 errors; one ABILITY warning per `ABILITY_LEGACY` entry; a test
 that adds an undeclared ability stream gets an ERROR, and one that deletes a
 listed fragment gets the stale-entry ERROR.
 
-**Step 2. The player's own children and effects.** `slot_state` gains the
+**Step 2 (done). The player's own children and effects.** `slot_state` gains the
 `ability` and `effect` kinds and owns `ability-child` and `ability-effect`.
 Openers: the player's tray casts and own ult lines. Joiners: `ability_shape`
 fits, smoke tracks, glyph tracks, Clove's circle, own audio. Effects: the
@@ -663,6 +663,38 @@ Evidence: every kept player cast opens exactly one child; the stored
 is classed; per class, open recall and precision against the replay's own
 casts with round intervals; the player marks one round's children and
 effects right or wrong in the viewer.
+
+Step 2 done (2026-10-09, branch `ability-entities-step2-20261009`):
+
+- `slot_state.build_abilities` builds the player's children
+  (`ability_child`, `ability-child-0.1.0`) and effects (`ability_effect`,
+  `ability-effect-0.1.0`) from stored rows; `reticle ability-children
+  SESSION --write` writes both. Openers: the kit's cast transitions, own ult
+  lines, a dead Clove's smokes (`dead_ruse_casts`). Joiners: shape fits,
+  smoke tracks (one cast, one smoke, the rule `cast_links` held), glyph
+  tracks, Clove's circle, own audio. Effects: ability kills, ability
+  assists, and the effects an ability's `effects` fact predicts.
+  `ability_lifecycle` reads each field from the ability's own facts or
+  stores a `no-fact` reason.
+- The `ability` lane (`entity-ability-0.1.0`) projects them; no contract
+  bump. `reticle view` draws the lane.
+- Retired: `smoke_owner.cast_links` (smoke-owner-0.4.0; no stored link
+  existed on any session) and the `dead_ruse_cast` stream (`plan.RETIRED_STREAMS`).
+  ABILITY legacy 19 to 17; the seed stays, so `status` counts the clears.
+- Scored by `prototypes/question_acceptance.py ability-lane --side self` on
+  the six sessions: recall [metric:question_acceptance/ability_lane/step2b@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#all_recall=0.8523], false-open share
+  [metric:question_acceptance/ability_lane/step2b@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#all_false_open_share=0.0241], end-cause agreement
+  [metric:question_acceptance/ability_lane/step2b@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#all_end_cause_agreement=0.6014]. Prediction
+  `ability-entities-step2-20261009-A1` passed on its pre-registered run.
+- Not done: `ult_cast`'s line-to-drop binding (`player_x_drops`) moves to
+  step 3, since `tray_x_cast` still selects peaks through it; a spawned
+  object joins its instance as a witness, not as a node; positions come only
+  from shape fits and smokes; no reveal or blind witness; lifetimes are
+  missing for Curveball, Recon Bolt, FRAG/ment, Rendezvous, Headhunter and
+  the ults, and Chamber's Trademark `life` names the slow field, not the
+  trap; Rendezvous and Headhunter casts sit in unmapped replay slots; the
+  dev matches' lanes stay held stale until their `smoke_owner` is rebuilt;
+  the player's viewer check is owed.
 
 **Step 3. The team's children, and `ability-owner`.** Openers add ally
 smokes, glyph tracks, shape fits and walls, ally ult lines, spectated kit
