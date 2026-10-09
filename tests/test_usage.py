@@ -372,7 +372,7 @@ class ContentionAndBackendTest(unittest.TestCase):
         cache.record = {"version": "cache-test", "codec": "ffv1"}
         run_cached(None, [reader], cache, usage=usage)
         self.assertEqual(usage.record()["decode_backend"],
-                         {"backend": "opencv", "codec": "ffv1", "source": "cache"})
+                         {"backend": "pyav", "codec": "ffv1", "source": "cache"})
 
 
 class Stepped(Reader):

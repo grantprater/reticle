@@ -23,8 +23,26 @@ so 15 Hz minimap crops over the corpus's live rounds measured about as large
 as the corpus itself. FFV1 in `bgr0` through `ffmpeg` (`CODECS`) is lossless
 -- 147 of 147 frames read back bit for bit through OpenCV, seeks included --
 at a third of PNG's size; lossless x264 was larger, since the minimap changes
-too much between frames for prediction to pay. Every FFV1 frame is a key
-frame, so a seek lands on the frame asked for.
+too much between frames for prediction to pay.
+
+**An FFV1 frame is not a seek point.** Its pixels are coded alone, but the
+writer keeps ffmpeg's default group of 12 frames: only every twelfth frame
+(800 ms at 15 Hz) is a key frame, and each frame between carries the range
+coder's adapted state from the one before, so reading frame n decodes every
+frame from the key frame at or before n. cadaadeb2d8b's minimap video lists
+its [metric:roi_cache_seek/profile@cadaadeb2d8b#cued_key_frames=1543] key frames
+in the Matroska cues, 12 frames apart. `samples` reads
+an FFV1 cache through PyAV (`_Ffv1Video`): it seeks straight to the cued
+key frame and decodes forward only from there, or from where it stands
+when that is nearer. OpenCV's seek starts 16 frames before the target and
+decodes up to 27 frames for a read; on one round of cadaadeb2d8b's gated
+ally times that cost [metric:roi_cache_seek/profile@cadaadeb2d8b#opencv_gated_cpu_ms=70.7]
+ms of CPU a frame against
+[metric:roi_cache_seek/profile@cadaadeb2d8b#opencv_grid_cpu_ms=8.3] on the full
+grid, and PyAV's read
+[metric:roi_cache_seek/profile@cadaadeb2d8b#pyav1_gated_cpu_ms=21.9]. Its crops
+equal OpenCV's on 500 of 500 gated times, 500 grid times and 500 tray times
+([metric:roi_cache_seek/identity@cadaadeb2d8b#gated_equal=500]).
 
 **The scoreboard set is gated on an opportunity.** Its one rectangle is not
 a profile ROI but the region the Tab scoreboard reader reads
@@ -205,10 +223,23 @@ SCOREBOARD_GATE_RULE = "on"
 #: too dark for the witness to say it is not there.
 SCOREBOARD_GATE_VERDICTS = ("present", "unreadable")
 
-#: The longest forward skip in an FFV1 cache that `samples` grabs through
-#: rather than seeks. Measured 2026-09-28 on c40d950031bb's minimap cache: a
-#: seek cost 38 ms a sample and a sequential read 5.7 ms a frame.
+#: The longest forward skip in an FFV1 cache that `samples` decodes through
+#: rather than seeks, where the video lists no key frames (`_Ffv1Video`);
+#: with the cues it seeks only where the key frame lies past its position.
+#: Measured 2026-09-28 on c40d950031bb's minimap cache: an OpenCV seek cost
+#: 38 ms a sample and a sequential read 5.7 ms a frame.
 GRAB_MAX = 8
+#: How `_Ffv1Video` threads its decoder: (`thread_type`, `thread_count`).
+#: One thread costs the least CPU. Over one round of cadaadeb2d8b (1424
+#: grid frames; 163 gated ally times), CPU per frame, grid then gated:
+#: one thread 8.4 and 21.9 ms; slice threads 8.7 and
+#: [metric:roi_cache_seek/profile@cadaadeb2d8b#pyav_slice_gated_cpu_ms=24.9];
+#: frame threads (AUTO) 9.3 and
+#: [metric:roi_cache_seek/profile@cadaadeb2d8b#pyav_auto_gated_cpu_ms=52.1],
+#: since a seek discards the frames decoded ahead; OpenCV's capture 8.3
+#: and 70.7. One thread lengthens a grid frame's wall
+#: time from OpenCV's 1.3 ms to 8.5 ms, beside the readers' tens.
+FFV1_THREADS = ("NONE", 1)
 
 #: How each set's crops are stored: "png" per crop, or "ffv1" video per rect.
 #: The scoreboard region is FFV1 for size alone: over one decoded minute of
@@ -1366,9 +1397,9 @@ class RoiCache:
             yield t
 
     def _video_samples(self, targets_ms, keep, w, h):
-        """`samples` for an FFV1 cache: one capture per rect, read in order,
-        seeking only when a target skips frames."""
-        caps, pos = {}, {}
+        """`samples` for an FFV1 cache: one `_Ffv1Video` per rect, read by
+        frame number."""
+        vids = {}
         try:
             for t in targets_ms:
                 got = [i for i in self._by_t.get(float(t), ()) if int(self.rect[i]) in keep]
@@ -1377,27 +1408,16 @@ class RoiCache:
                 frame = np.zeros((h, w, 3), np.uint8)
                 for i in got:
                     k, n = int(self.rect[i]), int(self.offset[i])
-                    if k not in caps:
-                        caps[k] = cv2.VideoCapture(str((self.video_paths or {}).get(k) or
-                                                       self.blob.with_name(self.blob.name.replace(
-                                                           ".bin", f".r{k}.mkv"))))
-                        pos[k] = 0
-                    if pos[k] < n <= pos[k] + GRAB_MAX:
-                        # A seek costs about 38 ms (`GRAB_MAX`); a short skip is cheaper grabbed.
-                        for _ in range(n - pos[k]):
-                            caps[k].grab()
-                    elif pos[k] != n:
-                        caps[k].set(cv2.CAP_PROP_POS_FRAMES, n)
-                    ok, crop = caps[k].read()
-                    if not ok:
-                        raise ValueError(f"cache video ended before frame {n} (rect {k})")
-                    pos[k] = n + 1
+                    if k not in vids:
+                        vids[k] = _Ffv1Video((self.video_paths or {}).get(k) or
+                                             self.blob.with_name(self.blob.name.replace(
+                                                 ".bin", f".r{k}.mkv")))
                     x0, y0, x1, y1 = self.record["rects"][k]
-                    frame[y0:y1, x0:x1] = crop
+                    frame[y0:y1, x0:x1] = vids[k].read(n)
                 yield Sample(frame_idx=int(self.frame_idx[got[0]]), t_ms=float(t), frame=frame)
         finally:
-            for c in caps.values():
-                c.release()
+            for v in vids.values():
+                v.close()
 
     @classmethod
     def load_union(cls, store_root: Path, manifest: dict, profile, names
@@ -1417,6 +1437,104 @@ class RoiCache:
             return None, "the sets were written at different rates: " + ", ".join(
                 f"{n} {p.record['hz']} Hz" for n, p in zip(names, parts))
         return RoiCacheUnion(parts), None
+
+
+class _Ffv1Video:
+    """One rect's FFV1 cache video, read by frame number through PyAV.
+
+    The decoder runs on one thread (`FFV1_THREADS`). `read(n)`
+    returns frame n's BGR pixels: the first three bytes of each `bgr0`
+    pixel, the bytes OpenCV's conversion copied. It decodes forward from
+    where it stands when the key frame at or before n lies no further on
+    (`keys`, from the Matroska cues); else it seeks to that key frame,
+    checks that the first frame decoded is it, and decodes forward to n.
+    A video without cues decodes through skips of up to `GRAB_MAX` frames
+    and seeks past them. A missing frame, or a seek that lands elsewhere,
+    raises; no neighbour stands in."""
+
+    def __init__(self, path):
+        import av
+        self.path = str(path)
+        self._c = av.open(self.path)
+        try:
+            self._s = self._c.streams.video[0]
+            cc = self._s.codec_context
+            cc.thread_type, cc.thread_count = FFV1_THREADS
+            self._tb = self._s.time_base
+            self._start = self._s.start_time or 0
+            self._rate = self._s.average_rate
+            # Matroska loads its cues on the first seek; before it the index
+            # holds the first frame alone.
+            self._c.seek(self._start, stream=self._s, backward=True)
+            cued = sorted((self._number(e.timestamp), int(e.timestamp))
+                          for e in self._s.index_entries if e.is_keyframe)
+        except BaseException:
+            self._c.close()
+            raise
+        #: Key frame numbers in order, or None where the video cues none
+        #: past the first.
+        self.keys = np.array([n for n, _ in cued], np.int64) if len(cued) > 1 else None
+        self._key_ts = dict(cued)
+        self._frames = self._c.decode(self._s)
+        #: The frame number the decoder yields next.
+        self.pos = 0
+        #: Frames decoded and seeks made since the open.
+        self.decoded = 0
+        self.seeks = 0
+
+    def _number(self, pts) -> int:
+        return int(round((pts - self._start) * self._tb * self._rate))
+
+    def _key_at(self, n: int) -> int:
+        return int(self.keys[np.searchsorted(self.keys, n, side="right") - 1])
+
+    def _next(self, n: int):
+        f = next(self._frames, None)
+        if f is None:
+            raise ValueError(f"cache video ended before frame {n} ({self.path})")
+        self.decoded += 1
+        return f
+
+    def _seek(self, n: int):
+        """Seek to the key frame at or before n; its number and frame."""
+        if self.keys is not None:
+            k = self._key_at(n)
+            ts = self._key_ts[k]
+        else:
+            k = None
+            ts = int(self._start + round(n / (self._tb * self._rate)))
+        self._c.seek(ts, stream=self._s, backward=True)
+        self._frames = self._c.decode(self._s)
+        self.seeks += 1
+        f = self._next(n)
+        got = self._number(f.pts)
+        if not f.key_frame or got > n or (k is not None and got != k):
+            raise ValueError(f"{self.path}: a seek for frame {n} landed on frame {got} "
+                             f"(key frame {f.key_frame}, cued key {k})")
+        return got, f
+
+    def read(self, n: int) -> np.ndarray:
+        """Frame n's BGR pixels."""
+        n = int(n)
+        if self.keys is not None:
+            near = self._key_at(n) <= self.pos <= n
+        else:
+            near = self.pos <= n <= self.pos + GRAB_MAX
+        got, f = (None, None) if near else self._seek(n)
+        while got != n:
+            f = self._next(n)
+            got = self._number(f.pts)
+            if got > n:
+                raise ValueError(f"{self.path}: frame {n} is missing (decoded {got} next)")
+        self.pos = n + 1
+        if f.format.name != "bgr0":
+            return f.to_ndarray(format="bgr24")
+        plane = f.planes[0]
+        return np.frombuffer(plane, np.uint8).reshape(-1, plane.line_size)[
+            :f.height, :f.width * 4].reshape(f.height, f.width, 4)[:, :, :3]
+
+    def close(self) -> None:
+        self._c.close()
 
 
 @dataclass
