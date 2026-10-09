@@ -183,6 +183,20 @@ produces = ["validate", "publish", "render"]
 not_for = "Accepted domain facts, entity identity, track association, or automatic promotion. The canonical fact owner is domain."
 evidence = "tests/test_domain_learning.py, tools/domain_hypothesis.py"
 
+[[entry]]
+id = "ability-mechanics-sheet"
+question = "What lifecycle class, lifetime, end conditions, effects and minimap drawing does each ability have, as the player confirms them from the game files?"
+owner = "mechanics_sheet"
+role = ["assign"]
+status = "shipped"
+produces = ["build", "walk", "import_rows"]
+not_for = """
+Any live ability instance, its phase or its end in a match (`slot_state`), and
+any agent or ability identity verdict. It drafts static per-ability facts from
+the game files; only the player's confirmed rows become `domain` facts.
+"""
+evidence = "tests/test_mechanics_sheet.py"
+
 # ---------------------------------------------------------------------------
 # Per-frame evidence, before anything interprets it
 # ---------------------------------------------------------------------------

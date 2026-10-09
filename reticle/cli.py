@@ -6403,6 +6403,22 @@ def cmd_domain(args) -> int:
     return domain_main(argv)
 
 
+def cmd_mechanics_sheet(args) -> int:
+    """The ability mechanics sheet: game-file pre-fill, the player's walk, the import."""
+    from .mechanics_sheet import main as sheet_main
+
+    argv = [args.action, "--store", str(args.store), "--by", args.by]
+    if args.agent:
+        argv += ["--agent", args.agent]
+    if args.column:
+        argv += ["--column", args.column]
+    if args.reask_unsure:
+        argv.append("--reask-unsure")
+    if args.write:
+        argv.append("--write")
+    return sheet_main(argv)
+
+
 def cmd_domain_hypothesis(args) -> int:
     """Review a pinned stored-data proposal without changing accepted facts."""
     from .domain_learning import publish
@@ -7249,6 +7265,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check", action="store_true",
                    help="validate the registry and its citations")
     s.set_defaults(func=cmd_domain)
+
+    s = sub.add_parser("mechanics-sheet", help="the ability mechanics sheet, pre-filled "
+                       "from the game files, for the player to confirm")
+    s.add_argument("action", choices=("build", "ask", "status", "import"))
+    s.add_argument("--agent")
+    s.add_argument("--column")
+    s.add_argument("--by", default="player")
+    s.add_argument("--reask-unsure", action="store_true")
+    s.add_argument("--write", action="store_true",
+                   help="import: append the confirmed rows to domain/abilities.toml")
+    s.set_defaults(func=cmd_mechanics_sheet)
 
     s = sub.add_parser("domain-hypothesis", help="review a pinned stored-data domain proposal")
     s.add_argument("proposal", type=Path)

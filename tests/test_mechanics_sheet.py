@@ -1,0 +1,198 @@
+"""The mechanics sheet: game-file pre-fill, the player's walk, and the import."""
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from reticle import domain
+from reticle import mechanics_sheet as ms
+
+GD = """
+[ability-rules-are-unique]
+claim = "Each ability's mechanics are its own."
+kind = "rule"
+known = "player"
+since = "2026-09-26"
+"""
+
+GAME_DATA = """
+[zed-trap-game-data]
+claim = "The game files give Zed's Trap (slot C) these values."
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "zed:trap"
+source = "test"
+values = { life = { initial_life_span_s = 8.0 } }
+
+[zed-dash-game-data]
+claim = "The game files give Zed's Dash (slot Q) these values."
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "zed:dash"
+source = "test"
+values = { life = { a_s = 1.0, b_s = 2.0 }, move = { duration_s = 0.5 } }
+"""
+
+STATES = {"agents": {"Zed": {"abilities": {
+    "C": {"ability": "Trap", "equippable": "/Game/Characters/Zed/Ability_C",
+          "entities": [{"entity": "/Game/Characters/Zed/GameObject_Zed_Trap", "how": "spawns"},
+                       {"entity": "/Game/Characters/Zed/Debuff_Zed_Slow", "how": "names"}],
+          "states": [{"owner": "/Game/Characters/Zed/Ability_C", "owner_kind": "equippable",
+                      "state": "EquipState", "phase": "equip", "icons": []},
+                     {"owner": "/Game/Characters/Zed/GameObject_Zed_Trap", "owner_kind": "entity",
+                      "state": "ArmState", "phase": "activate",
+                      "icons": [{"texture": "TX_Zed_Minimap", "role": "minimap_IconBrush",
+                                 "views": {"self": True, "teammate": True, "enemy": None}}]}]},
+    "Q": {"ability": "Dash", "equippable": "/Game/Characters/Zed/Ability_Q",
+          "entities": [{"entity": "/Game/Characters/Zed/GameObject_Zed_Anchor", "how": "spawns"}],
+          "states": []},
+}}}}
+
+TRAP_EXPORT = [{"Type": "ChildDamageSectionComponent", "Name": "HealthDamageSection",
+                "Properties": {"bCanBeDestroyed": True, "Life": 20.0}}]
+
+
+class Sheet:
+    """A throwaway domain directory and store holding one fake agent."""
+
+    def __init__(self, stack):
+        self.root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+        self.dom = self.root / "domain"
+        self.dom.mkdir()
+        (self.dom / "abilities.toml").write_text(GD, encoding="utf-8")
+        (self.dom / "game_data.toml").write_text(GAME_DATA, encoding="utf-8")
+        self.store = self.root / "store"
+        trap = self.store / ms.GAME_EXPORTS / "Characters/Zed/GameObject_Zed_Trap.json"
+        trap.parent.mkdir(parents=True)
+        trap.write_text(json.dumps(TRAP_EXPORT), encoding="utf-8")
+        self.facts = domain.load(self.dom)
+        self.rows = ms.build_rows(STATES, self.facts, ms.GameExports(self.store), {})
+
+    def row(self, slot):
+        return next(r for r in self.rows if r["slot"] == slot)
+
+    def walk(self, lines, **kw):
+        it = iter(lines)
+        out = io.StringIO()
+        ms.walk(self.store, self.rows, read=lambda _p: next(it, "q"), out=out, **kw)
+        return out.getvalue()
+
+
+class PrefillTest(unittest.TestCase):
+    def setUp(self):
+        from contextlib import ExitStack
+        self.stack = ExitStack()
+        self.s = Sheet(self.stack)
+
+    def tearDown(self):
+        self.stack.close()
+
+    def test_one_row_per_slot_ability(self):
+        self.assertEqual([(r["agent"], r["slot"]) for r in self.s.rows], [("Zed", "C"), ("Zed", "Q")])
+
+    def test_cells_carry_their_game_file_sources(self):
+        c = self.s.row("C")["cells"]
+        self.assertEqual(c["lifecycle_class"]["value"], "deployed")
+        self.assertEqual(c["lifetime_s"]["value"]["s"], 8.0)
+        self.assertIn("[domain:" + "game_data/zed-trap-game-data]", c["lifetime_s"]["sources"])
+        self.assertEqual(c["destructible"]["value"], "yes")
+        self.assertIn("GameObject_Zed_Trap.json#HealthDamageSection", c["destructible"]["sources"][0])
+        self.assertEqual(c["ends_on"]["value"], ["lifetime", "destroyed", "round_end"])
+        self.assertEqual([d["effect"] for d in c["effects"]["value"]], ["slow"])
+        self.assertIn("TX_Zed_Minimap", c["minimap_drawing"]["value"]["textures"])
+
+    def test_no_source_means_ask_and_empty(self):
+        c = self.s.row("C")["cells"]["owner_death"]
+        self.assertEqual((c["status"], c["value"]), ("ask", None))
+
+    def test_two_classes_are_a_conflict(self):
+        c = self.s.row("Q")["cells"]["lifecycle_class"]
+        self.assertEqual(c["status"], "conflict")
+        self.assertEqual(c["candidates"], ["deployed", "movement"])
+
+    def test_several_life_values_need_a_pick(self):
+        c = self.s.row("Q")["cells"]["lifetime_s"]
+        self.assertIsNone(c["value"])
+        self.assertEqual(len(c["candidates"]), 2)
+
+
+class WalkAndImportTest(unittest.TestCase):
+    def setUp(self):
+        from contextlib import ExitStack
+        self.stack = ExitStack()
+        self.s = Sheet(self.stack)
+        self.target = self.s.dom / "abilities.toml"
+
+    def tearDown(self):
+        self.stack.close()
+
+    def answers(self):
+        return ms.load_sheet_answers(self.s.store)
+
+    def test_answers_are_stored_apart_and_last_row_wins(self):
+        self.s.walk(["y", "a", "3", "q"], columns=("lifecycle_class",), agent="Zed")
+        p = self.s.store / ms.ANSWERS
+        self.assertEqual(len(p.read_text(encoding="utf-8").splitlines()), 2)
+        self.assertEqual(self.answers()["Zed:C:lifecycle_class"]["answer"], "self_buff")
+        self.assertFalse((self.s.store / ms.PREFILL_DIR).exists())
+
+    def test_game_file_lifetime_refuses_a_typed_number(self):
+        out = self.s.walk(["7 5.0", "u", "q"], columns=("lifetime_s",))
+        self.assertIn("not understood", out)
+        self.assertTrue(self.answers()["Zed:C:lifetime_s"]["unsure"])
+
+    def test_import_skips_unconfirmed_rows(self):
+        self.s.walk(["y", "y", "u", "q"])
+        before = self.target.read_text(encoding="utf-8")
+        texts, skipped = ms.import_rows(self.s.store, self.s.rows, write=True,
+                                        target=self.target, out=io.StringIO())
+        self.assertEqual(texts, [])
+        self.assertTrue(any("open" in s for s in skipped))
+        self.assertEqual(self.target.read_text(encoding="utf-8"), before)
+
+    def test_import_writes_a_valid_lifecycle_fact(self):
+        # C: class y, lifetime y, destructible y, owner death d (default),
+        # ends_on y, states y, effects y, slow targets 3 (enemies), minimap y.
+        self.s.walk(["y", "y", "y", "d", "y", "y", "y", "3", "y", "q"], agent="Zed")
+        self.assertEqual(self.answers()["Zed:C:owner_death"]["how"], "default")
+        texts, _ = ms.import_rows(self.s.store, self.s.rows, write=True,
+                                  target=self.target, out=io.StringIO())
+        self.assertEqual(len(texts), 1)
+        facts = domain.load(self.s.dom)
+        f = facts["abilities/zed-trap-lifecycle"]
+        self.assertEqual((f.kind, f.known, f.subject), ("lifecycle", "player", "zed:trap"))
+        self.assertEqual(f.lifecycle_class, "deployed")
+        self.assertEqual(f.ends_on, ("lifetime", "destroyed", "round_end"))
+        self.assertEqual((f.destructible, f.owner_death), ("yes", "disabled"))
+        self.assertEqual(f.effects, ("slow:enemies",))
+        self.assertEqual(f.lifetime, "game_data/zed-trap-game-data#life.initial_life_span_s")
+        self.assertEqual(f.states, ("equip", "activate"))
+        errors = [m for lvl, m in domain.validate(facts, root=self.s.root)
+                  if lvl == "ERROR" and "zed-trap-lifecycle" in m]
+        self.assertEqual(errors, [])
+        # A second import never rewrites the fact.
+        texts, skipped = ms.import_rows(self.s.store, self.s.rows, write=True,
+                                        target=self.target, out=io.StringIO())
+        self.assertEqual(texts, [])
+        self.assertTrue(any("exists" in s for s in skipped))
+
+    def test_validate_rejects_a_class_outside_the_plan(self):
+        (self.s.dom / "abilities.toml").write_text(GD + """
+[zed-trap-lifecycle]
+claim = "x"
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "zed:trap"
+lifecycle_class = "projectile"
+""", encoding="utf-8")
+        msgs = [m for lvl, m in domain.validate(domain.load(self.s.dom), root=self.s.root)
+                if lvl == "ERROR"]
+        self.assertTrue(any("lifecycle_class projectile" in m for m in msgs))
+
+
+if __name__ == "__main__":
+    unittest.main()
