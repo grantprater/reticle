@@ -86,7 +86,7 @@ what each fragment becomes in section 3.
 | `adjudication.ability_glyph` | `ability_glyph_name`, `ability_glyph_identity`, `glyph_placement` | `round_lifetimes.detection_reality`, `enemy_tracks`, harness step 7 | `ability-glyph-name-0.3.0` | `ability-glyph-name` | channel arbiter; `glyph_placement`'s callers move to the child owner |
 | `adjudication.weapon` | an ability named as a kill's weapon | `adjudication.death` | `weapon-adjudication-1.9.0` | `killfeed-weapon` | witness of a kill effect, and an opener |
 | `adjudication.assist` | assister and ability icon per kill | `cli` | `assist-adjudication-0.4.0` | `kill-assists` | witness of an assist effect, and an opener |
-| `adjudication.ability` milestone C: `build_entities`, `onset_groups`, `persistence_groups`, `bearing_groups`, `light_refusals`, `predict_ability_births` | the `ability-entities` analysis bundle from labelled demo components | `adjudication.gallery` | `ability-entities-0.3.0`, `ability-light-refusal-0.3.0` | `ability-hypothesis` | retire (step 3) |
+| `adjudication.ability` milestone C: `build_entities`, `onset_groups`, `persistence_groups`, `bearing_groups`, `light_refusals`, `predict_ability_births` | the `ability-entities` analysis bundle from labelled demo components | `adjudication.gallery` | `ability-entities-0.3.1`, `ability-light-refusal-0.3.0` | `ability-hypothesis` | retire (step 3) |
 | `adjudication.phases` | the `ability-phases` bundle from series contrast | the `ability-phases` adapter only | `ability-phases-0.3.0` | `ability-phase` | retire the code; its two structural rules become the child owner's tests |
 | `adjudication.gallery` | the `ability-gallery` bundle | nothing in the pipeline; its classifier is UNCALLED | `ability-gallery-0.2.0` | `ability-appearance` | retire the classifier; the game-texture glyph reader replaced it |
 | `adjudication.capture`, `ability_coverage` | demo capture queue; evidence inventory | `cli` | `ability-capture-0.1.0`, `ability-coverage-0.1.0` | `capture-queue`, `ability-evidence` | development tools, kept; `not_for` gains children |
@@ -252,6 +252,72 @@ Three kinds share the `(kind, id)` scheme of `EntityRow`:
   drawing's colour where the ability's own fact records one
   [domain:minimap/ability-drawing-colour-by-side], else `null` with its
   reason. An effect's side is its source's.
+
+### 2.2a The tree (player, 2026-10-09)
+
+Ability entities form a tree, not one level: slot, then ability instance,
+then spawned objects nested to any depth, then effects. A spawned object can
+be the child of another, and an effect is the child of whatever produced it:
+Cypher's tracking dart is a child of his Spycam, and the dart ends at
+Cypher's death while the camera persists. Each node is its own entity with
+its own lifecycle and its own `ends_on`. A node's `parent` may be any entity
+key (a slot, an instance, a spawned object), and the binding stays
+revisable, as for a glyph whose caster is unknown at the open. Where the
+table above says "parent slot", read "parent key". The `CHANNELS` table's
+`parent` column names what each witness binds a new node to, and the
+validator requires every ability and effect entity to name its parent or
+null it with a reason (step 1).
+
+### 2.2b Slot modes and placement (player, 2026-10-09)
+
+**Slot modes.** A mode is a state on the player's own slot entity, with an
+enter event and an exit event; it is never a child. Astral Form is Astra's
+mode: she enters it at any time and from it places stars and activates her
+abilities [domain:abilities/astra-astral-form-any-time]; her body stays where
+she entered, visible and vulnerable, so her slot's position belief holds
+that point through the mode [domain:abilities/astra-astral-form-body-stays].
+Her own screen shows the astral-form map
+[domain:abilities/astra-astral-form-screen-map], a witness of enter and exit
+on her capture. Omen's Dark Cover aim is a phase of his slot while he holds
+the ability, and he does not move during it
+[domain:abilities/omen-dark-cover-aim-still].
+
+**Placement per ability.** A child's placement is body-relative or global,
+taken from that ability's own fact, never by analogy
+[domain:abilities/ability-rules-are-unique]. A child with global placement
+keeps its parent binding to the caster, but the slot belief's reach rule
+(2.6) never ties its position to the caster's region: `cast_region` does not
+apply, and an undrawn global child has no region until a witness places it.
+The mechanics sheet's `placement` column asks each ability; it drafts Gravity
+Well and Nova Pulse as global from the star's facts
+[domain:abilities/astra-gravity-well-global-placement]
+[domain:abilities/astra-nova-pulse-global-placement], for the player to
+confirm.
+
+**Placement radius.** A body-relative child opens within its range of the
+caster's region at the cast, the `cast_region` of 2.6, never anywhere on the
+map. Omen's Dark Cover opens within 80 m of Omen's region
+[domain:abilities/omen-dark-cover-body-relative-placement]; the player first
+called it global and corrected that on 2026-10-09.
+
+**The star.** A star is one entity. Placing it opens it and picking it up
+closes it, freely, while it is unspent
+[domain:abilities/astra-stars-placed-and-picked-up]. Turning it into Nova
+Pulse, Nebula or Gravity Well is a one-way change of its kind that keeps its
+key; from then it runs that ability's own lifetime, and its effects are its
+children [domain:abilities/astra-star-spent-is-final]. Cosmic Divide is its
+own child of Astra's slot, not a turned star. A star turned into Nova Pulse
+becomes an instant charge-up and then ends; it leaves no object, and each
+player hit gets a concuss effect child that carries the only lasting
+lifetime [domain:abilities/astra-nova-pulse-charge-then-concuss].
+
+**The kit count.** The limit of stars deployed at once and its recharge are
+a count on Astra's kit, the `ability_tray` lane, not a field of any star:
+5 stars, recharging in 15.0 s
+[domain:abilities/astra-star-limit-and-recharge].
+
+**Open.** Whether Astra's minimap icon changes in Astral Form is unknown
+[domain:abilities/astra-astral-form-screen-map].
 
 ### 2.3 Opening at a cast: the witness table
 
@@ -544,24 +610,36 @@ Evidence: no LAYER finding for `ability_timeline`; `plan` names a runnable
 `ability_light` work on a session without candidates; the plan and tray
 tests pass.
 
-**Step 1. Enforce first.** Declarations and the ratchet, no new owner.
+**Step 1. Enforce first.** Declarations and the ratchet, no new code that
+decides. Done on branch `ability-entities-step1-20261009`:
 
-- `ownership.toml`: unowned entries `ability-child` ("Which ability
-  instances exist this round, which slot cast each, where is each and in
-  which phase?") and `ability-effect` ("What did each ability instance or
-  cast do, to whom, and for how long?"), each `blocked_by` step 2;
-  `ability-owner`'s `blocked_by` rewritten to step 3; every entry that
-  reads, joins or names ability evidence gains `entity_kind = "ability"`
-  and, where it feeds the child owner, `feeds = ["ability-child"]`.
-- `reticle/ratchets.py`, once its branch lands: ABILITY and its
-  shrink-only `ABILITY_LEGACY`, one entry per fragment of section 1 with
-  its fate and the step that clears it; ROUNDSCOPE with no exception for
-  ability state (2.7). `reticle status` prints the ability conversion line.
-- `reticle/doctor.py`: the LAYER check needs no change, since step 0
-  emptied `trees.allow`; the ABILITY check registers with the others.
-- `entity_contract`: the rejections of 2.9.
+- `reticle/slot_state.py` declares `CHANNELS` (2.3 as code, stamped
+  `ability-channels-0.1.0`): per witness its `parent`, `owners`,
+  `readers`, `streams`, `feeds` and what it may do (`opens`, `joins`,
+  `ends`, `kind`, `agent_claim`, `position`, `effect`); and
+  `ABILITY_LANES` (`ability`, `ability_tray`).
+- `ownership.toml`: `ability-child` (instances and nested spawned objects,
+  each with its parent) and `ability-effect` (an effect is a child of what
+  produced it), and `ability-owner`, all owned by `slot_state` as `partial`
+  with `names_agents = true` deferring to `agent-identity`; the limit and
+  the building step (2, or 3 for `ability-owner`) are in each entry. Every
+  entry that reads, joins or names ability evidence carries `entity_kind =
+  "ability"`, and each `CHANNELS` owner `feeds = ["ability-child"]` (with
+  `ability-effect` for kills and assists).
+- `reticle/ratchets.py`: ABILITY (`ability_findings`) and its shrink-only
+  `ABILITY_LEGACY` with the frozen `ABILITY_SEED`: 19 entries (5 streams, 2
+  lanes, 6 entries, 6 functions), each with its fate and step. Fragments
+  come from `plan`'s stream registry, `entity_events.ENTITY_LANES` and the
+  tagged entries; three entries stay apart by design (`ABILITY_APART`:
+  `capture-queue`, `ability-evidence`, `replay-ability-actors`). `reticle
+  status` prints the ability line. ROUNDSCOPE needs no ability exception,
+  since no child state exists yet.
+- `reticle/doctor.py` registers ABILITY (`check_ability`).
+- `entity_contract.check_ability_row`: the rejections of 2.9, with
+  `depends_on` for a name from another key's verdict (a parent's included),
+  and a required `parent` on every ability and effect entity.
 - `documents.toml`: section 1.5's plans amended.
-- Predictions for steps 2 to 4 logged in `notes/predictions.jsonl`.
+- Not done: predictions for steps 2 to 4 in `notes/predictions.jsonl`.
 
 Acceptance: `.\.venv\Scripts\python.exe -m reticle doctor`, then `.\.venv\Scripts\python.exe -m pytest tests\test_ratchets.py tests\test_entity_contract.py`.
 Evidence: 0 errors; one ABILITY warning per `ABILITY_LEGACY` entry; a test
@@ -730,6 +808,7 @@ closed.
 
 ## 7. What this plan does not settle
 
+- Whether Astra's minimap icon changes in Astral Form (2.2b).
 - No step is measured: every number of section 3 is to be predicted first.
 - The cue's cost and its miss rate on enemy casts no other channel
   witnesses.

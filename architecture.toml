@@ -80,6 +80,7 @@ modules = ["rounds", "checks", "reconciliation", "refinement",
            "minimap_objects",
            "ability_coverage", "ability_candidates",
            "ability_timeline", "ability_audio_fit", "gametime", "domain_learning",
+           "mechanics_sheet",
            "replay_source", "replay_actors", "replay_layer", "slot_state"]
 
 [entities]

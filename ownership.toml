@@ -183,6 +183,21 @@ produces = ["validate", "publish", "render"]
 not_for = "Accepted domain facts, entity identity, track association, or automatic promotion. The canonical fact owner is domain."
 evidence = "tests/test_domain_learning.py, tools/domain_hypothesis.py"
 
+[[entry]]
+id = "ability-mechanics-sheet"
+question = "What lifecycle class, lifetime, end conditions, effects and minimap drawing does each ability have, as the player confirms them from the game files?"
+owner = "mechanics_sheet"
+role = ["assign"]
+status = "shipped"
+entity_kind = "ability"
+produces = ["build", "walk", "import_rows"]
+not_for = """
+Any live ability instance, its phase or its end in a match (`slot_state`), and
+any agent or ability identity verdict. It drafts static per-ability facts from
+the game files; only the player's confirmed rows become `domain` facts.
+"""
+evidence = "tests/test_mechanics_sheet.py"
+
 # ---------------------------------------------------------------------------
 # Per-frame evidence, before anything interprets it
 # ---------------------------------------------------------------------------
@@ -371,6 +386,7 @@ question = "Which minimap floor pixels does something grey and opaque cover this
 owner = "minimap_dark"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["grey_dark", "occluded", "DarkRegionReader", "dark_reader"]
 not_for = """
 Deciding what covers the floor or how long it lasts; that is
@@ -387,6 +403,8 @@ question = "Is the dead Clove's smoke-range circle drawn on this minimap sample,
 owner = "clove_circle"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 produces = ["CloveCircleReader", "circle_reader", "stored_windows", "opportunity_windows",
             "fit_rim", "ray_profile", "kasa_circle", "ring_score", "RingSearch", "fact_radius",
             "CIRCLE_FACT", "PRESENT_MIN", "RADIUS_WINDOW", "RADIUS_WINDOW_MEASURED", "RIM_RMS_MAX", "SELF_TOL_BASE",
@@ -409,6 +427,8 @@ question = "Where and when is a smoke drawn on the player's minimap?"
 owner = "adjudication.smokes"
 role = ["adjudicate", "lifecycle"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 produces = ["tracks", "events"]
 not_for = """
 Which agent cast the smoke (`smoke-owner`), enemy smokes (only
@@ -424,6 +444,8 @@ question = "Which ally agent cast this minimap smoke?"
 owner = "adjudication.smoke_owner"
 role = ["attribute", "adjudicate"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 names_agents = true
 produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
             "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
@@ -550,6 +572,7 @@ question = "What does the icon in this killfeed entry's weapon slot look like?"
 owner = "killfeed"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["KILLFEED_WEAPON_VERSION", "ICON_WHITE_V_MIN", "ICON_WHITE_S_MAX", "ICON_GRID", "icon_white_mask", "icon_grid", "weapon_icon_observations", "unpack_icon_grid", "icon_extent", "ELEMENT_GAP", "PLATE_WHITE_CUT", "PLATE_MIN_PX", "PLATE_FILL", "PLATE_BEHIND_MIN", "plate_colour", "plate_whiteness", "slot_white_mask", "RING_R", "RING_ANGLES", "RING_TOL", "RING_COVER_MIN", "RING_INNER_MAX", "RING_ABSENT_MAX", "RING_STRIP", "ring_fit", "ring_verdict", "SOFT_MARGIN", "soft_patch", "WALLBANG_TEXTURE", "WALLBANG_BOX", "WALLBANG_DY", "WALLBANG_CUT", "wallbang_template", "wallbang_mark"]
 not_for = """
 Naming the weapon or ability. The reader stores the white mask's normalised grid,
@@ -637,6 +660,7 @@ question = "What does a killfeed entry's assist panel draw: how many assister po
 owner = "killfeed_assist"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["KILLFEED_ASSIST_VERSION", "ICON_BUILD", "PORTRAIT_W", "PORTRAIT_H", "ICON_PX", "ICON_PAD", "ICON_CELL", "MAX_ASSISTERS", "PRESENT_Z", "PLATE_SHARE_MIN", "ART_MIN_VISIBLE", "ICON_SURPRISE", "GENERIC_ICONS", "FRAME_MARGIN", "UIDATA_SKIP", "icon_art", "icon_templates", "game_portrait_paths", "portrait_art", "killer_art", "read_icon", "read_panel", "view_anchors", "view_anchor", "check_anchor", "assist_observation"]
 not_for = """
 Naming an assister or an ability. The reader stores, per view of a stored
@@ -655,6 +679,8 @@ question = "Who assisted each kill, by the killfeed's assist panel, and with whi
 owner = "adjudication.assist"
 role = ["adjudicate"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child", "ability-effect"]
 names_agents = true
 produces = ["ASSIST_ADJUDICATION_VERSION", "CHANNEL", "ICON_READ", "ICON_MARGIN", "NONE_ICON", "killer_side", "side_admitted", "view_claim", "pool_count", "decide_icon", "adjudicate_death", "adjudicate_session", "summary"]
 not_for = """
@@ -845,6 +871,7 @@ question = "Which minimap pixels does the team's drawn light call lit?"
 owner = "lighting"
 role = ["detect", "constrain"]
 status = "partial"
+entity_kind = "ability"
 produces = ["lit_mask", "raw_lit", "clean_lit", "pack_mask", "unpack_mask", "reference", "Lighting"]
 not_for = """
 Visibility truth, or confirmation. Light can REFUSE an entity and cannot
@@ -1517,6 +1544,8 @@ question = "When was an ability cast, and from which tray slot?"
 owner = "ability_timeline"
 role = ["detect", "corroborate"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs",
             "kit_windows", "round_window_of", "audio_session", "audio_cast_witness",
             "AUDIO_GATE_DIR", "KIT_REFUSALS", "tray_object_labels", "TRAY_OBJECT_DIR",
@@ -1538,6 +1567,7 @@ question = "When did a slot of the ability tray lose a charge, and is the readin
 owner = "tray"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["slot_counts", "fills", "drawn", "casts", "flag_suspect", "drops", "gold_candidates",
             "gold_witness"]
 not_for = """
@@ -1555,6 +1585,7 @@ question = "Which numeral does the restock countdown above a C, Q or E tray slot
 owner = "tray_countdown"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["FONT_RELPATH", "FONT_PT", "FONT_PX", "NUMERALS", "EMPTY", "NUMERAL_DX", "NUMERAL_CY", "READ_SLOTS", "LIT_MIN", "READ_MIN_SCORE", "READ_MIN_MARGIN", "font_path", "store_font", "templates", "value_s", "read_opportunity", "read_slot", "read_sample", "gold_rises", "score_against_returns"]
 not_for = """
 What the numeral counts, or when a charge comes back. The reader stores one
@@ -1590,6 +1621,8 @@ question = "What does each slot of the local player's kit hold at a time: charge
 owner = "adjudication.ability_state"
 role = ["adjudicate", "lifecycle"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 names_agents = true
 produces = ["adjudicate", "invariant_violations", "score_labels", "charge_facts",
             "pool_facts", "shared_pool_facts", "charge_priors", "duration_facts",
@@ -1625,6 +1658,8 @@ question = "Which ability of the player's kit does the audio around a tray cast 
 owner = "adjudication.ability_audio"
 role = ["corroborate"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 produces = ["session_frames", "explained", "background", "ar_filter", "whiten_frames",
             "Corpus", "class_tracks", "window_max", "clip_bounds", "range_max",
             "cast_scores", "identify", "params_path", "load_params",
@@ -1654,6 +1689,7 @@ question = "How well does each agent's catalogue icon for a tray slot match the 
 owner = "tray_icons"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["catalogue", "reference_key", "icon_template", "load_slot_icons", "slot_patches", "match_icon",
             "slot_scores", "slot_brightness", "ICON_PX", "ICON_CY", "SHIFT_PX", "SLOT_KEYS"]
 not_for = """
@@ -1672,6 +1708,8 @@ question = "Whose kit does the ability tray show at a time, and when does it sto
 owner = "adjudication.tray_kit"
 role = ["attribute", "adjudicate"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 names_agents = true
 produces = ["adjudicate", "read_sample", "candidate_sets", "stored_kit_witness",
             "spectated_agent", "kit_transitions", "kit_agents_at", "own_kit_mask",
@@ -1695,6 +1733,7 @@ question = "Where in a capture's audio does an official ultimate voice line matc
 owner = "ult_lines"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["read_capture", "observations", "build_templates", "load_manifest",
             "manifest_from_assets", "ult_event_rows", "manifest_dir",
             "phat_tracks", "track_peaks",
@@ -1715,6 +1754,8 @@ question = "Which ultimate was cast, by which side, when?"
 owner = "adjudication.ult_cast"
 role = ["attribute", "adjudicate"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 names_agents = true
 produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_of",
             "THRESHOLD", "cast_window", "CAST_WINDOW", "OWN_WINDOW_S", "player_x_drops", "rests_on_line",
@@ -1745,6 +1786,7 @@ question = "Which ability properties have evidence, and from which source?"
 owner = "ability_coverage"
 role = ["count"]
 status = "shipped"
+entity_kind = "ability"
 produces = ["build_inventory", "write_inventory"]
 not_for = """
 Detector capability. `coverage` here counts EVIDENCE, and reading it as what the
@@ -1759,6 +1801,7 @@ question = "Which observed components belong to one ability entity?"
 owner = "adjudication.ability"
 role = ["group", "adjudicate"]
 status = "partial"
+entity_kind = "ability"
 produces = ["build_entities", "onset_groups", "persistence_groups"]
 not_for = """
 A final classification, and an owner. It emits ALTERNATIVE parent edges and
@@ -1773,6 +1816,7 @@ question = "What phase is an ability entity in, and what caused the transition?"
 owner = "adjudication.phases"
 role = ["lifecycle", "constrain"]
 status = "partial"
+entity_kind = "ability"
 produces = ["entity_phases", "candidate_causes", "segment"]
 not_for = """
 Component detection or agent ownership. Devices DIM on deactivation and entities
@@ -1787,6 +1831,7 @@ question = "What does this ability look like, and does the gallery separate it?"
 owner = "adjudication.gallery"
 role = ["corroborate", "constrain"]
 status = "partial"
+entity_kind = "ability"
 produces = ["build_gallery_bundle", "evaluate", "permutation_p", "extract_glyph_features", "classify_ability_glyph", "load_harvested_gallery", "integrate_crop_gallery"]
 not_for = """
 The live classifier. Temporal shape failed to separate the Deadlock sensor from
@@ -1801,6 +1846,7 @@ question = "What should be recorded next, and was the take usable?"
 owner = "adjudication.capture"
 role = ["constrain"]
 status = "shipped"
+entity_kind = "ability"
 produces = ["build_queue", "verify_takes", "record_take"]
 not_for = "Any identity claim. It plans recordings and validates takes."
 evidence = "tests/test_ability_capture.py"
@@ -1952,6 +1998,8 @@ question = "Which weapon or ability caused this death?"
 owner = "adjudication.weapon"
 role = ["attribute", "adjudicate"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child", "ability-effect"]
 produces = ["WEAPON_ADJUDICATION_VERSION", "WEAPON_GALLERY_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "MINED_NOT_GUN", "extract_icon_observation", "name_icon", "entry_weapon", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery", "load_weapon_gallery", "load_mined_gallery", "mined_gallery_path", "bind_entry", "ability_agent", "caster_claim", "restrict_gallery", "EXTRA_ABILITY_AGENTS", "REFUSE_NEW", "REFUSE_AMBIGUOUS", "NAME_KIT_MIN_IOU", "AUDIT_EVERY", "KILLFEED_KITS", "KILLFEED_OPEN", "kit_names", "candidate_tiers", "name_frame", "audit_entry", "SOFT_MIN_ZNCC", "SOFT_NAME_MARGIN", "soft_templates", "soft_whole", "soft_scores", "soft_name"]
 names_agents = true
 defers_to = ["agent-identity"]
@@ -1981,16 +2029,74 @@ evidence = "tests/test_weapon_attribution.py"
 [[entry]]
 id = "ability-owner"
 question = "Which agent cast this ability?"
+owner = "slot_state"
 role = ["attribute", "adjudicate"]
-status = "unowned"
+status = "partial"
+entity_kind = "ability"
+names_agents = true
+produces = ["CHANNELS", "ABILITY_CHANNELS_VERSION", "ABILITY_ENTRIES"]
+defers_to = ["agent-identity"]
 not_for = """
-Inference from the tray alone. Cast order, roster, audio, killfeed ability icons
-and owner-death linkage are candidate witnesses; the killfeed icon is biased
-toward damaging abilities and represents no smoke, wall or recon use. A
-minimap smoke's caster is `smoke-owner`'s question. A minimap glyph track's
-claim (`ability-glyph-name`) is its first witness, not its answer.
+Deciding the name itself: a child's agent is the `agent-identity` arbiter's
+verdict on the child key, and this owner re-keys each channel's claim to the
+child (`CHANNELS`, column `agent_claim`). Nor inference from the tray alone:
+cast order, roster, audio, killfeed ability icons and owner-death linkage are
+witnesses; the killfeed icon is biased toward damaging abilities and
+represents no smoke, wall or recon use. A minimap smoke's caster stays
+`smoke-owner`'s channel verdict and a glyph track's (`ability-glyph-name`) its
+channel's, inputs here, never the answer. Limit: only the declaration exists;
+no child is built and no `ability_child_identity` is written until
+docs/ABILITY_ENTITIES.md step 3.
 """
-blocked_by = "agent-identity, plus the ability_icon lane that carries the glyph tracks as entities (docs/MINIMAP_GLYPH_CHANNEL.md stage 4)."
+blocked_by = "docs/ABILITY_ENTITIES.md step 3: the team's children, channel claims re-keyed to children, ability_child_identity written."
+evidence = "tests/test_ratchets.py (ABILITY)"
+
+[[entry]]
+id = "ability-child"
+question = "Which ability instances and spawned objects exist this round, what is each one's parent (a slot, an instance or another spawned object), where is each and in which phase?"
+owner = "slot_state"
+role = ["lifecycle", "assign"]
+status = "partial"
+entity_kind = "ability"
+names_agents = true
+produces = ["CHANNELS", "ABILITY_CHANNELS_VERSION", "ABILITY_LANES", "OPENS", "KIND_ABILITY",
+            "ABILITY_ENTRIES"]
+defers_to = ["agent-identity"]
+not_for = """
+A reader's or a channel owner's job: readers report pixel and audio evidence,
+channel owners one channel's continuity and verdict (`CHANNELS` names each and
+what it may do); this owner decides which of their products are one instance.
+Nor the kit (`ability-state`: charges, equipped, castable), nor an agent name
+(`agent-identity`, on the child key). Each node of the tree (slot, instance,
+nested spawned objects, effects) keeps its own lifecycle; a parent binding is
+revisable and never part of the key. Nothing crosses a round barrier
+[domain:rounds/no-ability-crosses-round-barrier]. Limit: only `CHANNELS` and
+`ABILITY_LANES` exist; the `ability` kind, its lifecycle builder and binder,
+and the `ability` lane come in docs/ABILITY_ENTITIES.md step 2.
+"""
+blocked_by = "docs/ABILITY_ENTITIES.md step 2: the player's own children in slot_state."
+evidence = "tests/test_ratchets.py (ABILITY), tests/test_entity_contract.py (ability rejections)"
+
+[[entry]]
+id = "ability-effect"
+question = "What did each ability instance, spawned object or cast do, to whom, and for how long? An effect is a child of whatever produced it."
+owner = "slot_state"
+role = ["attribute", "lifecycle"]
+status = "partial"
+entity_kind = "ability"
+names_agents = true
+produces = ["CHANNELS", "KIND_EFFECT", "ABILITY_ENTRIES"]
+defers_to = ["agent-identity"]
+not_for = """
+The kill or assist verdict itself (`death-victim`, `kill-assists`, witnesses
+here), or an effect computed from a fact's `effect_query`, which is a
+prediction stored apart from a witnessed effect. Which targets an ability's
+effect reaches comes from that ability's facts, never by analogy
+[domain:abilities/ability-rules-are-unique]. Limit: only the declaration
+exists; the `effect` kind comes in docs/ABILITY_ENTITIES.md step 2.
+"""
+blocked_by = "docs/ABILITY_ENTITIES.md step 2: the player's effects in slot_state."
+evidence = "tests/test_ratchets.py (ABILITY), tests/test_entity_contract.py (ability rejections)"
 
 [[entry]]
 id = "ability-detection"
@@ -1998,6 +2104,7 @@ question = "Where in the frame is an ability entity?"
 owner = "minimap"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["detect_ability_discs", "detect_ability_walls", "detect_trapwire_anchors"]
 not_for = """
 `adjudication.ability` being read as the detector. It groups components that
@@ -2012,6 +2119,8 @@ question = "Where is the drawn minimap shape a candidate descriptor describes: a
 owner = "ability_shapes"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 produces = ["fit_shape", "fit_ring", "fit_beam", "fit_segments", "fit_curve", "longest_segment", "on_map", "ring_candidates", "beam_sweep", "widened_beam", "beam_accepted", "colour_weight", "colour_model", "candidate_radii", "beam_geometry", "surprise_beam", "descriptor_ref", "SURPRISE_COLOUR"]
 not_for = """
 Choosing which abilities could be drawn or their sizes and colours
@@ -2032,6 +2141,7 @@ question = "Which abilities could a minimap crop at this time draw, with which d
 owner = "ability_candidates"
 role = ["assign"]
 status = "partial"
+entity_kind = "ability"
 names_agents = true
 produces = ["TABLE", "ICONS", "CASTS_WHILE_DEAD", "ability_descriptor", "CandidateSupply", "for_session", "values_digest", "map_of"]
 not_for = """
@@ -2052,6 +2162,8 @@ question = "Which sampled minimap crops of a match hold teal that an ability dra
 owner = "ability_scan"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 produces = ["teal_gate", "AbilityShapeReader", "shape_reader"]
 not_for = """
 Fitting the shapes, which `ability-shape` owns (`ring_candidates`,
@@ -2068,6 +2180,7 @@ question = "Where on a sampled minimap crop are dark compact discs an ability ic
 owner = "ability_icons"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["IconTerms", "propose_icons", "verify_icons", "verified_continuations", "AbilityIconReader", "icon_reader"]
 not_for = """
 Naming the ability, its kind, its side or its caster (`ability-owner`,
@@ -2084,6 +2197,7 @@ question = "Which game minimap texture of the candidate kits does each proposed 
 owner = "minimap_glyph"
 role = ["detect"]
 status = "partial"
+entity_kind = "ability"
 produces = ["GlyphData", "Templates", "score_windows", "AbilityGlyphReader", "glyph_reader", "LiveIcons", "StoredIcons", "StoredPortraits", "portrait_covers", "check_pass"]
 defers_to = ["ability-icon", "ally-candidates", "map-geometry"]
 not_for = """
@@ -2109,6 +2223,8 @@ question = "Which stored minimap ability-disc observations are one object, from 
 owner = "adjudication.ability"
 role = ["group"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 produces = ["disc_tracks", "JUMP_REACH_BASE", "FIRST_SECOND_MS", "TRACK_ENDS"]
 not_for = """
 Reading pixels: the follow's fixes and the verify that links them are the
@@ -2127,6 +2243,8 @@ question = "Which ability does a tracked minimap disc draw, in which texture sta
 owner = "adjudication.ability_glyph"
 role = ["adjudicate", "attribute"]
 status = "partial"
+entity_kind = "ability"
+feeds = ["ability-child"]
 names_agents = true
 produces = ["adjudicate", "session_adjudication", "disc_verdicts", "stored_verdicts_stale",
             "glyph_placement", "places_glyph", "PLACING_REFUSALS", "VerdictTables", "load_glyph_rows", "load_icon_verify", "frame_views",
@@ -2357,6 +2475,7 @@ question = "Which replay actor is which ability, and which replay player cast it
 owner = "replay_actors"
 role = ["attribute"]
 status = "partial"
+entity_kind = "ability"
 produces = ["Export", "class_census", "slot_map", "handoff_pairs", "handoff",
             "ability_display", "REPLAY_ACTORS_VERSION"]
 not_for = """

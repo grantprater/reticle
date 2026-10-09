@@ -415,7 +415,9 @@ _recall_children = acc.recall_children
 _recall_marks = acc.recall_marks
 _step_summary = acc.step_summary
 
-VERSION = "question-acceptance-0.9.0"
+#: 0.10.0 (task teardrop-new-sessions-20261009): `NEW` and `SCORED` come from
+#: `teardrop_refusals`; every pooled metric record names its scope by `_pool_name`.
+VERSION = "question-acceptance-0.10.0"
 TASK10 = "harness-promote-20261009"
 TASK = "event-harness-20261007"
 TASK9 = "harness-step9-20261009"
@@ -424,8 +426,8 @@ OUT = STORE / "analysis" / "question-acceptance"
 DEV = tr.DEV
 #: The 2026-10-07 replay captures, whose inputs are current (`reticle plan`):
 #: the steps that need no tagged enemy-lane arm score them beside `DEV`.
-NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
-SCORED = DEV + NEW
+NEW = tr.NEW
+SCORED = tr.SCORED
 #: The `--reality` arms and the folder suffix each writes under.
 ARMS = {"off": "", "on": "_reality"}
 
@@ -913,7 +915,8 @@ def _record_paired(doc: dict) -> None:
     from reticle.metrics import record as rec
     vals = {f"{q}_diff": v["diff"] for q, v in doc["diff"]["pooled"].items()}
     ci = {f"{q}_diff": v["ci"] for q, v in doc["diff"]["pooled"].items()}
-    rec("question_acceptance", part=f"lane/{doc['tag']}/reality-paired", session="dev3", values=vals, ci=ci,
+    rec("question_acceptance", part=f"lane/{doc['tag']}/reality-paired", session=_pool_name(doc["sessions"]),
+        values=vals, ci=ci,
         deps={"version": VERSION, "rule": "T1d"},
         context={"task": "detection-reality-20261007", "boot": doc["boot"], "sessions": doc["sessions"]},
         note="detection_reality on minus off, per question, pooled over the development matches; "
@@ -941,10 +944,11 @@ def _record(doc: dict, arm: str | None = None) -> None:
                  "rate and icon precision beside named-slot presence/position recall and precision")
     if doc["pooled"]:
         vals, ci = _metric_values(doc["pooled"])
-        rec("question_acceptance", part=f"lane/{tag}", session="dev3", values=vals, ci=ci,
+        rec("question_acceptance", part=f"lane/{tag}", session=_pool_name(doc["pooled"]["sessions"]),
+            values=vals, ci=ci,
             deps={"version": VERSION, "rule": "T1d"}, context={"task": TASK, "boot": doc["boot"],
                                                                "sessions": doc["pooled"]["sessions"]},
-            note="pooled over the development matches; rounds resampled within each match")
+            note="pooled over the sessions; rounds resampled within each match")
 
 
 def _record_classes(doc: dict, arm: str | None = None) -> None:
@@ -955,7 +959,7 @@ def _record_classes(doc: dict, arm: str | None = None) -> None:
     tag = doc["tag"] + (f"/{arm}" if arm else "")
     scopes = [(sid, r["classes"]) for sid, r in doc["sessions"].items() if r.get("classes")]
     if doc.get("pooled") and doc["pooled"].get("classes"):
-        scopes.append(("dev3", doc["pooled"]["classes"]))
+        scopes.append((_pool_name(doc["pooled"]["sessions"]), doc["pooled"]["classes"]))
     for scope, c in scopes:
         vals = {"finds": c["finds"], **{o: c["outcomes"][o] for o in CLASS_OUTCOMES},
                 "true_fa": c["true_fa"]}
@@ -972,7 +976,7 @@ def _record_classes(doc: dict, arm: str | None = None) -> None:
                         "recall_" + k.split(":", 1)[-1].replace(":", "_").replace(" ", "_").lower())
                 vals[name] = v["value"]
                 ci[name] = v["ci"]
-        inst = c["instrument"] if scope != "dev3" else None
+        inst = c["instrument"] if scope in doc["sessions"] else None
         ctl = [] if inst is None else [{"name": inst["name"], "observed": inst["share_le_1px"], "expected": 1.0,
                                         "tol": 0}]
         rec("question_acceptance", part=f"classes/{tag}", session=scope, values=vals, ci=ci, controls=ctl,
@@ -3208,7 +3212,7 @@ def run_budget(tag: str, sessions: list[str], record: bool, rewrite: bool = Fals
             if scope == "pooled" and ctl["tables_equal"] is not None:
                 ctl_rows.append({"name": "players-only tables equal the stored enemy_error_budget tables",
                                  "observed": int(ctl["tables_equal"]), "expected": 1, "tol": 0})
-            rec("question_acceptance", part=f"budget/{tag}", session=scope if scope != "pooled" else "dev3",
+            rec("question_acceptance", part=f"budget/{tag}", session=scope if scope != "pooled" else _pool_name(sessions),
                 values=vals, ci=ci, controls=ctl_rows,
                 deps={"version": VERSION, "budget_version": eb.VERSION, "rule": "T1d", "near_cm": NEAR_CM,
                       "window_ms": WINDOW_MS, "ambig_cm": AMBIG_CM, "refined": BUDGET_REFINED},

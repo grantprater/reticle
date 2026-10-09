@@ -25,7 +25,8 @@ from pathlib import Path
 from ..ability_timeline import build_timeline
 
 
-ABILITY_ENTITY_VERSION = "ability-entities-0.3.0"
+#: 0.3.1 (2026-10-09): Dark Cover's origin driver is fixed, not global.
+ABILITY_ENTITY_VERSION = "ability-entities-0.3.1"
 #: Refuses a candidate that is the team's drawn light. Decided here from stored
 #: `ability_light` evidence and the stored `team_vision`; the reader stores the
 #: raw lit decision and decides nothing.
@@ -202,7 +203,9 @@ PARAMETER_RULES = {
     "viper:viper's pit": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
     "jett:cloudburst": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
     "brimstone:sky smoke": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
-    "omen:dark cover": {"origin_driver": "global", "bearing_driver": "absent", "extent": "radius"},
+    # Placed within 80 m of Omen, not global (player, 2026-10-09)
+    # [domain:abilities/omen-dark-cover-body-relative-placement].
+    "omen:dark cover": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
 }
 
 
