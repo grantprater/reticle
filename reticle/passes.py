@@ -393,10 +393,12 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
 
 
 def cache_backend(cache) -> dict:
-    """What decodes a crop cache's pass, for the usage record: OpenCV reads
-    both codecs, an FFV1 cache through `cv2.VideoCapture` and a PNG one
-    through `cv2.imdecode`."""
-    return {"backend": "opencv", "codec": cache.record.get("codec"), "source": "cache"}
+    """What decodes a crop cache's pass, for the usage record: an FFV1 cache
+    reads through OpenCV and PyAV, chosen per read by the gap
+    (`roi_cache._Ffv1Rect`); a PNG one through OpenCV's `cv2.imdecode`."""
+    codec = cache.record.get("codec")
+    return {"backend": "opencv+pyav" if codec == "ffv1" else "opencv", "codec": codec,
+            "source": "cache"}
 
 
 def run_cached(ctx: SessionContext, readers: list, cache, progress=None,

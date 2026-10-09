@@ -6758,7 +6758,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "`ingest-passes` defaults to 3)")
     s.add_argument("--ally-gate", choices=("off", "on"), default="off",
                    help="on: ally_icon reads only where its frame gate opens "
-                        "(`ally_gate`, ally-gate-0.1.0) plus the audit cadence, stored apart "
+                        "(`ally_gate`, `ALLY_GATE_VERSION`) plus the audit cadence, stored apart "
                         "as STREAM_audit; off (default until the held-out match scores it): "
                         "the full grid")
     s.add_argument("--ally-stream", default="ally_icon", metavar="STREAM",

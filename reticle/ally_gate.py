@@ -5,7 +5,7 @@ module holds the runtime gate the hook in `passes` asks before each frame
 of the reader's 15 Hz grid is decoded or fetched from the crop cache. It
 decides when the ally pass reads, never what a read means.
 
-The rule (ally-gate-0.2.0; 0.1.0 was fixed before its evaluation)
+The rule (ally-gate-0.3.0; 0.1.0 was fixed before its evaluation)
 -----------------------------------------------------------------
 The gate reads the slot belief the gated reads themselves built
 (`slot_state.GateBelief`: the reach law, the open teammate count from the
@@ -16,7 +16,7 @@ channels' stored rows. At each instant of the grid, in order:
 2. `unanchored` opens: no read yet in this round, or since a gap in the
    offered frames longer than `RESET_GAP_MS` (the pose prior's gap,
    `teardrop.PRIOR_GAP_MS`), where the belief restarts.
-3. A cue opens a read every `CUE_PERIOD_MS` (133 ms) while it holds:
+3. A cue opens a read every `CUE_PERIOD_MS` (200 ms) while it holds:
    `cue:death`, a death verdict of either side within the last
    `CUE_HOLD_MS`; `cue:enemy_near`, a stored enemy icon (`minimap_object`)
    within `LOCAL_M` of a teammate icon of the last read, within the last
@@ -36,6 +36,12 @@ speed (`reach_px_per_s`, `v_max / m_per_px`), with which
 of a full search. On the 0.1.0 reread of cadaadeb2d8b 77% of pose searches
 ran the full grid (21% at 15 Hz), at 166 ms per read frame.
 
+0.3.0 returns the cue period to 200 ms and keeps the reach-widened prior:
+the 0.2.0 reread searched the full grid on 45% of pose reads, at 149 ms per
+read frame, but the shorter period added 528 reads and 406 s of CPU against
+0.1.0's 370 s. With the prior continued to `teardrop.PRIOR_GAP_MAX_MS`, the
+216-250 ms cue gaps no longer lose it.
+
 The declared audit cadence (`AUDIT`, applied by the hook) reads every grid
 frame in a 2 s window each 120 s of each span, stored apart.
 
@@ -53,14 +59,15 @@ from .teardrop import PRIOR_GAP_MS
 
 #: ally-gate-0.1.0 (2026-10-09): the first frame gate (gate-hook-20261009).
 #: 0.2.0: the cue period under the pose prior's gap, and the reach speed
-#: handed to the pose prior (`POSE_REACH`).
-ALLY_GATE_VERSION = "ally-gate-0.2.0"
+#: handed to the pose prior (`POSE_REACH`). 0.3.0: the cue period back at
+#: 200 ms; the pose prior's reach carries the gaps.
+ALLY_GATE_VERSION = "ally-gate-0.3.0"
 #: The question's tolerance in metres: a teammate's region wider than this
 #: is worth a read.
 TOL_M = 15.0
-#: Inside a cue, one read per this many milliseconds: two steps of the
-#: 15 Hz grid, safely under `teardrop.PRIOR_GAP_MS`.
-CUE_PERIOD_MS = 133.0
+#: Inside a cue, one read per this many milliseconds: three steps of the
+#: 15 Hz grid; the reach-widened prior (`POSE_REACH`) spans the gap.
+CUE_PERIOD_MS = 200.0
 #: Hand the reader the reach speed, so its pose prior survives the gaps.
 POSE_REACH = True
 #: A cue holds this long after its last instant.

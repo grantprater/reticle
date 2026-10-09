@@ -210,7 +210,21 @@ class ProcessRun:
                 "wall_s": round(wall, 3),
                 "child_wall_s": [round(g["wall_ns"] / 1e9, 3) for g in got],
                 "child_cpu_s": [round(g["cpu_ns"] / 1e9, 3) for g in got],
+                "child_fetch_cpu_s": [round(g.get("fetch_cpu_ns", 0) / 1e9, 3) for g in got],
                 "cpu_ns": sum(g["cpu_ns"] for g in got)}
+
+
+def _timed(frames, total: list):
+    """`frames`, adding the process CPU each fetch takes to `total[0]`: the
+    crop decode and, on a gated pass, the gate's questions before it."""
+    it = iter(frames)
+    while True:
+        c0 = time.process_time_ns()
+        smp = next(it, None)
+        total[0] += time.process_time_ns() - c0
+        if smp is None:
+            return
+        yield smp
 
 
 def _child(spec_path: str) -> int:
@@ -245,23 +259,24 @@ def _child(spec_path: str) -> int:
         reader.after_gap(float(spec["seed_t_ms"]))
     wall, cpu = time.perf_counter_ns(), time.process_time_ns()
     fed = 0
+    fetch = [0]
     if spec.get("gate"):
         # The hook's rule, as `passes.run_cached` applies it: a gated
         # reader's gate is asked before each crop fetch.
         lazy, pending = gated_times([reader], spec["times"], lambda t: [reader])
-        for smp in cache.samples(lazy, rois=_cache_rois(reader)):
+        for smp in _timed(cache.samples(lazy, rois=_cache_rois(reader)), fetch):
             for r, d in pending.pop(float(smp.t_ms), ()):
                 _feed(r, smp, None)
                 fed += 1
                 if d is not None:
                     gate_after(r, smp.t_ms, d)
     else:
-        for smp in cache.samples(spec["times"], rois=_cache_rois(reader)):
+        for smp in _timed(cache.samples(spec["times"], rois=_cache_rois(reader)), fetch):
             _feed(reader, smp, None)
             fed += 1
     out = {"lists": {n: getattr(reader, n) for n in reader.shardable},
            "candidates": reader.candidates, "gate_log": getattr(reader, "gate_log", None),
-           "fed": fed,
+           "fed": fed, "fetch_cpu_ns": fetch[0],
            "wall_ns": time.perf_counter_ns() - wall, "cpu_ns": time.process_time_ns() - cpu}
     with open(spec["out"], "wb") as f:
         pickle.dump(out, f, protocol=pickle.HIGHEST_PROTOCOL)

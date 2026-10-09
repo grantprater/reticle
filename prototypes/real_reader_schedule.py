@@ -14,13 +14,15 @@ sight questions through the same `derive_episodes` and `answers`.
     python prototypes/real_reader_schedule.py hook-report [--record]
 
 `hook` (task `gate-hook-20261009`, row G1) runs the production ally gate
-(`reticle/ally_gate.py`, ally-gate-0.1.0) through the passes hook over each
+(`reticle/ally_gate.py`, `ALLY_GATE_VERSION`) through the passes hook over each
 session's stored 15 Hz ally_icon frames, keeps V15h's fits only where the
 gate reads (`Vhook`) or reads or audits (`Vhook+a`), and scores both against
 V15h under QA5r3; `hook-report` pools dev3, new3 and all six and prints the
 frame share and estimated CPU beside the stored 15 Hz pass's. The binding is
 V15h's, made over every frame, so the arm overstates a gated pass's binding.
-Outputs: `<store>/analysis/gate-hook-20261009/`.
+Outputs: `<store>/analysis/gate-hook-20261009/` for ally-gate-0.1.0, and a
+subdirectory named by the version for each later gate, so no result
+overwrites an earlier gate's.
 
 Arms, the capturing team's perspective only (the layer's self subject):
 
@@ -2787,10 +2789,19 @@ def outcome_reach() -> int:
 # ----------------------------------------------------------------- the hook's ally gate (gate-hook-20261009)
 
 HOOK_TASK = "gate-hook-20261009"
-HOOK_OUT = STORE / "analysis" / HOOK_TASK
+HOOK_BASE = STORE / "analysis" / HOOK_TASK
+
+
+def hook_out(version: str) -> Path:
+    """Where the hook's results for gate `version` live: 0.1.0's at the
+    task's root, where they were first written; each later gate's beside
+    them, under its version."""
+    return HOOK_BASE if version == "ally-gate-0.1.0" else HOOK_BASE / version
+
+
 HOOK_DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
 HOOK_NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
-#: Hook arms: V15h's fits kept only on the frames ally-gate-0.1.0 reads
+#: Hook arms: V15h's fits kept only on the frames the gate reads
 #: (`Vhook`), and on those plus its audit windows (`Vhook+a`).
 REF.update({"Vhook": "V15h", "Vhook+a": "V15h", "Vgated": "V15h"})
 ORDER = ORDER + ("Vhook", "Vhook+a", "Vgated")
@@ -2801,7 +2812,9 @@ HOOK_CAVEAT = ("Vhook and Vhook+a keep V15h's fits and its causal binding, both 
                "arms overstate it. Vgated scores a real gated stream, rebuilt through "
                "slot_state.build_slots from its own rows.")
 #: The real gated streams scored as `Vgated`, by session.
-HOOK_REAL = {"cadaadeb2d8b": "ally_icon_gated"}
+HOOK_REAL = {"ally-gate-0.1.0": {"cadaadeb2d8b": "ally_icon_gated"},
+             "ally-gate-0.2.0": {"cadaadeb2d8b": "ally_icon_gated2"},
+             "ally-gate-0.3.0": {"cadaadeb2d8b": "ally_icon_gated3"}}
 #: The 15 Hz pass's ally_icon CPU per frame (ms), from each session's last
 #: completed `vod_scan` usage record that fed ally_icon (`notes/usage.jsonl`).
 ALLY_MS_KEYS = ("thread_cpu_ns", "feed.total_ns")
@@ -2866,7 +2879,7 @@ def stored_ally_frames(sid: str) -> dict:
 
 
 def simulate_gate(sid: str, A: dict | None = None) -> dict:
-    """ally-gate-0.1.0 run over the stored 15 Hz ally_icon frames in order,
+    """The ally gate (`ALLY_GATE_VERSION`) run over the stored 15 Hz ally_icon frames in order,
     through the production hook (`passes.gate_decide`, `gate_after`): each
     offered frame asks the gate; a frame it reads feeds back the teammate
     icons stored there. The spans are the frames' runs (cut at gaps over
@@ -2935,7 +2948,8 @@ def hook_arms(sid: str) -> tuple[list[dict], dict]:
     both = np.asarray(sorted(set(log.read_t) | set(log.audit_t)), float)
     info = {"session": sid, "gate": sim["summary"], "offered": sim["offered"], "spans": sim["spans"],
             "gate_us_per_offered": sim["gate_us_per_offered"], "params": sim["params"],
-            "rests_on": sim["rests_on"], "ally_cost": cost_ms, "caveat": HOOK_CAVEAT}
+            "rests_on": sim["rests_on"], "ally_cost": cost_ms, "caveat": HOOK_CAVEAT,
+            "gate_version": sim["log"].version}
     for arm, keep in (("Vhook", read_t), ("Vhook+a", both)):
         Vh = dict(V)
         Vh["has"] = V["has"] & np.isin(V["fr_t"], keep)[None, :]
@@ -2949,7 +2963,8 @@ def hook_arms(sid: str) -> tuple[list[dict], dict]:
                                            + sim["gate_us_per_offered"] * sim["offered"] / 1e6, 1)
         M.A[arm] = _answers(M, {**tr, **enemies}, {**gp, **egaps}, M.events, arm)
         rows.append(_arm_row(M, arm, cost, {"read_ratio_vs_ref": cost["reads"] / max(costV["reads"], 1)}))
-    stream = HOOK_REAL.get(sid)
+    from reticle.ally_gate import ALLY_GATE_VERSION
+    stream = HOOK_REAL.get(ALLY_GATE_VERSION, {}).get(sid)
     if stream is not None:
         Vg = gated_slots(M, stream)
         tr, gp, cost = M.v15_tracks(Vg)
@@ -2992,6 +3007,8 @@ def gated_slots(M, stream: str) -> dict:
 def run_hook(sessions: list[str]) -> int:
     for s in sessions:
         refuse(s)
+    from reticle.ally_gate import ALLY_GATE_VERSION
+    HOOK_OUT = hook_out(ALLY_GATE_VERSION)
     HOOK_OUT.mkdir(parents=True, exist_ok=True)
     rows, infos = [], []
     for s in sessions:
@@ -3008,13 +3025,16 @@ def run_hook(sessions: list[str]) -> int:
 
 def report_hook(record: bool = False) -> int:
     """QA5r3 per pool for the hook arms, and read share and CPU per session."""
+    from reticle.ally_gate import ALLY_GATE_VERSION
+    HOOK_OUT = hook_out(ALLY_GATE_VERSION)
     rows = [json.loads(x) for x in (HOOK_OUT / "rows.jsonl").read_text(encoding="utf-8").splitlines()
             if x.strip()]
     infos = {i["session"]: i for i in json.loads((HOOK_OUT / "info.json").read_text(encoding="utf-8"))}
     pools = {"dev3": [r for r in rows if r["session"] in HOOK_DEV],
              "new3": [r for r in rows if r["session"] in HOOK_NEW], "all6": rows}
     pools["cadaadeb2d8b"] = [r for r in rows if r["session"] == "cadaadeb2d8b"]
-    res = {"rule": "QA5r3", "tol": QA5R3_TOL, "cap": QA5R2_CAP, "caveat": HOOK_CAVEAT,
+    res = {"rule": "QA5r3", "gate": ALLY_GATE_VERSION, "tol": QA5R3_TOL, "cap": QA5R2_CAP,
+           "caveat": HOOK_CAVEAT,
            "pools": {k: qa5r2_pool(v, "QA5r3") for k, v in pools.items() if v}, "sessions": {}}
     print("session        offered  gate  +audit  frame_share  +audit  slot_share(V15h)  "
           "cpu_15hz_s  cpu_gated_s  ms/frame")
@@ -3061,13 +3081,13 @@ def report_hook(record: bool = False) -> int:
                     vals.update({f"{q}.loss": v["loss"], f"{q}.ci_lo": v["ci"][0],
                                  f"{q}.ci_hi": v["ci"][1], f"{q}.n": v["n"]})
                 rec("real_reader_schedule", part=f"hook/{arm}", session=pname, values=vals,
-                    deps={"version": VERSION, "gate": "ally-gate-0.1.0", "rule": "QA5r3"},
+                    deps={"version": VERSION, "gate": ALLY_GATE_VERSION, "rule": "QA5r3"},
                     context={"task": HOOK_TASK, "ref": o["ref"], "caveat": HOOK_CAVEAT})
         for s, v in res["sessions"].items():
             rec("real_reader_schedule", part="hook/cost", session=s,
                 values={k: (round(x, 4) if isinstance(x, float) else x) for k, x in v.items()
                         if not isinstance(x, dict)},
-                deps={"version": VERSION, "gate": "ally-gate-0.1.0"},
+                deps={"version": VERSION, "gate": ALLY_GATE_VERSION},
                 context={"task": HOOK_TASK, "caveat": HOOK_CAVEAT})
     return 0
 
@@ -3100,7 +3120,7 @@ def main(argv=None) -> int:
     rv = sub.add_parser("reach-value")
     rv.add_argument("--record", action="store_true")
     sub.add_parser("outcome-reach")
-    hk = sub.add_parser("hook", help="ally-gate-0.1.0 simulated on stored ally_icon rows, QA5r3")
+    hk = sub.add_parser("hook", help="the ally gate simulated on stored ally_icon rows, QA5r3")
     hk.add_argument("sessions", nargs="+")
     hr = sub.add_parser("hook-report")
     hr.add_argument("--record", action="store_true")
