@@ -81,6 +81,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]
 .\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph|clove_circle [--sample] [--windows-file CSV] [--rows-out DIR]
 .\.venv\Scripts\python.exe -m reticle dev-sample [--residuals CSV] [--stream S --where F=V] [--extend CSV] --out CSV
+.\.venv\Scripts\python.exe -m reticle acceptance summary --tag TAG [SESSION ...]   # lane, label, steps, budget: prototypes\question_acceptance.py
 .\.venv\Scripts\python.exe prototypes\killfeed_trial_deaths.py --sample [--windows-file CSV] --out DIR
 .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from BASE [--compare-deaths BRANCH] --offline
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed

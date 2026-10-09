@@ -332,6 +332,17 @@ and `death` (`reticle plan`), `minimap_dark` (its rescan decodes),
 `ability_glyph` rows (9acf02f98283's on an older glyph bank) and the
 `ability` scan; the player has decided no other session is reread.
 
+**The core moved to `reticle/acceptance.py`** (0.9.0, task
+`harness-promote-20261009`), which owns `replay-truth-under`: the join, the
+outcomes, lane and class scoring, recall, the steps' summaries and the round
+bootstrap, pure over the grid this file builds. This file keeps the IO: the
+lane build, the T1d grid and its sets (`t1_draw_rule`, `enemy_lane_check`,
+`teardrop_refusals`), the stores' streams, the claimers, the instrument
+control, printing and recording. Its subcommands run only here until the
+grid is promoted; `reticle acceptance summary` rescores their stored rows.
+On the development matches the lane, `replay-score` and `budget` controls
+reproduce master's output.
+
 Stored rows and replay truth only; no decode, rescan or trial. The held-out
 capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
 `notes/predictions.jsonl`): an evaluation.
@@ -376,9 +387,36 @@ import replay_abilities as ra  # noqa: E402
 import replay_truth as rt  # noqa: E402
 import riot_ground_truth as rg  # noqa: E402
 import teardrop_refusals as tr  # noqa: E402
+from reticle import acceptance as acc  # noqa: E402
+from reticle.acceptance import (ACCEPTANCE_VERSION, AMBIG_CM, CLASS_OUTCOMES, DROPPED,  # noqa: E402,F401
+                                LIFE_TAIL_MS, MEASURED_LIFE, NEAR_CM, NOT_JOINED, OUTCOMES, Q_MARK_MS,
+                                WINDOW_MS, WINDOW_STEP_MS, ambiguous_classes, assign_one_to_one,
+                                child_family, child_life, child_window_dist, claim_outcome, drawn_by_fact,
+                                entity_key, frame_samples, hold_duplicate_marks, icon_outcomes,
+                                lane_questions, nothing_derivation, outcome_of, short_reason)
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "question-acceptance-0.8.0"
+# The core moved to `reticle.acceptance` (task `harness-promote-20261009`);
+# these names keep the prototype's spelling for its callers and tests.
+_boot_pooled = acc.boot_pooled
+_boot_pooled_diff = acc.boot_pooled_diff
+_player_desc = acc.player_desc
+_child_desc = acc.child_desc
+_death_and_swap_marks = acc.death_and_swap_marks
+_join_entities = acc.join_entities
+_census = acc.census
+_dist = acc.dist_summary
+_median = acc.median_or_none
+_pool_classes = acc.pool_classes
+_mark_truth = acc.mark_truth
+_assigned = acc.assigned
+_recall_players = acc.recall_players
+_recall_children = acc.recall_children
+_recall_marks = acc.recall_marks
+_step_summary = acc.step_summary
+
+VERSION = "question-acceptance-0.9.0"
+TASK10 = "harness-promote-20261009"
 TASK = "event-harness-20261007"
 TASK9 = "harness-step9-20261009"
 STORE = Path(DEFAULT_STORE)
@@ -388,42 +426,8 @@ DEV = tr.DEV
 #: the steps that need no tagged enemy-lane arm score them beside `DEV`.
 NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
 SCORED = DEV + NEW
-NEAR_CM = tr.NEAR_CM
-#: The lane outcomes of a find, in report order.
-OUTCOMES = ("no_track", "reality_refused", "identity_abstained", "agent_not_on_enemy_team",
-            "named_duplicate", "named")
-#: Outcomes the lane drops (the track is no entity, or carries no enemy-team name).
-DROPPED = ("reality_refused", "identity_abstained", "agent_not_on_enemy_team")
 #: The `--reality` arms and the folder suffix each writes under.
 ARMS = {"off": "", "on": "_reality"}
-
-# The truth join (`truth_under`).
-#: Time window: the find's frame at t_rep +- WINDOW_MS, keeping the nearest.
-#: The remote-render delay lies in a band of [30, 200] ms
-#: (`t1_draw_rule.RENDER_BAND_MS`, [domain:capture/minimap-remote-player-lag]):
-#: half that width (85 ms) plus one 15 Hz frame (67 ms).
-WINDOW_MS = 150.0
-WINDOW_STEP_MS = 25.0
-#: A child's scoring life is [open, close + LIFE_TAIL_MS] unless its class has
-#: a measured onset and tail; the tail is unmeasured for children (each row
-#: says `life_window_unmeasured`).
-LIFE_TAIL_MS = 600.0
-#: Measured (onset, tail) ms by (actor class, owner side): the stored
-#: `ability_shape` ring of the player's own Recon Bolt is drawn from a median
-#: 315.5 ms after the bolt opens to 108.8 ms before it closes (15 bolts,
-#: `prototypes/replay_abilities.py`, 9acf02f98283). Another side's bolt is
-#: unmeasured and takes the default; no window is borrowed by analogy.
-MEASURED_LIFE = {("GameObject_Hunter_Q_SonarBolt_C", "self"): (315.5, -108.8)}
-#: Mapped classes the join leaves out, with the reason the coverage report prints.
-NOT_JOINED = {"BombEquippable_C": "the layer holds only the spike item's spawn tick; a carried or "
-                                  "dropped spike's place is not decoded, and its spawn would place it falsely"}
-#: Two entity classes within AMBIG_CM of one find make it `ambiguous`.
-AMBIG_CM = 100.0
-#: An enemy "?" lasts 3.0 s and fades over 1.0 s [domain:minimap/last-known-mark-widget-lifetime].
-Q_MARK_MS = 4000.0
-#: The class-aware outcomes of a find, in report order.
-CLASS_OUTCOMES = ("right_entity", "other_entity", "undrawn_truth", "nothing_there", "coverage_gap",
-                  "ambiguous")
 
 
 def _refuse(sid: str) -> None:
@@ -441,340 +445,7 @@ def _pool_name(sessions) -> str:
     return "dev3" if s == sorted(DEV) else "new3" if s == sorted(NEW) else "+".join(s)
 
 
-# ----------------------------------------------------------------- pure parts
-
-def icon_outcomes(icon_p, icon_eid, icon_subj, track_out: dict) -> np.ndarray:
-    """Each icon's lane outcome (`OUTCOMES`).
-
-    `icon_p`: the icon's frame position; `icon_eid`: the track its
-    observation joined, or None; `icon_subj`: the enemy subject its track is
-    named (-1 when dropped); `track_out`: each track's
-    `real_reader_schedule.track_outcome`. A named icon is `named_duplicate`
-    when another icon of its frame carries a track named the same subject."""
-    p = np.asarray(icon_p, np.int64)
-    subj = np.asarray(icon_subj, np.int64)
-    out = np.array([("no_track" if e is None else track_out[e]) for e in icon_eid], dtype=object)
-    named = subj >= 0
-    if named.any():
-        code = p[named] * (int(subj.max()) + 1) + subj[named]
-        _u, inv, cnt = np.unique(code, return_inverse=True, return_counts=True)
-        dup = np.zeros(p.size, bool)
-        dup[np.flatnonzero(named)] = cnt[inv] > 1
-        out[dup & (out == "named")] = "named_duplicate"
-    return out
-
-
-def lane_questions(ks, ic, pair_k, pair_j, icon_p, icon_subj, icon_x, icon_y, X, Y, drawn, alive,
-                   p_of, near_cm: float = NEAR_CM) -> dict:
-    """Per pair and per accepted icon, whether the emitted tracks answer.
-
-    Pairs (`pair_k`, `pair_j`) are the T1d-drawn (sample, enemy) pairs; the
-    accepted icons on valid samples are `ks` (sample) and `ic` (icon index).
-    Returns boolean arrays: `pair_named` (an icon of that frame is named j),
-    `pair_named_pos` (and within `near_cm` of j's truth), `icon_named`
-    (the icon's track is named an enemy), `icon_named_drawn` (that enemy is
-    drawn and alive at the sample), `icon_named_pos` (and within `near_cm`),
-    and `icon_err_cm` (named icon to its enemy's truth, NaN otherwise)."""
-    ks = np.asarray(ks, np.int64)
-    ic = np.asarray(ic, np.int64)
-    S = X.shape[0]
-    subj = np.asarray(icon_subj, np.int64)[ic]
-    named = subj >= 0
-    sj = np.where(named, subj, 0)
-    err = np.hypot(np.asarray(icon_x)[ic] - X[sj, ks], np.asarray(icon_y)[ic] - Y[sj, ks])
-    err = np.where(named & np.isfinite(err), err, np.nan)
-    on = named & drawn[sj, ks] & alive[sj, ks]
-    pos = on & (err <= near_cm)
-    # pairs: the (frame, subject) codes the named icons cover
-    fp = np.asarray(icon_p, np.int64)[ic]
-    code_named = np.unique(fp[named] * S + subj[named])
-    pk = np.asarray(pair_k, np.int64)
-    pj = np.asarray(pair_j, np.int64)
-    pf = np.asarray(p_of, np.int64)[pk]
-    pc = pf * S + pj
-    pair_named = np.isin(pc, code_named)
-    # position: an icon named j in that frame within near_cm of j's truth at the pair's sample
-    pair_pos = np.zeros(pk.size, bool)
-    if pk.size and named.any():
-        order = np.argsort(fp[named] * S + subj[named], kind="stable")
-        codes = (fp[named] * S + subj[named])[order]
-        ix = np.asarray(icon_x)[ic][named][order]
-        iy = np.asarray(icon_y)[ic][named][order]
-        lo = np.searchsorted(codes, pc, side="left")
-        hi = np.searchsorted(codes, pc, side="right")
-        n = hi - lo
-        rep = np.repeat(np.arange(pk.size), n)
-        idx = np.arange(rep.size) - np.repeat(np.cumsum(n) - n, n) + np.repeat(lo, n)
-        d = np.hypot(ix[idx] - X[pj[rep], pk[rep]], iy[idx] - Y[pj[rep], pk[rep]])
-        ok = np.where(np.isfinite(d), d <= near_cm, False)
-        pair_pos[rep[ok]] = True
-    return {"pair_named": pair_named, "pair_named_pos": pair_pos, "icon_named": named,
-            "icon_named_drawn": on, "icon_named_pos": pos, "icon_err_cm": err}
-
-
-# ----------------------------------------------------------------- truth under a find (pure parts)
-
-def entity_key(family: str, agent, ability) -> str:
-    """The class key of a truth entity: `family:agent:ability`, `-` for a
-    missing part. Ambiguity and recall count by this key."""
-    return f"{family}:{agent or '-'}:{ability or '-'}"
-
-
-def child_family(mapped, agent, side_rel) -> str:
-    """`ability_enemy`, `ability_ally`, `spike`, `ult_orb`, or `unmapped`."""
-    if mapped is None:
-        return "unmapped"
-    m = str(mapped)
-    if m == "ult orb":
-        return "ult_orb"
-    if "spike" in m:
-        return "spike"
-    return f"ability_{side_rel}" if side_rel in ("ally", "enemy") else "ability_unknown_side"
-
-
-def short_reason(reason) -> str:
-    """An unmapped reason without its lists (`instigator chain ends at [...]`)."""
-    if reason is None:
-        return "-"
-    s = str(reason).split("[")[0].strip(" ,;:")
-    return s.replace(" at", "").replace(":", "").strip() or "-"
-
-
-def child_life(cls, side_rel, t_open, t_close, round_end, measured: dict, tail_ms: float = None):
-    """Each child's scoring life [lo, hi] in replay ms and its flag.
-
-    A class with a measured onset and tail (`measured[(class, side_rel)]`)
-    takes them; every other class is [open, close + tail_ms], flagged
-    `life_window_unmeasured`. A child the layer never closed is held to the
-    end of its round (`close_unseen`)."""
-    tail_ms = LIFE_TAIL_MS if tail_ms is None else tail_ms
-    t_open = np.asarray(t_open, float)
-    t_close = np.asarray(t_close, float)
-    round_end = np.asarray(round_end, float)
-    close = np.where(np.isfinite(t_close), t_close, round_end)
-    lo = t_open.copy()
-    hi = close + tail_ms
-    flag = np.array(["life_window_unmeasured"] * t_open.size, dtype=object)
-    flag[~np.isfinite(t_close)] = "life_window_unmeasured,close_unseen"
-    for i, (c, s) in enumerate(zip(cls, side_rel)):
-        m = measured.get((str(c), str(s)))
-        if m is not None:
-            lo[i] = t_open[i] + m[0]
-            hi[i] = close[i] + m[1]
-            flag[i] = "measured" + ("" if np.isfinite(t_close[i]) else ",close_unseen")
-    return lo, hi, flag
-
-
-def child_window_dist(position, c, t, fx, fy, lo, hi, window_ms: float = None, step_ms: float = None):
-    """Per (child `c[i]`, find time `t[i]`, find xy): the nearest the child
-    comes to the find within t ± window_ms while inside its life [lo, hi]
-    (the find's own child: `lo[c[i]]`). `position(c, t)` gives the child's
-    world xy. Returns (distance cm, the offset ms it was taken at); NaN where
-    the child is never live in the window."""
-    window_ms = WINDOW_MS if window_ms is None else window_ms
-    step_ms = WINDOW_STEP_MS if step_ms is None else step_ms
-    c = np.asarray(c, np.int64)
-    t = np.asarray(t, float)
-    off = np.arange(-window_ms, window_ms + 1e-9, step_ms)
-    n = c.size
-    if n == 0:
-        return np.zeros(0), np.zeros(0)
-    T = t[:, None] + off[None, :]
-    live = (T >= np.asarray(lo)[c][:, None]) & (T <= np.asarray(hi)[c][:, None])
-    cc = np.repeat(c, off.size)
-    x, y = position(cc, T.ravel())
-    d = np.hypot(x.reshape(n, -1) - np.asarray(fx)[:, None], y.reshape(n, -1) - np.asarray(fy)[:, None])
-    d = np.where(live & np.isfinite(d), d, np.inf)
-    j = np.argmin(d, axis=1)
-    best = d[np.arange(n), j]
-    return np.where(np.isfinite(best), best, np.nan), np.where(np.isfinite(best), off[j], np.nan)
-
-
-def assign_one_to_one(frame, D, gate: float):
-    """`replay_truth._assign` (one-to-one per frame, nearest first) over any
-    number of truth columns: `_assign` keys a frame's column as
-    `frame * 64 + column`, so the frame ids are spread by the column count."""
-    import replay_truth as rt
-    frame = np.asarray(frame, np.int64)
-    if D.shape[0] == 0:
-        return np.zeros(0, np.int64), np.zeros(0)
-    spread = int(np.ceil(max(D.shape[1], 1) / 64.0))
-    j, d = rt._assign(frame * spread, D, gate)
-    return np.asarray(j, np.int64), np.asarray(d, float)
-
-
-def ambiguous_classes(D, keys, within_cm: float = None) -> list:
-    """Per find (row of D), the distinct class keys of the columns within
-    `within_cm`; a find whose list holds two or more is `ambiguous`."""
-    within_cm = AMBIG_CM if within_cm is None else within_cm
-    keys = np.asarray(keys, dtype=object)
-    near = np.where(np.isfinite(D), D <= within_cm, False)
-    return [sorted(set(keys[np.flatnonzero(r)].tolist())) for r in near]
-
-
-def outcome_of(kind: str, *, ambiguous: bool, assigned: bool, side_rel=None, drawn=None,
-               subj_named=None, subj_truth=None, key=None, cls=None, unmapped_reason=None,
-               derivation=None) -> tuple[str, str]:
-    """A find's class-aware outcome (`CLASS_OUTCOMES`) and its full label.
-
-    `kind`: `player` or `child` for an assigned find, else None. A find on a
-    drawn living enemy is `right_entity` (`name_right` when its track names
-    him, `name_wrong` when it names another, `unnamed` when none); on an
-    undrawn living enemy, `undrawn_truth`; on any other live entity,
-    `other_entity:<key>`, or `coverage_gap:<class>:<reason>` for an
-    unmapped actor; on none, `nothing_there:<derivation>`."""
-    if ambiguous:
-        return "ambiguous", "ambiguous"
-    if not assigned:
-        return "nothing_there", f"nothing_there:{derivation or 'none'}"
-    if kind == "player" and side_rel == "enemy":
-        if not drawn:
-            return "undrawn_truth", "undrawn_truth"
-        if subj_named is None or subj_named < 0:
-            return "right_entity", "right_entity:unnamed"
-        return "right_entity", ("right_entity:name_right" if subj_named == subj_truth
-                                else "right_entity:name_wrong")
-    if kind == "child" and key is not None and key.startswith("unmapped:"):
-        return "coverage_gap", f"coverage_gap:{cls}:{short_reason(unmapped_reason)}"
-    return "other_entity", f"other_entity:{key}"
-
-
-def nothing_derivation(fx, fy, ft, kills, swaps, ping, near_3_8m, held=None,
-                       near_cm: float = None, near_name: str = "enemy_3_8m") -> np.ndarray:
-    """For finds on no live entity, the first derivation that explains them:
-    `held_by_nearer_find` (an entity lies within `near_cm`, but the
-    one-to-one join gave it to a nearer find of the same sample: a duplicate),
-    `kill_x` (a death earlier in the round within `near_cm` of the victim's
-    place: the X [domain:minimap/death-mark-persistence]), `question_swap`
-    (within `near_cm` of a T1d swap's place while the "?" lasts
-    [domain:minimap/last-known-mark-widget-lifetime]), `ping` (the extras'
-    ping class), `enemy_3_8m` (a living enemy 3-8 m away), else `none`.
-
-    `kills` and `swaps`: arrays (n, 4) of (t_from, t_to, x, y) in the find's
-    clock and world cm; `ping`, `near_3_8m`: booleans per find."""
-    near_cm = NEAR_CM if near_cm is None else near_cm
-    fx, fy, ft = (np.asarray(a, float) for a in (fx, fy, ft))
-    out = np.array(["none"] * fx.size, dtype=object)
-
-    def hit(ev):
-        ev = np.asarray(ev, float).reshape(-1, 4)
-        if ev.size == 0 or fx.size == 0:
-            return np.zeros(fx.size, bool)
-        on = (ft[:, None] >= ev[None, :, 0]) & (ft[:, None] <= ev[None, :, 1])
-        d = np.hypot(fx[:, None] - ev[None, :, 2], fy[:, None] - ev[None, :, 3])
-        return (on & (d <= near_cm)).any(axis=1)
-
-    held = np.zeros(fx.size, bool) if held is None else np.asarray(held, bool)
-    for name, m in ((near_name, np.asarray(near_3_8m, bool)), ("ping", np.asarray(ping, bool)),
-                    ("question_swap", hit(swaps)), ("kill_x", hit(kills)), ("held_by_nearer_find", held)):
-        out[m] = name                       # later assignments take precedence
-    return out
-
-
-def claim_outcome(desc, *, ambiguous: bool, claimed: bool, drawn=None, name_claim=None,
-                  name_truth=None, derivation=None) -> tuple[str, str]:
-    """A find's class-aware outcome (`CLASS_OUTCOMES`) for steps 5 to 8,
-    where the find claims an entity kind and, perhaps, a name.
-
-    `desc`: the entity the join assigned (None: none); `claimed`: it is of
-    the kind the find claims (a teammate, a smoke, an ability child, a death
-    X of the claimed side, a "?"). On the claimed kind the find is
-    `right_entity` (`name_right` or `name_wrong` by the claimed name against
-    the truth's, `unnamed` when the find claims none), or `undrawn_truth`
-    where the draw rule says the entity is not drawn (`drawn` False). Any
-    other entity is `other_entity:<key>`, or `coverage_gap:<class>:<reason>`
-    for an unmapped actor; none is `nothing_there:<derivation>`."""
-    if ambiguous:
-        return "ambiguous", "ambiguous"
-    if desc is None:
-        return "nothing_there", f"nothing_there:{derivation or 'none'}"
-    if claimed:
-        if drawn is False:
-            return "undrawn_truth", "undrawn_truth"
-        if name_claim is None:
-            return "right_entity", "right_entity:unnamed"
-        return "right_entity", ("right_entity:name_right" if name_claim == name_truth
-                                else "right_entity:name_wrong")
-    if desc["kind"] == "child" and str(desc["key"]).startswith("unmapped:"):
-        return "coverage_gap", f"coverage_gap:{desc['entity_class']}:{short_reason(desc.get('unmapped_reason'))}"
-    return "other_entity", f"other_entity:{desc['key']}"
-
-
-def drawn_by_fact(facts: dict, agent, ability, side_rel) -> tuple[str, list]:
-    """Whether `domain/abilities.toml` says this ability draws on the
-    player's minimap from its owner's side (`self`, `ally` or `enemy`):
-    `yes`, `no` or `unknown`, with the facts read. The facts are matched by
-    subject and fact id alone:
-
-    * `enemy`: a `*-enemy-minimap-*` fact says yes;
-    * `self` (the player's own): a `*-minimap-*` fact without `enemy` says
-      yes, `*-no-minimap-*` or `*-minimap-none` says no (the demo census
-      read the caster's own minimap);
-    * `ally` (a teammate's): only a `*-minimap-everyone` fact says yes; the
-      caster's-own-minimap facts are not borrowed.
-
-    Nothing is inferred from another ability or another side
-    [domain:abilities/ability-rules-are-unique]."""
-    if not agent or not ability:
-        return "unknown", []
-
-    def norm(s):
-        return "".join(ch for ch in str(s).lower() if ch.isalnum())
-
-    want = norm(agent) + ":" + norm(ability)
-    mine = [f for f in facts.values() if f.domain == "abilities" and ":" in (f.subject or "")
-            and norm(f.subject.split(":", 1)[0]) + ":" + norm(f.subject.split(":", 1)[1]) == want
-            and "minimap" in f.id]
-    no_ids = [f.key for f in mine if "no-minimap" in f.id or f.id.endswith("minimap-none")]
-    if side_rel == "enemy":
-        yes = [f.key for f in mine if "enemy-minimap" in f.id and f.key not in no_ids]
-        return ("yes", yes) if yes else ("unknown", [])
-    if side_rel == "self":
-        if no_ids:
-            return "no", no_ids
-        yes = [f.key for f in mine if "enemy" not in f.id]
-        return ("yes", yes) if yes else ("unknown", [])
-    yes = [f.key for f in mine if f.id.endswith("minimap-everyone")]
-    return ("yes", yes) if yes else ("unknown", [])
-
-
-# ----------------------------------------------------------------- bootstrap
-
-def _boot_pooled(per_match: list[tuple[np.ndarray, np.ndarray | None]]) -> list:
-    """95% interval of a pooled sum (den None) or share, rounds resampled
-    within each match and the matches added (`teardrop_refusals` N_BOOT, SEED)."""
-    rng = np.random.default_rng(tr.SEED)
-    num = np.zeros(tr.N_BOOT)
-    den = np.zeros(tr.N_BOOT)
-    for a, b in per_match:
-        idx = rng.integers(0, len(a), (tr.N_BOOT, len(a)))
-        num += a[idx].sum(1)
-        if b is not None:
-            den += b[idx].sum(1)
-    if per_match and per_match[0][1] is None:
-        return [int(np.percentile(num, 2.5)), int(np.percentile(num, 97.5))]
-    s = num / np.maximum(den, 1)
-    return [round(float(np.percentile(s, 2.5)), 4), round(float(np.percentile(s, 97.5)), 4)]
-
-
-def _boot_pooled_diff(per_match: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]) -> list:
-    """95% interval of a paired difference of pooled shares, arm A minus arm
-    B: each replicate resamples a match's rounds once and scores both arms on
-    them (`teardrop_refusals` N_BOOT, SEED). Each item is (num A, den A,
-    num B, den B) per round of one match."""
-    rng = np.random.default_rng(tr.SEED)
-    na, da, nb, db = (np.zeros(tr.N_BOOT) for _ in range(4))
-    for a1, b1, a2, b2 in per_match:
-        idx = rng.integers(0, len(a1), (tr.N_BOOT, len(a1)))
-        na += a1[idx].sum(1)
-        da += b1[idx].sum(1)
-        nb += a2[idx].sum(1)
-        db += b2[idx].sum(1)
-    d = na / np.maximum(da, 1) - nb / np.maximum(db, 1)
-    return [round(float(np.percentile(d, 2.5)), 4), round(float(np.percentile(d, 97.5)), 4)]
-
-
-# ----------------------------------------------------------------- the lane
+# ----------------------------------------------------------------- the lane (IO; the core is reticle.acceptance)
 
 def build_lane(sid: str, tag: str, reality: str = "off") -> tuple[Path, dict]:
     """`enemy_tracks.build` over the tag's rows, written under OUT; returns
@@ -837,286 +508,34 @@ def _prepare(sid: str, tag: str, ptag: str | None, reality: str = "off") -> dict
             "why_refused": why_refused, "M": M, "R": R, "J": J, "E": E, "ext": ext}
 
 
-def _player_desc(M, j: int) -> dict:
-    side = "enemy" if j in set(M.ei.tolist()) else "ally"
-    ag = M.agent.get(M.sid[j])
-    return {"entity_id": f"player:{M.sid[j]}", "kind": "player", "entity_class": "player",
-            "family": f"player_{side}", "agent": ag, "ability": None, "tray_key": None,
-            "owner": M.sid[j], "side_rel": side, "key": entity_key(f"player_{side}", ag, None),
-            "amb_key": f"player_{side}"}
-
-
-def _child_desc(ct, c: int, me: str) -> dict:
-    C = ct.cols
-    fam = child_family(C["mapped"][c], C["agent"][c], C["side_rel"][c])
-    ab = C["ability"][c] if C["ability"][c] is not None else C["mapped"][c]
-    # the spike and the ult orbs are one class whoever holds or owns them
-    key = (f"unmapped:{C['cls'][c]}" if fam == "unmapped" else
-           entity_key(fam, None if fam in ("spike", "ult_orb") else C["agent"][c], ab))
-    side = C["side_rel"][c]
-    return {"entity_id": C["entity_id"][c], "kind": "child", "entity_class": C["cls"][c], "family": fam,
-            "agent": C["agent"][c], "ability": ab, "tray_key": C["tray_key"][c], "owner": C["subject"][c],
-            "side_rel": side, "fact_side": "self" if C["subject"][c] is not None and C["subject"][c] == me
-            else side, "key": key, "amb_key": key, "unmapped_reason": C["unmapped_reason"][c]}
-
-
-def _death_and_swap_marks(M, J) -> tuple[np.ndarray, np.ndarray]:
-    """Truth derivations on the grid's clock: each death's X (t_from, t_to,
-    x, y: from the last living sample to the round's end, at the victim's
-    last living place) and each T1d swap's "?" (from the first undrawn
-    sample of a living enemy, for `Q_MARK_MS` or until he is drawn again, at
-    his last drawn place)."""
-    A = np.asarray(J["alive"], bool)
-    D = np.asarray(J["drawn"], bool)
-    G, Rn = M.G, M.G_round
-    same = np.r_[False, Rn[1:] == Rn[:-1]]
-    end_of = {r["round"]: r["t_next"] for r in M.rounds}
-    r_end = np.array([end_of.get(int(r), np.inf) for r in Rn], float)
-    kills = []
-    j, k = np.nonzero(A[:, :-1] & ~A[:, 1:] & same[None, 1:])
-    k = k + 1
-    kills = np.stack([G[k - 1], r_end[k], M.X[j, k - 1], M.Y[j, k - 1]], 1) if k.size else np.zeros((0, 4))
-    # "?" marks: drawn at k-1, undrawn and alive at k, same round
-    j2, k2 = np.nonzero(D[:, :-1] & ~D[:, 1:] & A[:, 1:] & same[None, 1:])
-    k2 = k2 + 1
-    if not k2.size:
-        return kills, np.zeros((0, 4))
-    K = G.size
-    nxt = np.where(D, np.arange(K)[None, :], K)
-    nxt = np.minimum.accumulate(nxt[:, ::-1], axis=1)[:, ::-1]        # next drawn sample at or after k
-    back = nxt[j2, k2]
-    t_back = np.where(back < K, G[np.minimum(back, K - 1)], np.inf)
-    t_to = np.minimum(np.minimum(G[k2] + Q_MARK_MS, t_back), r_end[k2])
-    swaps = np.stack([G[k2], t_to, M.X[j2, k2 - 1], M.Y[j2, k2 - 1]], 1)
-    return kills, swaps
-
-
-def _join_entities(M, alive, ks, t_rep, fx, fy, frame_key=None, marks: dict | None = None) -> dict:
-    """The truth join of `truth_under`, for any finds: find i at grid sample
-    `ks[i]`, frame time `t_rep[i]` on the replay clock, world cm (`fx`,
-    `fy`). Players are taken at the sample (alive only); every joinable
-    `child:` entity within `WINDOW_MS` of the frame and inside its life;
-    `marks` (steps 8: truth marks, `_mark_truth`) while the frame lies in
-    [t_from - WINDOW_MS, t_to + WINDOW_MS]. One to one by distance within
-    `NEAR_CM` per `frame_key` (default: the sample), round by round.
-
-    Returns `col_kind` (`player`, `child`, `mark` or None), `col_idx`,
-    `dist`, `win_dt`, `amb_keys`, `held`, the child descriptions and lives,
-    and `Dp` (find to each player, NaN where dead)."""
-    ct = M.tl0.children
-    if ct is None:
-        raise SystemExit(f"{M.cap}: T0 carries no children (episodes.from_replay_layer)")
-    ks = np.asarray(ks, np.int64)
-    t_rep = np.asarray(t_rep, float)
-    fx = np.asarray(fx, float)
-    fy = np.asarray(fy, float)
-    fk = ks if frame_key is None else np.asarray(frame_key, np.int64)
-    n = ks.size
-    S = M.X.shape[0]
-    alive = np.asarray(alive, bool)
-    Dp = np.hypot(M.X[:, ks].T - fx[:, None], M.Y[:, ks].T - fy[:, None])
-    Dp = np.where(alive[:, ks].T & np.isfinite(Dp), Dp, np.nan)
-    # children: life, then the pairs whose life meets the find's window
-    end_of = {r["round"]: r["t_next"] for r in M.rounds}         # 1-based: the layer's round + 1
-    C = ct.cols
-    r_end = np.array([end_of.get(int(r) + 1, np.nan) if np.isfinite(r) else np.nan for r in C["round"]], float)
-    me = M.me
-    side_f = np.array([("self" if s is not None and s == me else sr) for s, sr in zip(C["subject"], C["side_rel"])],
-                      dtype=object)
-    lo, hi, flag = child_life(C["cls"], side_f, C["t_open"], C["t_close"], r_end, MEASURED_LIFE)
-    has_pos = (C["n_ticks"] > 0) | np.isfinite(C["spawn_x"])
-    joinable = np.isfinite(lo) & np.isfinite(hi) & has_pos & ~np.isin(C["cls"].astype(str), list(NOT_JOINED))
-    cj = np.flatnonzero(joinable)
-    fpair, cpair = [], []
-    for a in range(0, n, 512):
-        b = min(n, a + 512)
-        m = (lo[cj][None, :] <= t_rep[a:b, None] + WINDOW_MS) & (hi[cj][None, :] >= t_rep[a:b, None] - WINDOW_MS)
-        f_, c_ = np.nonzero(m)
-        fpair.append(f_ + a)
-        cpair.append(cj[c_])
-    fpair = np.concatenate(fpair) if fpair else np.zeros(0, np.int64)
-    cpair = np.concatenate(cpair) if cpair else np.zeros(0, np.int64)
-    dch, dt = child_window_dist(ct.position, cpair, t_rep[fpair], fx[fpair], fy[fpair], lo, hi)
-    # one-to-one per frame key, round by round (a round's children and marks only)
-    descs_c = {}
-    col_kind = np.full(n, None, dtype=object)
-    col_idx = np.full(n, -1, np.int64)
-    dist = np.full(n, np.nan)
-    win_dt = np.full(n, np.nan)
-    amb_keys = [[] for _ in range(n)]
-    held = np.zeros(n, bool)          # unassigned, yet an entity lies within NEAR_CM: a nearer find holds it
-    pkeys = [_player_desc(M, j)["amb_key"] for j in range(S)]
-    rn = M.G_round[ks]
-    for r in np.unique(rn):
-        fi = np.flatnonzero(rn == r)
-        sel = np.isin(fpair, fi)
-        cs = np.unique(cpair[sel])
-        mi = np.zeros(0, np.int64) if marks is None else np.flatnonzero(marks["round"] == r)
-        colc = {int(c): S + i for i, c in enumerate(cs)}
-        row = {int(f): i for i, f in enumerate(fi)}
-        Dg = np.full((fi.size, S + cs.size + mi.size), np.nan)
-        Dg[:, :S] = Dp[fi]
-        Tg = np.full((fi.size, S + cs.size + mi.size), np.nan)
-        if sel.any():
-            rr = np.array([row[int(f)] for f in fpair[sel]], np.int64)
-            cc = np.array([colc[int(c)] for c in cpair[sel]], np.int64)
-            Dg[rr, cc] = dch[sel]
-            Tg[rr, cc] = dt[sel]
-        if mi.size:
-            on = ((t_rep[fi][:, None] >= marks["t_from"][mi][None, :] - WINDOW_MS)
-                  & (t_rep[fi][:, None] <= marks["t_to"][mi][None, :] + WINDOW_MS))
-            dm = np.hypot(fx[fi][:, None] - marks["x"][mi][None, :], fy[fi][:, None] - marks["y"][mi][None, :])
-            Dg[:, S + cs.size:] = np.where(on & np.isfinite(dm), dm, np.nan)
-        for c in cs:
-            if int(c) not in descs_c:
-                descs_c[int(c)] = _child_desc(ct, int(c), me)
-        keys = pkeys + [descs_c[int(c)]["amb_key"] for c in cs] + \
-            ([marks["desc"][int(q)]["amb_key"] for q in mi] if mi.size else [])
-        jj, dd = assign_one_to_one(fk[fi], Dg, NEAR_CM)
-        amb = ambiguous_classes(Dg, keys)
-        cand = np.where(np.isfinite(Dg), Dg <= NEAR_CM, False).any(axis=1)
-        for i, f in enumerate(fi):
-            amb_keys[f] = amb[i]
-            if jj[i] < 0:
-                held[f] = bool(cand[i])
-                continue
-            dist[f] = dd[i]
-            if jj[i] < S:
-                col_kind[f], col_idx[f] = "player", int(jj[i])
-            elif jj[i] < S + cs.size:
-                col_kind[f], col_idx[f] = "child", int(cs[jj[i] - S])
-                win_dt[f] = Tg[i, jj[i]]
-            else:
-                col_kind[f], col_idx[f] = "mark", int(mi[jj[i] - S - cs.size])
-    return {"Dp": Dp, "lo": lo, "hi": hi, "flag": flag, "joinable": joinable, "descs_c": descs_c,
-            "col_kind": col_kind, "col_idx": col_idx, "dist": dist, "win_dt": win_dt, "amb_keys": amb_keys,
-            "held": held}
-
-
 def _truth_under(ctx: dict) -> dict:
     """Every find (accepted icon on a valid sample) with the truth entity
-    under it: players through T1d's join at the find's sample, every replay
-    child (T0's `children`) within `WINDOW_MS` of the find's frame on the
-    replay clock and inside its life; one to one per sample by distance
-    within `NEAR_CM`. See the module docstring."""
+    under it (`reticle.acceptance.truth_under_rows`), the census's claimers
+    (`claims`) and the instrument control (`_instrument`)."""
     import replay_truth as rt
     from reticle.domain import load as load_facts
 
-    sid, M, R, J, E, ext = ctx["sid"], ctx["M"], ctx["R"], ctx["J"], ctx["E"], ctx["ext"]
+    sid, R, E = ctx["sid"], ctx["R"], ctx["E"]
     MO = E["MO"]
-    ks = np.asarray(J["ks"], np.int64)
-    ic = np.asarray(J["ic"], np.int64)
-    n = ks.size
-    p = np.asarray(E["icon_p"], np.int64)[ic]
-    t_cap = np.asarray(MO["t_ms"], float)[p]
-    t_rep = np.asarray(M.to_rep(t_cap, rt.REMOTE_LAG_MS), float)
-    fx = np.asarray(E["icon_x"], float)[ic]
-    fy = np.asarray(E["icon_y"], float)[ic]
-    ei = set(M.ei.tolist())
-    G_ = _join_entities(M, J["alive"], ks, t_rep, fx, fy)
-    Dp, lo, hi, flag, joinable = G_["Dp"], G_["lo"], G_["hi"], G_["flag"], G_["joinable"]
-    descs_c, col_kind, col_idx, dist = G_["descs_c"], G_["col_kind"], G_["col_idx"], G_["dist"]
-    win_dt, amb_keys, held = G_["win_dt"], G_["amb_keys"], G_["held"]
-    ct, me = M.tl0.children, M.me
-    # derivations for finds on nothing
-    kills, swaps = _death_and_swap_marks(M, J)
-    nothing = col_kind == None  # noqa: E711
-    foe = np.array(sorted(ei), np.int64)
-    d_foe = Dp[:, foe] if foe.size else np.full((n, 0), np.nan)
-    near38 = np.where(np.isfinite(d_foe), (d_foe > NEAR_CM) & (d_foe <= tr.OFFSET_CM), False).any(axis=1)
-    # the ping class, by the extras' own rule (`teardrop_refusals.class_extras`)
-    ping = np.zeros(n, bool)
-    nf = np.flatnonzero(nothing)
-    if nf.size:
+    ic = np.asarray(ctx["J"]["ic"], np.int64)
+
+    def ping_of(nf, p, t_cap):
+        # the ping class, by the extras' own rule (`teardrop_refusals.class_extras`)
         pseudo = [{"nearest_enemy_m": None, "nearest_enemy_alive": False, "t_cap": float(t_cap[f]),
                    "frame_idx": int(MO["frame_idx"][p[f]]),
                    "icon_px": [float(MO["enemy_x"][ic[f]]), float(MO["enemy_y"][ic[f]])], "_f": int(f)}
                   for f in nf]
+        pos = {int(f): i for i, f in enumerate(nf)}
+        out = np.zeros(len(nf), bool)
         for e in tr.class_extras(sid, ctx["tag"], {"info": R["info"], "extras": pseudo}, ctx["ptag"]):
-            ping[e["_f"]] = e["cls"] == "ping"
-    deriv = np.full(n, None, dtype=object)
-    deriv[nothing] = nothing_derivation(fx[nothing], fy[nothing], M.G[ks][nothing], kills, swaps,
-                                        ping[nothing], near38[nothing], held[nothing])
-    facts = load_facts()
-    fact_cache = {}
-    old_cls = {(int(e["k"]), int(e["icon"])): e["cls"] for e in ext}
-    rows = []
-    subj = np.asarray(E["icon_subj"], np.int64)[ic]
-    drawn = np.asarray(J["drawn"], bool)
-    for f in range(n):
-        k = int(ks[f])
-        if col_kind[f] == "player":
-            d = _player_desc(M, int(col_idx[f]))
-            dr = bool(drawn[col_idx[f], k]) if d["side_rel"] == "enemy" else None
-            fact, facts_read, life = "n/a", [], None
-        elif col_kind[f] == "child":
-            d = descs_c[int(col_idx[f])]
-            dr = None
-            fk = (d["agent"], d["ability"], d["fact_side"])
-            if fk not in fact_cache:
-                fact_cache[fk] = drawn_by_fact(facts, *fk)
-            fact, facts_read = fact_cache[fk]
-            life = flag[int(col_idx[f])]
-        else:
-            d, dr, fact, facts_read, life = None, None, None, [], None
-        o, label = outcome_of(col_kind[f], ambiguous=len(amb_keys[f]) >= 2, assigned=d is not None,
-                              side_rel=d and d["side_rel"], drawn=dr, subj_named=int(subj[f]),
-                              subj_truth=int(col_idx[f]) if col_kind[f] == "player" else None,
-                              key=d and d["key"], cls=d and d["entity_class"],
-                              unmapped_reason=d and d.get("unmapped_reason"), derivation=deriv[f])
-        rows.append({"session": sid, "round": int(M.G_round[k]), "k": k, "frame_idx": int(MO["frame_idx"][p[f]]),
-                     "t_cap": round(float(t_cap[f]), 1), "t_rep_frame": round(float(t_rep[f]), 1),
-                     "t_rep_sample": round(float(M.G[k]), 1), "icon": int(ic[f]),
-                     "icon_px": [round(float(MO["enemy_x"][ic[f]]), 1), round(float(MO["enemy_y"][ic[f]]), 1)],
-                     "old_class": old_cls.get((k, int(ic[f])), "hit"),
-                     "entity_id": d and d["entity_id"], "entity_class": d and d["entity_class"],
-                     "family": d and d["family"], "agent": d and d["agent"], "ability": d and d["ability"],
-                     "tray_key": d and d["tray_key"], "owner": d and d["owner"], "side_rel": d and d["side_rel"],
-                     "dist_m": None if not np.isfinite(dist[f]) else round(float(dist[f]) / 100, 3),
-                     "window_dt_ms": None if not np.isfinite(win_dt[f]) else float(win_dt[f]),
-                     "life": life, "t1d_drawn": dr, "drawn_by_fact": fact, "drawn_facts": facts_read,
-                     "ambiguous_keys": amb_keys[f] if len(amb_keys[f]) >= 2 else [],
-                     "derivation": deriv[f], "outcome": o, "label": label})
-    census = _census(ct, joinable, flag, me, facts, fact_cache)
-    claims(sid, census)
-    return {"rows": rows, "ks": ks, "ic": ic, "t_rep": t_rep, "col_kind": col_kind, "col_idx": col_idx,
-            "lo": lo, "hi": hi, "joinable": joinable, "census": census, "descs_c": descs_c,
-            "instrument": _instrument(ctx, ks)}
+            out[pos[e["_f"]]] = e["cls"] == "ping"
+        return out
 
-
-def _census(ct, joinable, flag, me, facts, fact_cache) -> dict:
-    """Per child class key in this match: children, side, scored or not and
-    why, the drawn-ness fact, and the life flag."""
-    out = {}
-    for c in range(ct.n):
-        d = _child_desc(ct, c, me)
-        e = out.setdefault(d["key"], {"family": d["family"], "agent": d["agent"], "ability": d["ability"],
-                                      "classes": set(), "children": 0, "joined": 0, "not_joined": Counter(),
-                                      "life": set(), "sides": set(), "tray_keys": set()})
-        e["classes"].add(str(d["entity_class"]))
-        e["tray_keys"].add(str(d["tray_key"]))
-        e["sides"].add(str(d["fact_side"]))
-        e["children"] += 1
-        e["life"].add(str(flag[c]))
-        if joinable[c]:
-            e["joined"] += 1
-        else:
-            cls = str(d["entity_class"])
-            e["not_joined"][NOT_JOINED.get(cls) or ("no open time" if not np.isfinite(ct.cols["t_open"][c])
-                                                    else "no position")] += 1
-    for key, e in out.items():
-        fk = (e["agent"], e["ability"], sorted(e["sides"])[0])
-        if fk not in fact_cache:
-            fact_cache[fk] = drawn_by_fact(facts, *fk)
-        e["drawn_by_fact"] = fact_cache[fk][0]
-        for s in ("classes", "life", "sides", "tray_keys"):
-            e[s] = sorted(e[s])
-        e["not_joined"] = dict(e["not_joined"])
-    for side in ("enemy", "ally"):
-        out[f"player_{side}"] = {"family": f"player_{side}", "agent": None, "ability": None,
-                                 "classes": ["player"], "children": 0, "joined": 5, "not_joined": {},
-                                 "life": ["lives"], "sides": [side], "tray_keys": [], "drawn_by_fact": "n/a"}
-    return out
+    under = acc.truth_under_rows(sid, ctx["M"], ctx["J"], E, ctx["ext"], remote_lag_ms=rt.REMOTE_LAG_MS,
+                                 ping_of=ping_of, facts=load_facts())
+    claims(sid, under["census"])
+    under["instrument"] = _instrument(ctx, under["ks"])
+    return under
 
 
 #: The vision streams that claim an entity class, and how each names one.
@@ -1262,110 +681,10 @@ def truth_under(sid: str, tag: str, ptag: str | None = "b1", reality: str = "off
 
 def lane(sid: str, tag: str, ptag: str | None, reality: str = "off", ctx: dict | None = None) -> dict:
     ctx = ctx or _prepare(sid, tag, ptag, reality)
-    t0, summary, why_refused = ctx["t0"], ctx["summary"], ctx["why_refused"]
-    M, R, J, E, ext = ctx["M"], ctx["R"], ctx["J"], ctx["E"], ctx["ext"]
-    pairs = R["pairs"]
-    rounds = sorted({r["round"] for r in pairs} | {r["round"] for r in R["extras"]})
-    ri = {rn: i for i, rn in enumerate(rounds)}
-    nr = len(rounds)
-
-    # (a) the reader's true false accepts by lane outcome
-    out_icon = icon_outcomes(E["icon_p"], E["icon_eid"], E["icon_subj"], E["track_outcome"])
-    fa = [e for e in ext if e["cls"] in tr.TRUE_FA]
-    by = {o: np.zeros(nr) for o in OUTCOMES}
-    fa_rows = []
-    for e in fa:
-        o = str(out_icon[e["icon"]])
-        by[o][ri[e["round"]]] += 1
-        eid = E["icon_eid"][e["icon"]]
-        fa_rows.append({**{k: e[k] for k in ("round", "k", "frame_idx", "t_cap", "icon_px", "cls", "icon",
-                                             "nearest_enemy_m")},
-                        "outcome": o, "track": eid, "agent": E["track_agent"].get(eid),
-                        "track_observations": E["track_obs"].get(eid),
-                        "reality_reason": why_refused.get(eid)})
-    fa_n = np.zeros(nr)
-    for e in fa:
-        fa_n[ri[e["round"]]] += 1
-    # a diagnostic: does a find's track also hold icons T1d places on a drawn
-    # living enemy (it joined a real enemy's track), or only extras (its own)?
-    extra_icons = np.unique([e["icon"] for e in R["extras"]]).astype(np.int64)
-    u_all = np.unique(J["ic"])
-    real = u_all[~np.isin(u_all, extra_icons)]
-    real_of = Counter(e for e in E["icon_eid"][real] if e is not None)
-    for r in fa_rows:
-        r["track_real_icons"] = real_of.get(r["track"], 0) if r["track"] is not None else None
-    if sum(v.sum() for v in by.values()) != fa_n.sum():
-        raise SystemExit(f"{sid}: the outcomes do not sum to the false accepts")
-    in_real = np.zeros(nr)
-    for e, r in zip(fa, fa_rows):
-        in_real[ri[e["round"]]] += r["outcome"].startswith("named") and bool(r["track_real_icons"])
-
-    # (b) questions
-    S = M.X.shape[0]
-    pk = np.array([r["k"] for r in pairs], np.int64)
-    pj = np.array([r["j"] for r in pairs], np.int64)
-    Q = lane_questions(J["ks"], J["ic"], pk, pj, E["icon_p"], E["icon_subj"], E["icon_x"], E["icon_y"],
-                       M.X, M.Y, J["drawn"], J["alive"], J["p_of"])
-    pr = np.array([ri[r["round"]] for r in pairs], np.int64)
-    hit = np.array([r["set"] == "hit" for r in pairs], bool)
-    ir = np.array([ri.get(int(M.G_round[k]), -1) for k in J["ks"]], np.int64)
-    if (ir < 0).any():
-        raise SystemExit(f"{sid}: an accepted icon's round has no pair or extra")
-    ext_icon = np.zeros(nr)
-    for e in R["extras"]:
-        ext_icon[ri[e["round"]]] += 1
-
-    def per_round(mask, rr):
-        return np.bincount(rr[mask], minlength=nr).astype(float)
-
-    nums = {
-        "reader_hit": (per_round(hit, pr), per_round(np.ones_like(hit), pr)),
-        "lane_presence": (per_round(Q["pair_named"], pr), per_round(np.ones_like(hit), pr)),
-        "lane_position": (per_round(Q["pair_named_pos"], pr), per_round(np.ones_like(hit), pr)),
-        "reader_icon_precision": (per_round(np.ones(ir.size, bool), ir) - ext_icon,
-                                  per_round(np.ones(ir.size, bool), ir)),
-        "lane_named_share": (per_round(Q["icon_named"], ir), per_round(np.ones(ir.size, bool), ir)),
-        "lane_presence_precision": (per_round(Q["icon_named_drawn"], ir), per_round(Q["icon_named"], ir)),
-        "lane_position_precision": (per_round(Q["icon_named_pos"], ir), per_round(Q["icon_named"], ir)),
-    }
-    # same-agent duplicates in one frame, over frames holding a named icon
-    # (each icon once: two samples can join one frame)
-    u_ic = np.unique(J["ic"])
-    fp = np.asarray(E["icon_p"], np.int64)[u_ic]
-    sj = np.asarray(E["icon_subj"], np.int64)[u_ic]
-    nm = sj >= 0
-    fr_named = np.unique(fp[nm])
-    code, cnt = np.unique(fp[nm] * S + sj[nm], return_counts=True)
-    fr_dup = np.unique(code[cnt > 1] // S)
-    err = Q["icon_err_cm"][Q["icon_named_drawn"]]
-    refused_by = Counter(r["reality_reason"] for r in fa_rows if r["outcome"] == "reality_refused")
-    res = {"session": sid, "tag": tag, "version": VERSION, "rule": "T1d", "pings_from": ptag or "store",
-           "reality": reality, "detection_reality": summary.get("detection_reality"),
-           "detection_reality_version": summary.get("detection_reality_version"),
-           "fa_reality_refused_by_reason": dict(refused_by),
-           "rounds": nr, "tracks": summary["tracks"], "track_identity": summary["identity"],
-           "enemy_track_version": summary["enemy_track_version"],
-           "minimap_object_version": summary["minimap_object_version"],
-           "lineup_version": summary["lineup_version"],
-           "death_adjudication_version": summary["death_adjudication_version"],
-           "drops": E["drops"],
-           "false_accepts": int(fa_n.sum()), "false_accepts_ci": tr._boot_count(rounds, fa_n),
-           "fa_by_outcome": {o: int(v.sum()) for o, v in by.items()},
-           "fa_by_outcome_ci": {o: tr._boot_count(rounds, v) for o, v in by.items()},
-           "fa_dropped_share": round(float(sum(by[o].sum() for o in DROPPED)) / max(fa_n.sum(), 1), 4),
-           "fa_dropped_share_ci": tr._boot_share(rounds, sum(by[o] for o in DROPPED), fa_n),
-           "fa_named_in_real_track": int(in_real.sum()),
-           "fa_named_in_real_track_ci": tr._boot_count(rounds, in_real),
-           "fa_track_obs_median": _median([r["track_observations"] for r in fa_rows]),
-           "track_obs_median": _median(list(E["track_obs"].values())),
-           "questions": {}, "pairs": int(pk.size), "icons_valid": int(J["ks"].size),
-           "named_frames": int(fr_named.size), "dup_frames": int(fr_dup.size),
-           "dup_frame_share": round(fr_dup.size / max(fr_named.size, 1), 4),
-           "named_err_m_median": None if not err.size else round(float(np.nanmedian(err)) / 100, 3),
-           "secs": round(time.perf_counter() - t0, 1)}
-    for q, (a, b) in nums.items():
-        res["questions"][q] = {"value": round(float(a.sum() / max(b.sum(), 1)), 4),
-                               "ci": tr._boot_share(rounds, a, b), "num": int(a.sum()), "den": int(b.sum())}
+    res, fa_rows, per, out_icon = acc.score_lane(sid, ctx["M"], ctx["R"], ctx["J"], ctx["E"], ctx["ext"],
+                                                 ctx["summary"], ctx["why_refused"], tag=tag, version=VERSION,
+                                                 ptag=ptag, reality=reality, true_fa=tr.TRUE_FA)
+    res["secs"] = round(time.perf_counter() - ctx["t0"], 1)
     stored = tr.OUT / tag / f"score_{sid}.json"
     res["reader_score_file"] = None
     if stored.is_file():
@@ -1378,126 +697,23 @@ def lane(sid: str, tag: str, ptag: str | None, reality: str = "off", ctx: dict |
             f.write(json.dumps(r) + "\n")
     # the class-aware lane: every find against every replay entity
     under = _truth_under(ctx)
-    cdoc, cper = class_lane(ctx, under, out_icon, ri, nr, rounds)
+    cdoc, cper = _class_lane(ctx, under, out_icon, per["ri"], per["nr"], per["rounds"])
     res["classes"] = cdoc
     p_cl = OUT / tag / f"classes{ARMS[reality]}_{sid}.jsonl"
     with open(p_cl, "w", encoding="utf-8") as f:
         for r in under["rows"]:
             f.write(json.dumps(r, default=str) + "\n")
-    res["_per_round"] = {"fa": fa_n, "by": by, "nums": nums, "in_real": in_real, "rounds": rounds,
-                         "classes": cper}
+    res["_per_round"] = {"fa": per["fa"], "by": per["by"], "nums": per["nums"], "in_real": per["in_real"],
+                         "rounds": per["rounds"], "classes": cper}
     return res
 
 
-def _dist(v) -> dict:
-    v = np.asarray([x for x in v if x is not None], float)
-    if not v.size:
-        return {"n": 0}
-    return {"n": int(v.size), "median_m": round(float(np.median(v)), 3),
-            "p90_m": round(float(np.percentile(v, 90)), 3), "max_m": round(float(v.max()), 3)}
-
-
-def class_lane(ctx: dict, under: dict, out_icon, ri: dict, nr: int, rounds: list) -> tuple[dict, dict]:
-    """The class-aware lane of one session: each find's outcome
-    (`CLASS_OUTCOMES`) and label counted per round, the old classes beside
-    them, recall per enemy-side class with its own denominator, distance
-    distributions, the instrument control and the coverage report. Adds the
-    lane's naming to `under["rows"]` in place."""
+def _class_lane(ctx: dict, under: dict, out_icon, ri: dict, nr: int, rounds: list) -> tuple[dict, dict]:
+    """`reticle.acceptance.class_lane` over a prepared session."""
     import replay_truth as rt
 
-    M, J, E, R = ctx["M"], ctx["J"], ctx["E"], ctx["R"]
-    rows = under["rows"]
-    n = len(rows)
-    for r in rows:
-        eid = E["icon_eid"][r["icon"]]
-        r["lane_outcome"] = str(out_icon[r["icon"]])
-        r["track"] = eid
-        r["track_agent"] = E["track_agent"].get(eid) if eid is not None else None
-        r["reality_reason"] = ctx["why_refused"].get(eid)
-    rr = np.array([ri[r["round"]] for r in rows], np.int64)
-    top = np.array([r["outcome"] for r in rows], dtype=object)
-    lab = np.array([r["label"] for r in rows], dtype=object)
-
-    def per_round(mask):
-        return np.bincount(rr[np.asarray(mask, bool)], minlength=nr).astype(float)
-
-    by_out = {o: per_round(top == o) for o in CLASS_OUTCOMES}
-    by_lab = {lb: per_round(lab == lb) for lb in sorted(set(lab.tolist()))}
-    if sum(v.sum() for v in by_out.values()) != n:
-        raise SystemExit(f"{ctx['sid']}: the class-aware outcomes do not sum to the finds")
-    old = np.array([r["old_class"] for r in rows], dtype=object)
-    fa = np.isin(old, tr.TRUE_FA)
-    lane_o = np.array([r["lane_outcome"] for r in rows], dtype=object)
-    cross = Counter((o, t) for o, t in zip(old.tolist(), top.tolist()))
-    # recall per enemy-side class, each with its own denominator
-    rec = {}
-    ks, ci = under["ks"], under["col_idx"]
-    kind = under["col_kind"]
-    ok = ~np.isin(top, ["ambiguous"])
-    got_p = set(zip(ks[ok & (kind == "player")].tolist(), ci[ok & (kind == "player")].tolist()))
-    pairs = R["pairs"]
-    pk = np.array([p_["k"] for p_ in pairs], np.int64)
-    pj = np.array([p_["j"] for p_ in pairs], np.int64)
-    pr = np.array([ri[p_["round"]] for p_ in pairs], np.int64)
-    hitp = np.array([(int(a), int(b)) in got_p for a, b in zip(pk, pj)], bool)
-    rec["player_enemy:drawn (T1d)"] = (np.bincount(pr[hitp], minlength=nr).astype(float),
-                                       np.bincount(pr, minlength=nr).astype(float))
-    ct = M.tl0.children
-    vk = np.flatnonzero(J["valid"])
-    MO = E["MO"]
-    tv = np.asarray(M.to_rep(np.asarray(MO["t_ms"], float)[J["p_of"][vk]], rt.REMOTE_LAG_MS), float)
-    o = np.argsort(tv, kind="stable")
-    vk, tv = vk[o], tv[o]
-    lo, hi, joinable = under["lo"], under["hi"], under["joinable"]
-    enemy_c = np.flatnonzero(joinable & (ct.cols["side_rel"] == "enemy"))
-    a = np.searchsorted(tv, lo[enemy_c], side="left")
-    b = np.searchsorted(tv, hi[enemy_c], side="right")
-    cnt = np.maximum(b - a, 0)
-    rep = np.repeat(np.arange(enemy_c.size), cnt)
-    idx = np.arange(rep.size) - np.repeat(np.cumsum(cnt) - cnt, cnt) + np.repeat(a, cnt)
-    den_k, den_c = vk[idx], enemy_c[rep]
-    sel = ok & (kind == "child")
-    got_c = np.unique(ks[sel].astype(np.int64) * (ct.n + 1) + ci[sel])
-    covered = np.isin(den_k.astype(np.int64) * (ct.n + 1) + den_c, got_c)
-    den_r = np.array([ri.get(int(M.G_round[k]), -1) for k in den_k], np.int64)
-    keep = den_r >= 0
-    keys = np.array([_child_desc(ct, int(c), M.me)["key"] for c in den_c], dtype=object) if den_c.size else \
-        np.zeros(0, dtype=object)
-    for key in sorted(set(keys.tolist())):
-        m = keep & (keys == key)
-        rec[key] = (np.bincount(den_r[m & covered], minlength=nr).astype(float),
-                    np.bincount(den_r[m], minlength=nr).astype(float))
-    fact_of = {r["label"]: r["drawn_by_fact"] for r in rows if r["outcome"] == "other_entity"}
-    dists = {o_: _dist([r["dist_m"] for r in rows if r["outcome"] == o_])
-             for o_ in ("right_entity", "other_entity", "undrawn_truth", "coverage_gap", "ambiguous")}
-    dists["other_entity_child_in_life"] = _dist([r["dist_m"] for r in rows if r["outcome"] == "other_entity"
-                                                 and r["family"] not in ("player_ally",)])
-    dists["true_fa_other_entity"] = _dist([r["dist_m"] for r, f in zip(rows, fa) if f
-                                           and r["outcome"] == "other_entity"])
-    census = under["census"]
-    gap = Counter(r["label"] for r in rows if r["outcome"] == "coverage_gap")
-    doc = {"finds": n, "outcomes": {o_: int(v.sum()) for o_, v in by_out.items()},
-           "outcomes_ci": {o_: tr._boot_count(rounds, v) for o_, v in by_out.items()},
-           "labels": {lb: int(v.sum()) for lb, v in sorted(by_lab.items(), key=lambda kv: -kv[1].sum())},
-           "labels_ci": {lb: tr._boot_count(rounds, v) for lb, v in by_lab.items()},
-           "drawn_by_fact": fact_of,
-           "true_fa": int(fa.sum()),
-           "true_fa_labels": dict(Counter(lab[fa].tolist()).most_common()),
-           "true_fa_outcomes": dict(Counter(top[fa].tolist()).most_common()),
-           "refused_labels": dict(Counter(lab[lane_o == "reality_refused"].tolist()).most_common()),
-           "old_x_new": {f"{a_}|{b_}": v for (a_, b_), v in sorted(cross.items())},
-           "ambiguous_keys": dict(Counter(" + ".join(r["ambiguous_keys"]) for r in rows
-                                          if r["outcome"] == "ambiguous").most_common(15)),
-           "recall": {k_: {"value": round(float(a_.sum() / max(b_.sum(), 1)), 4),
-                           "ci": tr._boot_share(rounds, a_, b_), "num": int(a_.sum()), "den": int(b_.sum()),
-                           "drawn_by_fact": (census.get(k_) or {}).get("drawn_by_fact")}
-                      for k_, (a_, b_) in rec.items()},
-           "distances": dists, "instrument": under["instrument"],
-           "coverage": {"gap_finds_by_class": dict(gap.most_common()),
-                        "census": census,
-                        "not_joined": {k_: e["not_joined"] for k_, e in census.items() if e["not_joined"]}}}
-    per = {"out": by_out, "lab": by_lab, "rec": rec}
-    return doc, per
+    return acc.class_lane(ctx["sid"], ctx["M"], ctx["J"], ctx["E"], ctx["R"], under, out_icon, ri, nr, rounds,
+                          ctx["why_refused"], remote_lag_ms=rt.REMOTE_LAG_MS, true_fa=tr.TRUE_FA)
 
 
 def _print_classes(scope: str, c: dict, fa: bool = True) -> None:
@@ -1535,11 +751,6 @@ def _print_coverage(scope: str, cov: dict, instrument=None) -> None:
         print(f"   instrument: {instrument}", flush=True)
 
 
-def _median(v):
-    v = [x for x in v if x is not None]
-    return None if not v else float(np.median(v))
-
-
 def _print(res: dict) -> None:
     q = res["questions"]
     print(f"{res['session']} {res['tag']} reality {res['reality']}: true false accepts {res['false_accepts']} "
@@ -1558,57 +769,6 @@ def _print(res: dict) -> None:
     if res.get("classes"):
         _print_classes(res["session"], res["classes"])
         _print_coverage(res["session"], res["classes"]["coverage"], res["classes"]["instrument"])
-
-
-def _pool_classes(per: list[dict], arrays: list[dict]) -> dict:
-    """The class-aware lane pooled over sessions: rounds resampled within
-    each match and the matches added."""
-    cs = [r["classes"] for r in per]
-    pa = [a["classes"] for a in arrays]
-    out = {"finds": sum(c["finds"] for c in cs),
-           "outcomes": {o: sum(c["outcomes"][o] for c in cs) for o in CLASS_OUTCOMES},
-           "outcomes_ci": {o: _boot_pooled([(a["out"][o], None) for a in pa]) for o in CLASS_OUTCOMES}}
-    labs = sorted({lb for c in cs for lb in c["labels"]})
-    z = [np.zeros(len(a["out"][CLASS_OUTCOMES[0]])) for a in pa]
-    out["labels"] = dict(sorted({lb: sum(c["labels"].get(lb, 0) for c in cs) for lb in labs}.items(),
-                                key=lambda kv: -kv[1]))
-    out["labels_ci"] = {lb: _boot_pooled([(a["lab"].get(lb, zz), None) for a, zz in zip(pa, z)]) for lb in labs}
-    out["drawn_by_fact"] = {k: v for c in cs for k, v in c["drawn_by_fact"].items()}
-    out["true_fa"] = sum(c["true_fa"] for c in cs)
-    for k in ("true_fa_labels", "true_fa_outcomes", "refused_labels", "ambiguous_keys", "old_x_new"):
-        out[k] = dict(sum((Counter(c[k]) for c in cs), Counter()).most_common())
-    keys = sorted({k for a in pa for k in a["rec"]})
-    out["recall"] = {}
-    for k in keys:
-        items = [a["rec"].get(k, (zz, zz)) for a, zz in zip(pa, z)]
-        num = sum(x[0].sum() for x in items)
-        den = sum(x[1].sum() for x in items)
-        fact = next((c["recall"][k].get("drawn_by_fact") for c in cs if k in c["recall"]), None)
-        out["recall"][k] = {"value": round(float(num / max(den, 1)), 4), "ci": _boot_pooled(items),
-                            "num": int(num), "den": int(den), "drawn_by_fact": fact}
-    dist_keys = cs[0]["distances"].keys()
-    out["distances"] = {"note": "per session in sessions[*].classes.distances"}
-    out["distances"].update({k: [c["distances"][k] for c in cs] for k in dist_keys})
-    cen = {}
-    for c in cs:
-        for k, e in c["coverage"]["census"].items():
-            m = cen.setdefault(k, {"children": 0, "claimed_by": set(), "scored": set(), "drawn_by_fact": set(),
-                                   "not_joined": Counter()})
-            m["children"] += e["children"]
-            m["claimed_by"] |= set(e.get("claimed_by") or [])
-            m["scored"].add(e.get("scored"))
-            m["drawn_by_fact"].add(e["drawn_by_fact"])
-            m["not_joined"].update(e["not_joined"])
-    for m in cen.values():
-        m["claimed_by"] = sorted(m["claimed_by"])
-        m["scored"] = " | ".join(sorted(m["scored"]))
-        m["drawn_by_fact"] = "/".join(sorted(m["drawn_by_fact"]))
-        m["not_joined"] = dict(m["not_joined"])
-    out["coverage"] = {"gap_finds_by_class": dict(sum((Counter(c["coverage"]["gap_finds_by_class"]) for c in cs),
-                                                      Counter()).most_common()),
-                       "census": cen, "not_joined": {k: m["not_joined"] for k, m in cen.items() if m["not_joined"]}}
-    out["instrument"] = {c_["session"]: c_["classes"]["instrument"] for c_ in per}
-    return out
 
 
 def run_lane(sessions: list[str], tag: str, ptag: str | None, record: bool,
@@ -1932,26 +1092,6 @@ def _to_cm(sid: str):
     return f
 
 
-def frame_samples(G, t_rep, ok, half_step_ms: float) -> np.ndarray:
-    """Per frame, its grid sample: the nearest within `half_step_ms` of its
-    replay time, where `ok` (read, live, inside the capture's spans); one
-    frame per sample, the nearest. -1 for a frame that joins none."""
-    G = np.asarray(G, float)
-    t_rep = np.asarray(t_rep, float)
-    out = np.full(t_rep.size, -1, np.int64)
-    if not t_rep.size or G.size < 2:
-        return out
-    i = np.clip(np.searchsorted(G, t_rep), 1, G.size - 1)
-    k = np.where(np.abs(G[i - 1] - t_rep) <= np.abs(G[i] - t_rep), i - 1, i)
-    dt = np.abs(G[k] - t_rep)
-    idx = np.flatnonzero(np.asarray(ok, bool) & (dt <= half_step_ms))
-    if idx.size:
-        o = idx[np.lexsort((dt[idx], k[idx]))]
-        first = np.r_[True, k[o][1:] != k[o][:-1]]
-        out[o[first]] = k[o[first]]
-    return out
-
-
 def _frames_on_grid(M, t_cap, read) -> tuple[np.ndarray, np.ndarray]:
     """A stream's frames on the grid (`frame_samples`): (sample per frame,
     replay time per frame), live play only (`enemy_lane_check.live_samples`)."""
@@ -1968,255 +1108,16 @@ def _frames_on_grid(M, t_cap, read) -> tuple[np.ndarray, np.ndarray]:
     return k, t_rep
 
 
-def _mark_truth(M, J) -> dict:
-    """The marks the replay implies, on the grid's clock, as columns for
-    `_join_entities`: each death's X at the victim's last living place from
-    his last living sample to the round's end
-    [domain:minimap/death-mark-persistence], an ally's always drawn
-    [domain:minimap/ally-death-mark], an enemy's drawn where T1d drew him at
-    his last living sample (`t1_draw_rule.DrawRule.dead_mark`,
-    [domain:minimap/enemy-death-mark]); and each T1d swap's "?" as
-    `_death_and_swap_marks` places it."""
-    A = np.asarray(J["alive"], bool)
-    D = np.asarray(J["drawn"], bool)
-    G, Rn = M.G, M.G_round
-    same = np.r_[False, Rn[1:] == Rn[:-1]]
-    end_of = {r["round"]: r["t_next"] for r in M.rounds}
-    r_end = np.array([end_of.get(int(r), np.inf) for r in Rn], float)
-    ei = set(M.ei.tolist())
-    K = G.size
-    j, k = np.nonzero(A[:, :-1] & ~A[:, 1:] & same[None, 1:])
-    k = k + 1
-    # the X's last sample: the last of its round
-    last_of = {}
-    for i_, r in enumerate(Rn):
-        last_of[int(r)] = i_
-    cols = {"t_from": [], "t_to": [], "x": [], "y": [], "round": [], "k_from": [], "k_to": [], "desc": []}
-
-    def add(t_from, t_to, x, y, rnd, k_from, k_to, desc):
-        for a, v in (("t_from", t_from), ("t_to", t_to), ("x", x), ("y", y), ("round", rnd), ("k_from", k_from),
-                     ("k_to", k_to), ("desc", desc)):
-            cols[a].append(v)
-
-    for jj, kk in zip(j.tolist(), k.tolist()):
-        side = "enemy" if jj in ei else "ally"
-        fam = f"death_x_{side}"
-        drawn = bool(D[jj, kk - 1]) if side == "enemy" else True
-        ag = M.agent.get(M.sid[jj])
-        add(float(G[kk - 1]), float(r_end[kk]), float(M.X[jj, kk - 1]), float(M.Y[jj, kk - 1]), int(Rn[kk]),
-            kk - 1, last_of[int(Rn[kk])],
-            {"entity_id": f"death_x:{M.sid[jj]}:{kk}", "kind": "mark", "entity_class": "death_x", "family": fam,
-             "agent": ag, "ability": None, "tray_key": None, "owner": M.sid[jj], "side_rel": side,
-             "key": entity_key(fam, None, None), "amb_key": fam, "drawn": drawn,
-             "recall_key": (f"{fam} (always drawn)" if side == "ally" else
-                            f"{fam} ({'T1d drawn' if drawn else 'T1d undrawn'} at death)")})
-    j2, k2 = np.nonzero(D[:, :-1] & ~D[:, 1:] & A[:, 1:] & same[None, 1:])
-    k2 = k2 + 1
-    if k2.size:
-        nxt = np.where(D, np.arange(K)[None, :], K)
-        nxt = np.minimum.accumulate(nxt[:, ::-1], axis=1)[:, ::-1]
-        back = nxt[j2, k2]
-        t_back = np.where(back < K, G[np.minimum(back, K - 1)], np.inf)
-        t_to = np.minimum(np.minimum(G[k2] + Q_MARK_MS, t_back), r_end[k2])
-        for jj, kk, tt in zip(j2.tolist(), k2.tolist(), t_to.tolist()):
-            ag = M.agent.get(M.sid[jj])
-            k_to = int(np.searchsorted(G, tt, side="right") - 1)
-            # a "?" stands for its enemy, who stands at its place when it
-            # appears: it shares the enemy players' ambiguity class, and the
-            # join's distance decides between the mark and a player
-            add(float(G[kk]), float(tt), float(M.X[jj, kk - 1]), float(M.Y[jj, kk - 1]), int(Rn[kk]), kk,
-                max(k_to, kk),
-                {"entity_id": f"question:{M.sid[jj]}:{kk}", "kind": "mark", "entity_class": "last_known",
-                 "family": "question_enemy", "agent": ag, "ability": None, "tray_key": None, "owner": M.sid[jj],
-                 "side_rel": "enemy", "key": entity_key("question_enemy", None, None), "amb_key": "player_enemy",
-                 "drawn": True, "recall_key": "question_enemy (T1d swap)"})
-    out = {a: np.asarray(v, float if a in ("t_from", "t_to", "x", "y") else np.int64) for a, v in cols.items()
-           if a != "desc"}
-    out["desc"] = cols["desc"]
-    return out
-
-
 def _score_finds(ctx: dict, F: dict, *, claimed, name_of=None, drawn_of=None, marks=None,
                  near_side: str = "enemy", frame_key=None) -> tuple[list, dict]:
-    """Every find of `F` against every replay entity (`_join_entities`),
-    with its outcome (`claim_outcome`). `F`: arrays `k` (grid sample),
-    `t_cap`, `t_rep`, `fx`, `fy` (world cm), `px`, `py`, `claim` (the
-    claimed name, or None), and `meta` (a dict per find, copied to its row).
-    `claimed(desc)`: the entity is of the kind the find claims;
-    `name_of(desc)`: its name in the claim's spelling; `drawn_of(desc, k)`:
-    whether the draw rule draws it (None: not decided)."""
+    """`reticle.acceptance.score_finds` over a prepared session, the domain
+    facts loaded once per session."""
     from reticle.domain import load as load_facts
-    M, J = ctx["M"], ctx["J"]
-    ks = np.asarray(F["k"], np.int64)
-    n = ks.size
-    G_ = _join_entities(M, J["alive"], ks, F["t_rep"], F["fx"], F["fy"], frame_key=frame_key, marks=marks)
-    kills, swaps = _death_and_swap_marks(M, J)
-    nothing = G_["col_kind"] == None  # noqa: E711
-    if near_side == "enemy":
-        side = np.asarray(M.ei, np.int64)
-    else:
-        side = np.array([j for j in M.ci if M.sid[j] != M.me], np.int64)
-    d = G_["Dp"][:, side] if side.size else np.full((n, 0), np.nan)
-    near38 = np.where(np.isfinite(d), (d > NEAR_CM) & (d <= tr.OFFSET_CM), False).any(axis=1)
-    deriv = np.full(n, None, dtype=object)
-    if nothing.any():
-        deriv[nothing] = nothing_derivation(np.asarray(F["fx"])[nothing], np.asarray(F["fy"])[nothing],
-                                            M.G[ks][nothing], kills, swaps, np.zeros(int(nothing.sum()), bool),
-                                            near38[nothing], G_["held"][nothing], near_name=f"{near_side}_3_8m")
     if "_facts" not in ctx:
         ctx["_facts"] = load_facts()
-    facts = ctx["_facts"]
-    fact_cache = ctx.setdefault("_fact_cache", {})
-    rows = []
-    for f in range(n):
-        kind, idx = G_["col_kind"][f], int(G_["col_idx"][f])
-        fact, facts_read, life = None, [], None
-        if kind == "player":
-            desc = _player_desc(M, idx)
-            if M.sid[idx] == M.me:
-                desc = {**desc, "family": "player_self", "key": entity_key("player_self", desc["agent"], None)}
-            fact = "n/a"
-        elif kind == "child":
-            desc = G_["descs_c"][idx]
-            fk = (desc["agent"], desc["ability"], desc["fact_side"])
-            if fk not in fact_cache:
-                fact_cache[fk] = drawn_by_fact(facts, *fk)
-            fact, facts_read = fact_cache[fk]
-            life = G_["flag"][idx]
-        elif kind == "mark":
-            desc = marks["desc"][idx]
-            fact = "n/a"
-        else:
-            desc = None
-        is_claimed = desc is not None and bool(claimed(desc))
-        dr = drawn_of(desc, int(ks[f])) if (is_claimed and drawn_of is not None) else None
-        nt = name_of(desc) if (is_claimed and name_of is not None) else None
-        amb = G_["amb_keys"][f]
-        o, label = claim_outcome(desc, ambiguous=len(amb) >= 2, claimed=is_claimed, drawn=dr,
-                                 name_claim=F["claim"][f], name_truth=nt, derivation=deriv[f])
-        k = int(ks[f])
-        rows.append({"session": ctx["sid"], "round": int(M.G_round[k]), "k": k,
-                     "t_cap": round(float(F["t_cap"][f]), 1), "t_rep_frame": round(float(F["t_rep"][f]), 1),
-                     "t_rep_sample": round(float(M.G[k]), 1),
-                     "px": [round(float(F["px"][f]), 1), round(float(F["py"][f]), 1)], "claim": F["claim"][f],
-                     **(F["meta"][f] if F.get("meta") is not None else {}),
-                     "entity_id": desc and desc["entity_id"], "entity_class": desc and desc["entity_class"],
-                     "family": desc and desc["family"], "agent": desc and desc["agent"],
-                     "ability": desc and desc["ability"], "tray_key": desc and desc["tray_key"],
-                     "owner": desc and desc["owner"], "side_rel": desc and desc["side_rel"],
-                     "truth_name": nt,
-                     "dist_m": None if not np.isfinite(G_["dist"][f]) else round(float(G_["dist"][f]) / 100, 3),
-                     "window_dt_ms": None if not np.isfinite(G_["win_dt"][f]) else float(G_["win_dt"][f]),
-                     "life": life, "drawn": dr, "drawn_by_fact": fact, "drawn_facts": facts_read,
-                     "ambiguous_keys": amb if len(amb) >= 2 else [], "derivation": deriv[f],
-                     "outcome": o, "label": label})
-    return rows, G_
-
-
-def _assigned(rows, G_, kind: str) -> set:
-    """(sample, column) of the finds the join gave an entity of `kind`, ambiguous finds left out."""
-    return {(r["k"], int(G_["col_idx"][i])) for i, r in enumerate(rows)
-            if G_["col_kind"][i] == kind and r["outcome"] != "ambiguous"}
-
-
-def _recall_players(M, J, VK, js, got: set, ri: dict, nr: int) -> tuple[np.ndarray, np.ndarray]:
-    """Recall over (sample, player) pairs: samples `VK`, players `js` alive there."""
-    VK = np.asarray(VK, np.int64)
-    num, den = np.zeros(nr), np.zeros(nr)
-    alive = np.asarray(J["alive"], bool)
-    for j in js:
-        kk = VK[alive[j, VK]]
-        r = np.array([ri[int(M.G_round[k])] for k in kk], np.int64)
-        hit = np.array([(int(k), int(j)) in got for k in kk], bool)
-        den += np.bincount(r, minlength=nr)
-        num += np.bincount(r[hit], minlength=nr) if hit.any() else 0
-    return num, den
-
-
-def _recall_children(M, G_, VK, tv, select: np.ndarray, got: set, ri: dict, nr: int,
-                     key_of) -> dict:
-    """Recall per child class over (sample, live child) pairs, as
-    `class_lane` counts them: the valid samples `VK` (frame replay times
-    `tv`) inside each selected joinable child's life."""
-    ct = M.tl0.children
-    o = np.argsort(tv, kind="stable")
-    VK, tv = np.asarray(VK, np.int64)[o], np.asarray(tv, float)[o]
-    cs = np.flatnonzero(G_["joinable"] & np.asarray(select, bool))
-    a = np.searchsorted(tv, G_["lo"][cs], side="left")
-    b = np.searchsorted(tv, G_["hi"][cs], side="right")
-    cnt = np.maximum(b - a, 0)
-    rep = np.repeat(np.arange(cs.size), cnt)
-    idx = np.arange(rep.size) - np.repeat(np.cumsum(cnt) - cnt, cnt) + np.repeat(a, cnt)
-    den_k, den_c = VK[idx], cs[rep]
-    covered = np.array([(int(k), int(c)) in got for k, c in zip(den_k, den_c)], bool)
-    den_r = np.array([ri.get(int(M.G_round[k]), -1) for k in den_k], np.int64)
-    keep = den_r >= 0
-    descs = {}
-    keys = np.array([key_of(descs.setdefault(int(c), _child_desc(ct, int(c), M.me))) for c in den_c],
-                    dtype=object) if den_c.size else np.zeros(0, dtype=object)
-    out = {}
-    for key in sorted(set(keys.tolist())):
-        m = keep & (keys == key)
-        out[key] = (np.bincount(den_r[m & covered], minlength=nr).astype(float),
-                    np.bincount(den_r[m], minlength=nr).astype(float))
-    return out
-
-
-def _recall_marks(marks: dict, valid: np.ndarray, got_marks: set, ri: dict, nr: int) -> dict:
-    """Recall per mark class over the truth marks whose window holds a valid sample."""
-    cs = np.r_[0, np.cumsum(np.asarray(valid, bool))]
-    out = {}
-    for q, d in enumerate(marks["desc"]):
-        a, b = int(marks["k_from"][q]), int(marks["k_to"][q])
-        if cs[b + 1] - cs[a] <= 0 or int(marks["round"][q]) not in ri:
-            continue
-        num, den = out.setdefault(d["recall_key"], (np.zeros(nr), np.zeros(nr)))
-        r = ri[int(marks["round"][q])]
-        den[r] += 1
-        num[r] += q in got_marks
-    return out
-
-
-def _step_summary(rows: list, rec: dict, rounds: list, census: dict | None, extra: dict | None = None) -> tuple:
-    """One session's step document in `class_lane`'s shape (so `_pool_classes`
-    pools it) and its per-round arrays; the outcomes must sum to the finds."""
-    ri = {r: i for i, r in enumerate(rounds)}
-    nr = len(rounds)
-    n = len(rows)
-    rr = np.array([ri[r["round"]] for r in rows], np.int64)
-    top = np.array([r["outcome"] for r in rows], dtype=object)
-    lab = np.array([r["label"] for r in rows], dtype=object)
-
-    def per_round(mask):
-        return np.bincount(rr[np.asarray(mask, bool)], minlength=nr).astype(float) if n else np.zeros(nr)
-
-    by_out = {o: per_round(top == o) for o in CLASS_OUTCOMES}
-    by_lab = {lb: per_round(lab == lb) for lb in sorted(set(lab.tolist()))}
-    if sum(v.sum() for v in by_out.values()) != n:
-        raise SystemExit("the class-aware outcomes do not sum to the finds")
-    fact_of = {r["label"]: r["drawn_by_fact"] for r in rows if r["outcome"] == "other_entity"}
-    gap = Counter(r["label"] for r in rows if r["outcome"] == "coverage_gap")
-    cen = census or {}
-    doc = {"finds": n, "outcomes": {o: int(v.sum()) for o, v in by_out.items()},
-           "outcomes_ci": {o: tr._boot_count(rounds, v) for o, v in by_out.items()} if nr else {},
-           "labels": {lb: int(v.sum()) for lb, v in sorted(by_lab.items(), key=lambda kv: -kv[1].sum())},
-           "labels_ci": {lb: tr._boot_count(rounds, v) for lb, v in by_lab.items()},
-           "drawn_by_fact": fact_of, "true_fa": 0, "true_fa_labels": {}, "true_fa_outcomes": {},
-           "refused_labels": {}, "old_x_new": {},
-           "ambiguous_keys": dict(Counter(" + ".join(r["ambiguous_keys"]) for r in rows
-                                          if r["outcome"] == "ambiguous").most_common(15)),
-           "recall": {k: {"value": round(float(a.sum() / max(b.sum(), 1)), 4), "ci": tr._boot_share(rounds, a, b),
-                          "num": int(a.sum()), "den": int(b.sum()),
-                          "drawn_by_fact": (cen.get(k.rsplit(" (", 1)[0]) or {}).get("drawn_by_fact")}
-                      for k, (a, b) in rec.items()},
-           "distances": {o: _dist([r["dist_m"] for r in rows if r["outcome"] == o])
-                         for o in ("right_entity", "other_entity", "undrawn_truth", "coverage_gap", "ambiguous")},
-           "instrument": {},
-           "coverage": {"gap_finds_by_class": dict(gap.most_common()), "census": cen,
-                        "not_joined": {k: e["not_joined"] for k, e in cen.items() if e.get("not_joined")}}}
-    if extra:
-        doc.update(extra)
-    return doc, {"out": by_out, "lab": by_lab, "rec": rec}
+    return acc.score_finds(ctx["sid"], ctx["M"], ctx["J"], F, ctx["_facts"], ctx.setdefault("_fact_cache", {}),
+                           claimed=claimed, name_of=name_of, drawn_of=drawn_of, marks=marks,
+                           near_side=near_side, frame_key=frame_key)
 
 
 def _session_census(ctx: dict, G_) -> dict:
@@ -2618,31 +1519,6 @@ def step_marks(sid: str, tag: str, ptag: str | None) -> dict:
                                              for k_ in ("ally", "enemy", "question")}})
     return {"session": sid, "step": "marks", "rows": rows, "reader_rows": rrows, "classes": doc, "reader": rdoc,
             "_per": per, "_rper": rper, "secs": round(time.perf_counter() - ctx["t0"], 1)}
-
-
-def hold_duplicate_marks(rows: list, col_kind, col_idx) -> None:
-    """A truth mark is one object: where the per-sample join gave one mark
-    to two or more finds (a mark born twice, a "?" read twice), the nearest
-    keeps it and each other becomes `nothing_there:held_by_nearer_find`,
-    naming the mark it repeats (`duplicate_of`). In place."""
-    by = defaultdict(list)
-    for i, r in enumerate(rows):
-        if col_kind[i] == "mark" and r["outcome"] != "ambiguous":
-            by[int(col_idx[i])].append(i)
-    for idx in by.values():
-        if len(idx) < 2:
-            continue
-        keep = min(idx, key=lambda i: (rows[i]["dist_m"], rows[i]["t_cap"]))
-        for i in idx:
-            if i == keep:
-                continue
-            r = rows[i]
-            r["duplicate_of"] = r["entity_id"]
-            for k in ("entity_id", "entity_class", "family", "agent", "ability", "tray_key", "owner", "side_rel",
-                      "truth_name", "drawn"):
-                r[k] = None
-            r["derivation"] = "held_by_nearer_find"
-            r["outcome"], r["label"] = "nothing_there", "nothing_there:held_by_nearer_find"
 
 
 STEP_FUNCS = {"ally": step_ally, "smoke": step_smoke, "glyph": step_glyph, "marks": step_marks}
@@ -3813,7 +2689,6 @@ def record_replay_abilities(s: dict) -> list[str]:
                          "minimap_lag_ms": rg.MINIMAP_LAG_MS, "cast_gate_ms": ra.CAST_GATE_MS,
                          "ult_gate_ms": ra.ULT_GATE_MS})
     return [f"[metric:replay_abilities/score#{k}={x}]" for k, x in v.items()]
-
 
 
 # ----------------------------------------------------------------- step 9: the replay scorers' finds, every entity

@@ -27,7 +27,7 @@
 
 [layers]
 order = ["foundation", "source", "primitives", "readers", "orchestration",
-         "adjudication", "entities", "consumers", "delivery"]
+         "adjudication", "entities", "consumers", "evaluation", "delivery"]
 
 [foundation]
 claim = "no siblings above the language and the store's own vocabulary"
@@ -115,6 +115,14 @@ uses = "call:events_path"
 since = "2026-09-30"
 until = "each remaining layer reads a projected lane (docs/ENTITY_EVENTS.md, stages 2-4)"
 reason = "`read_rows` opens the events file of each stream no lane projects yet (team_vision, ability, smoke, ult_cast, ping, killfeed), and the `--gaps` census measures the owners' own streams."
+
+[evaluation]
+claim = """
+scores emitted events against replay truth; above every pipeline layer, so no
+reader, tracker, lane or consumer may import it (replay data is evaluation
+truth only); only the command surface calls it
+"""
+modules = ["acceptance"]
 
 [delivery]
 claim = "the command surface, and nothing else may import it"

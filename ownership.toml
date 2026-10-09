@@ -2390,21 +2390,26 @@ evidence = "tests/test_replay_layer.py, docs/REPLAY_LAYER.md"
 [[entry]]
 id = "replay-truth-under"
 question = "Which replay entity lies under a vision find?"
+owner = "acceptance"
 role = ["assign"]
-status = "unowned"
+status = "partial"
+produces = ["summarize_rows", "step_summary", "pool_classes", "boot_pooled", "ACCEPTANCE_VERSION"]
 not_for = """
 Reader inputs. Replay data is evaluation truth only: it scores a find and
-never feeds a reader, a gate, a threshold, a prior or an adjudicator. Nor is
-it whether the find is real (`detection-reality`) or which agent it names
-(`agent-identity`); it states which truth entity, of any class, a find lies
-on, for scoring alone (AGENTS.md, "Replay truth covers every entity").
+never feeds a reader, a gate, a threshold, a prior or an adjudicator; the
+`evaluation` layer sits above every pipeline layer, so none may import it.
+Nor is it whether the find is real (`detection-reality`) or which agent it
+names (`agent-identity`); it states which truth entity, of any class, a find
+lies on, for scoring alone (AGENTS.md, "Replay truth covers every entity").
+The limit, and why the join waits: the core is pure over a truth grid its
+caller builds, and the grid with its T1d draw rule
+(`t1_draw_rule.RealDrawMatch`, `enemy_lane_check.build_sets`) is still a
+prototype. Only `prototypes/question_acceptance.py` (lane, label, the
+steps, replay-score, replay-abilities, budget) builds the grid and calls the
+join (`join_entities`, `truth_under_rows`, `score_finds`, `class_lane`,
+`score_lane`, `mark_truth`, `census`, `assign_per_frame`); `reticle
+acceptance` runs only `summary`, in process over the stored rows. No
+`reticle/` command reaches the join until the grid is promoted, so
+`produces` names only what `summary` reaches.
 """
-blocked_by = """
-An owner must be a module in `reticle/`, and the join is a prototype:
-`prototypes/question_acceptance.py` (`truth_under`, `_join_entities`) joins
-every find to every replay entity class, players and T0's `child:`
-entities alike, and since harness step 9 (2026-10-09) the replay scorers and
-the enemy error budget score through it. It needs promotion into
-`reticle/` (with the T1d grid it joins on, `t1_draw_rule.RealDrawMatch`) before it can
-own this question (BACKLOG item 2).
-"""
+evidence = "tests/test_acceptance_core.py"
