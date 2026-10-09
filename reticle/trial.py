@@ -227,7 +227,8 @@ def _ability_timeline(store, manifest: dict, windows: str, pad_ms: float):
     cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
                                "minimap")
     if cache is None:
-        raise SystemExit(f"{sid}: no usable minimap ROI cache ({why})")
+        from .roi_cache import absent_text
+        raise SystemExit(f"{sid}: {absent_text(store.root, manifest, 'minimap', why)}")
     spans, phase_at, _ = _ability_inputs(SimpleNamespace(session_id=sid, manifest=manifest,
                                                          store=store))
     want = sorted({x for a, b in spans for x in grid_times(cache.t_ms, float(a), float(b), 0.5)})
@@ -262,7 +263,8 @@ def _clove_circle_timeline(store, manifest: dict, windows: str, pad_ms: float):
     cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
                                "minimap")
     if cache is None:
-        raise SystemExit(f"{sid}: no usable minimap ROI cache ({why})")
+        from .roi_cache import absent_text
+        raise SystemExit(f"{sid}: {absent_text(store.root, manifest, 'minimap', why)}")
     if windows not in ("occupied", "all"):
         raise ValueError(f"unknown windows {windows!r}")
     wins, _ = stored_windows(store, sid)
@@ -413,8 +415,8 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     elif source == "cache":
         cache, why = RoiCache.load(store.root, manifest, profile, roi_name)
         if cache is None:
-            raise SystemExit(f"{sid}: no usable {roi_name} ROI cache ({why}) -- run "
-                             f"`reticle scan {sid} --only roi_cache --cache-roi {roi_name}`")
+            from .roi_cache import absent_text
+            raise SystemExit(f"{sid}: {absent_text(store.root, manifest, roi_name, why)}")
         frames = cache.samples(want, rois=TRIAL_ROIS.get(reader, roi_name))
     else:
         raise ValueError(f"unknown source {source!r}")

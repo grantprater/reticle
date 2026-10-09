@@ -65,6 +65,18 @@ ms of CPU a frame against
 12, and the full grid [metric:roi_cache_gop/g1@cadaadeb2d8b#g1_grid_cpu_ms=8.2]
 against [metric:roi_cache_gop/g1@cadaadeb2d8b#g12_grid_cpu_ms=7.83].
 
+**A deleted cache is retired, not missing** (the player, 2026-10-09). The
+player deleted every stored crop cache on 2026-10-09; future caches key
+every frame. The deletion is a row in the store's retirement log
+(`CACHE_RETIREMENT_LOG`, the log `reticle retire` writes), `kind`
+`roi_cache`, naming the sessions, sets, version, size and reason
+(`cache_retirement`). `RoiCache.load` then refuses an absent cache as
+`cache_retired`, not `no_cache`, and a rebuilt cache loads as before.
+`pixel_source` says what a reread can read: the capture, a stored cache,
+or nothing (`no_pixels`) where the video is retired and no cache is
+stored. A session with its video rebuilds a set by decoding it
+(`rebuild_command`).
+
 **The scoreboard set is gated on an opportunity.** Its one rectangle is not
 a profile ROI but the region the Tab scoreboard reader reads
 (`scoreboard.reader_roi`, frame x 535-1382 over the whole height at
@@ -895,6 +907,101 @@ def rewrite_command(sid: str, name: str, record: dict | None = None) -> str:
     return cmd
 
 
+#: The store's retirement log, which `reticle retire` writes
+#: (`retire.RETIREMENT_LOG`); a row whose `kind` is `CACHE_RETIREMENT_KIND`
+#: records crop caches deleted on purpose. A row with no `kind` retires a
+#: capture's video.
+CACHE_RETIREMENT_LOG = Path("retirement") / "retirements.jsonl"
+CACHE_RETIREMENT_KIND = "roi_cache"
+#: The reason `RoiCache.load` gives for an absent cache a retirement row names.
+CACHE_RETIRED = "cache_retired"
+#: The scan arguments that rebuild each set as the ingest writes it
+#: (`cli.cmd_ingest_passes`): the minimap set at 15 Hz over the live rounds,
+#: the others at the pass rate over the whole capture.
+REBUILD_ARGS = {"minimap": " --cache-hz 15 --cache-live"}
+
+
+def cache_retirements(store_root) -> list[dict]:
+    """The crop cache retirement rows of the store's retirement log, in order."""
+    log = Path(store_root) / CACHE_RETIREMENT_LOG
+    if not log.is_file():
+        return []
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+    return [r for r in rows if r.get("kind") == CACHE_RETIREMENT_KIND]
+
+
+def cache_retirement(store_root, sid: str, name: str | None = None) -> dict | None:
+    """The latest retirement row naming `sid` (and set `name`, where given),
+    or None where none does."""
+    hit = None
+    for r in cache_retirements(store_root):
+        if sid in (r.get("sessions") or ()) and (name is None or name in (r.get("rois") or ())):
+            hit = r
+    return hit
+
+
+def record_cache_retirement(store_root, row: dict) -> Path:
+    """Append a crop cache retirement row to the store's retirement log."""
+    row = {"kind": CACHE_RETIREMENT_KIND, **row}
+    for key in ("at", "roi_cache_version", "rois", "sessions", "reason"):
+        if not row.get(key):
+            raise ValueError(f"a crop cache retirement row needs {key!r}")
+    log = Path(store_root) / CACHE_RETIREMENT_LOG
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(row) + "\n")
+    return log
+
+
+def stored_sets(store_root, sid: str) -> list[str]:
+    """The `CACHE_SETS` names with a stored record for `sid`, unchecked."""
+    return [n for n in CACHE_SETS if stored_record(store_root, sid, n) is not None]
+
+
+def pixel_source(store_root, manifest: dict) -> dict:
+    """What a reread of the session's pixels can read: {"state", "why"}.
+
+    `video` while the capture is on disk; `cache` where the video is retired
+    and a crop cache is stored; `no_pixels` where the video is retired and no
+    crop cache is stored: a reread is impossible, and `why` says whether the
+    caches were retired too (`cache_retirement`). `missing` where the video
+    is gone with no retirement recorded."""
+    from .audio_source import video_state
+    sid = manifest["session_id"]
+    state = video_state(manifest)
+    if state in ("present", "retired_present"):
+        return {"state": "video", "why": None}
+    if state == "missing":
+        return {"state": "missing", "why": "the video is gone and no retirement is recorded"}
+    held = stored_sets(store_root, sid)
+    if held:
+        return {"state": "cache", "why": f"video retired; crop caches {', '.join(held)} stored"}
+    row = cache_retirement(store_root, sid)
+    if row is not None:
+        return {"state": "no_pixels",
+                "why": f"no pixels: source and cache retired {str(row['at'])[:10]}"}
+    return {"state": "no_pixels", "why": "no pixels: source retired, no crop cache stored"}
+
+
+def rebuild_command(sid: str, name: str) -> str:
+    """The decode that writes set `name` for `sid` again, as the ingest does."""
+    return f"reticle scan {sid} --only roi_cache --cache-roi {name}" + REBUILD_ARGS.get(name, "")
+
+
+def absent_text(store_root, manifest: dict, name: str, why: str | None) -> str:
+    """What a reader refusing a cache it cannot load should say: the reason,
+    and the decode that rebuilds the set, or that none can (`pixel_source`)."""
+    sid = manifest["session_id"]
+    src = pixel_source(store_root, manifest)
+    if src["state"] == "no_pixels":
+        return f"no usable {name} crop cache ({why}); {src['why']}"
+    if src["state"] == "video" and why in ("no_cache", CACHE_RETIRED):
+        return (f"no usable {name} crop cache ({why}); rebuild it from the capture "
+                f"(a decode): `{rebuild_command(sid, name)}`")
+    return f"no usable {name} crop cache ({why})"
+
+
 def _raw_rects_ok(rec: dict, want: list[list[int]]) -> bool:
     """Whether a raw read (`RoiCache.load(raw=True)`) may use a cache whose
     rectangles differ from the ones the manifest names now: only its minimap
@@ -1289,7 +1396,9 @@ class RoiCache:
         None with the reason no cache can be used. `raw` reads the minimap
         crops as stored, at the box they were cut with, with no placement and
         no placement refusal (`_raw_rects_ok`): the placement fit
-        (`widget_frame.fit_placement`) reads them so."""
+        (`widget_frame.fit_placement`) reads them so. An absent cache a
+        retirement row names (`cache_retirement`) refuses as
+        `CACHE_RETIRED`, not `no_cache`."""
         need = set(CACHE_SETS[name])
         why = "no_cache"
         for other in [name] + [n for n, rs in CACHE_SETS.items()
@@ -1299,6 +1408,8 @@ class RoiCache:
                 return got, None
             if reason != "no_cache":
                 why = reason
+        if why == "no_cache" and cache_retirement(store_root, manifest["session_id"]) is not None:
+            why = CACHE_RETIRED
         return None, why
 
     def rect_of(self, roi: str) -> list[int]:
