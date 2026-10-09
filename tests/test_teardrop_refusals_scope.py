@@ -31,6 +31,13 @@ class RefuseScopeTests(unittest.TestCase):
         self.assertIs(qa.NEW, tr.NEW)
         self.assertNotIn(tr.HELD_OUT, tr.SCORED)
 
+    def test_the_lane_check_refuses_outside_the_scored_set(self):
+        import enemy_lane_check as elc
+        with self.assertRaisesRegex(SystemExit, "held-out"):
+            elc.build_sets("cea8ecbc94ab")
+        with self.assertRaisesRegex(SystemExit, "neither a development match"):
+            elc.build_sets("b7d24102a6f6")
+
 
 if __name__ == "__main__":
     unittest.main()

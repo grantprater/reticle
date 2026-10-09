@@ -67,10 +67,14 @@ sys.path.insert(0, str(HERE))
 import coaching_questions as cq  # noqa: E402
 import real_reader_schedule as rrs  # noqa: E402
 import replay_truth as rt  # noqa: E402
+import teardrop_refusals as tr  # noqa: E402
 import entity_state as es  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "enemy-lane-check-0.1.0"
+#: 0.1.1 (task teardrop-new-sessions-20261009): `build_sets` admits
+#: `teardrop_refusals.SCORED`, the development matches and the 2026-10-07
+#: replay captures; the report loops stay on `DEV`.
+VERSION = "enemy-lane-check-0.1.1"
 TASK = "enemy-lane-check-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
@@ -167,15 +171,16 @@ def live_samples(M) -> tuple[np.ndarray, np.ndarray]:
 
 
 def build_sets(sid: str, M=None) -> dict:
-    """The miss and extra sets of one development match, with attributes.
+    """The miss and extra sets of one scored match (`teardrop_refusals.SCORED`),
+    with attributes.
     `M` (default `real_reader_schedule.RealMatch(sid)`) supplies the draw
     rule through `M.drawn`; `t1_draw_rule` passes its own."""
     from reticle.line_of_sight import EYE_ABOVE_CENTRE_CM
     from reticle.replay_source import to_px
 
     refuse(sid)
-    if sid not in DEV:
-        raise SystemExit(f"{sid}: not a development match of this check")
+    if sid not in tr.SCORED:
+        raise SystemExit(f"{sid}: neither a development match nor a 2026-10-07 replay capture")
     t0 = time.time()
     M = M if M is not None else rrs.RealMatch(sid)
     E = M.enemy_reads()

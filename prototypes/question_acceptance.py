@@ -1781,10 +1781,11 @@ def _record(doc: dict, arm: str | None = None) -> None:
                  "rate and icon precision beside named-slot presence/position recall and precision")
     if doc["pooled"]:
         vals, ci = _metric_values(doc["pooled"])
-        rec("question_acceptance", part=f"lane/{tag}", session="dev3", values=vals, ci=ci,
+        rec("question_acceptance", part=f"lane/{tag}", session=_pool_name(doc["pooled"]["sessions"]),
+            values=vals, ci=ci,
             deps={"version": VERSION, "rule": "T1d"}, context={"task": TASK, "boot": doc["boot"],
                                                                "sessions": doc["pooled"]["sessions"]},
-            note="pooled over the development matches; rounds resampled within each match")
+            note="pooled over the sessions; rounds resampled within each match")
 
 
 def _record_classes(doc: dict, arm: str | None = None) -> None:
@@ -1795,7 +1796,7 @@ def _record_classes(doc: dict, arm: str | None = None) -> None:
     tag = doc["tag"] + (f"/{arm}" if arm else "")
     scopes = [(sid, r["classes"]) for sid, r in doc["sessions"].items() if r.get("classes")]
     if doc.get("pooled") and doc["pooled"].get("classes"):
-        scopes.append(("dev3", doc["pooled"]["classes"]))
+        scopes.append((_pool_name(doc["pooled"]["sessions"]), doc["pooled"]["classes"]))
     for scope, c in scopes:
         vals = {"finds": c["finds"], **{o: c["outcomes"][o] for o in CLASS_OUTCOMES},
                 "true_fa": c["true_fa"]}
@@ -1812,7 +1813,7 @@ def _record_classes(doc: dict, arm: str | None = None) -> None:
                         "recall_" + k.split(":", 1)[-1].replace(":", "_").replace(" ", "_").lower())
                 vals[name] = v["value"]
                 ci[name] = v["ci"]
-        inst = c["instrument"] if scope != "dev3" else None
+        inst = c["instrument"] if scope in doc["sessions"] else None
         ctl = [] if inst is None else [{"name": inst["name"], "observed": inst["share_le_1px"], "expected": 1.0,
                                         "tol": 0}]
         rec("question_acceptance", part=f"classes/{tag}", session=scope, values=vals, ci=ci, controls=ctl,
