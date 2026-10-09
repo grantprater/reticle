@@ -13,7 +13,7 @@ from unittest.mock import patch
 import numpy as np
 
 from reticle import passes
-from reticle.ally_gate import ALLY_GATE_VERSION, AllyGate, teammate_fits
+from reticle.ally_gate import ALLY_GATE_VERSION, CUE_PERIOD_MS, AllyGate, teammate_fits
 from reticle.decode import sample_multi
 from reticle.minimap import AllyIconReader
 from reticle.passes import GateDecision, GateLog, gate_decide, run, run_cached
@@ -241,7 +241,7 @@ class AllyGateRuleTests(unittest.TestCase):
         cues = [x for x, w in opened if w == "cue:death"]
         self.assertGreaterEqual(len(cues), 4)
         self.assertTrue(all(3000.0 <= x <= 4000.0 for x in cues))
-        self.assertTrue((np.diff(cues) >= 132.0).all())
+        self.assertTrue((np.diff(cues) >= CUE_PERIOD_MS - 1.0).all())
 
     def test_an_enemy_near_a_teammate_is_a_cue(self):
         enemy = (np.array([2000.0]), np.array([105.0]), np.array([0.0]))
