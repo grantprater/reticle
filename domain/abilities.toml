@@ -8463,11 +8463,11 @@ and its owner, and its minimap drawing stays at half opacity until its own
 end (destroyed, or the round's end).
 """
 kind = "lifecycle"
-known = "inferred"
+known = "player"
 since = "2026-10-09"
 subject = "deadlock:sonic sensor"
 source = """
-inferred: the player's rule names "Deadlock's utility" with no expiration
+the player in chat, 2026-10-09, names Deadlock's utility without expiration
 [domain:abilities/deployed-utility-disabled-drawn-dimmer]; of Deadlock's
 deployed utility only the Sonic Sensor has no lifetime field
 [domain:game_data/deadlock-sonic-sensor-game-data] (Barrier Mesh has one,
@@ -8481,13 +8481,13 @@ the ability child owner (`slot_state.build_abilities`) sets this node's state
 to `disabled` at its owner's death verdict and keeps it open to its real end
 """
 exceptions = """
-The player has not named the Sonic Sensor alone; ask before any other
-Deadlock ability joins this rule.
+The rule covers Deadlock's utility without expiration, which is the
+Sonic Sensor alone; ask before any other Deadlock ability joins it.
 """
 owner_death = "disabled"
-depends_on = ["abilities/deployed-utility-disabled-drawn-dimmer", "game_data/deadlock-sonic-sensor-game-data",
-              "game_data/stealthing-trap-disabled-minimap-opacity", "minimap/device-dim-on-deactivation"]
-see = ["abilities/deadlock-sonic-sensor-persists-after-death", "abilities/ability-rules-are-unique"]
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "game_data/deadlock-sonic-sensor-game-data",
+       "game_data/stealthing-trap-disabled-minimap-opacity", "minimap/device-dim-on-deactivation",
+       "abilities/deadlock-sonic-sensor-persists-after-death", "abilities/ability-rules-are-unique"]
 
 [deadlock-sonic-sensor-object-disabled-at-owner-death]
 claim = """
@@ -8496,11 +8496,11 @@ and its owner, and its minimap drawing stays at half opacity until its own
 end (destroyed, or the round's end).
 """
 kind = "lifecycle"
-known = "inferred"
+known = "player"
 since = "2026-10-09"
 subject = "deadlock:sonic sensor/gameobject_stealthingtrap_soundsensor"
 source = """
-inferred: the player's rule names "Deadlock's utility" with no expiration
+the player in chat, 2026-10-09, names Deadlock's utility without expiration
 [domain:abilities/deployed-utility-disabled-drawn-dimmer]; of Deadlock's
 deployed utility only the Sonic Sensor has no lifetime field
 [domain:game_data/deadlock-sonic-sensor-game-data] (Barrier Mesh has one,
@@ -8514,13 +8514,14 @@ the ability child owner (`slot_state.build_abilities`) sets this node's state
 to `disabled` at its owner's death verdict and keeps it open to its real end
 """
 exceptions = """
-The player has not named the Sonic Sensor alone; ask before any other
-Deadlock ability joins this rule. The sensor alone; the concussion fissure it spawns is outside it.
+The rule covers Deadlock's utility without expiration, which is the
+Sonic Sensor alone; ask before any other Deadlock ability joins it. The
+concussion fissure the sensor spawns lies outside it.
 """
 owner_death = "disabled"
-depends_on = ["abilities/deployed-utility-disabled-drawn-dimmer", "game_data/deadlock-sonic-sensor-game-data",
-              "game_data/stealthing-trap-disabled-minimap-opacity", "minimap/device-dim-on-deactivation"]
-see = ["abilities/deadlock-sonic-sensor-persists-after-death", "abilities/ability-rules-are-unique"]
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "game_data/deadlock-sonic-sensor-game-data",
+       "game_data/stealthing-trap-disabled-minimap-opacity", "minimap/device-dim-on-deactivation",
+       "abilities/deadlock-sonic-sensor-persists-after-death", "abilities/ability-rules-are-unique"]
 
 [chamber-trademark-placed-no-lifetime]
 claim = """
