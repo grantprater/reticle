@@ -62,7 +62,7 @@ from .replay_source import (MAX_GAP_MS, MINIMAP_LAG_MS, REPLAY_SOURCE_VERSION, S
 from .dev_set import FROZEN_HELD_OUT_REPLAY
 from .store import DEFAULT_STORE
 
-REPLAY_LAYER_VERSION = "replay-layer-0.3.0"
+REPLAY_LAYER_VERSION = "replay-layer-0.3.1"
 #: The frozen held-out match's replay (`dev_set`; docs/EXTERNAL_GROUND_TRUTH.md, "a match that scores a
 #: fitted reader or model is held out from its fit"): built, never summarised.
 HELD_OUT = FROZEN_HELD_OUT_REPLAY
@@ -406,33 +406,34 @@ CLEANUP_CLOSE_MS = 250.0
 DISABLE_AT_DEATH_MS = 100.0
 #: Per class, the replay markers that end the object, read class by class
 #: on the development matches (2026-10-09; docs/REPLAY_LAYER.md, "Child
-#: ends"). These four classes draw on the minimap as long as the object lasts
-#: [domain:abilities/chamber-trademark-drawing-lasts-with-object]
-#: [domain:abilities/chamber-rendezvous-drawing-lasts-with-object]
-#: [domain:abilities/cypher-trapwire-drawing-lasts-with-object]
-#: [domain:abilities/cypher-spycam-camera-drawing-lasts-with-object];
-#: each owner death inside an actor's life shows that actor's own Disabled
-#: effect within `DISABLE_AT_DEATH_MS`, the drawing losses the false-loss
-#: diagnostic called replay overruns fall at that disable, and a kill, a
-#: destroy effect or a recall closes the channel mid-round. The end is the
-#: earliest marker listed; a channel that closes at the round's cleanup with
-#: none of them before it closes with the object (`round_cleanup`).
+#: ends"). These eight classes are deployed utility with no expiration: the
+#: object stays in the world and on the minimap after its owner dies,
+#: disabled and drawn dimmer [domain:abilities/deployed-utility-disabled-drawn-dimmer].
+#: Each owner death inside an actor's life shows the actor's own Disabled
+#: effect (`t_disabled_rep`, a state change, never an end). A kill, a destroy
+#: effect or a recall closes the channel mid-round; a channel that closes at
+#: the round's cleanup with none of them before it closes with the object
+#: (`round_cleanup`). `killed` and `destroy_effect` are listed only where the
+#: survey saw them on the class.
 END_MARKERS = {
-    "GameObject_Deadeye_E_Trap_C": ("disabled_at_owner_death", "killed", "channel_close"),
-    "GameObject_Deadeye_E_Teleporter_Tether_C": ("disabled_at_owner_death", "killed", "channel_close"),
-    "GameObject_Gumshoe_4_TripWire_C": ("disabled_at_owner_death", "killed", "destroy_effect",
-                                        "channel_close"),
-    "GameObject_Gumshoe_4_TripWire_SecondWire_C": ("disabled_at_owner_death", "killed", "destroy_effect",
-                                                   "channel_close"),
-    "Pawn_Gumshoe_E_PossessableCamera_C": ("disabled_at_owner_death", "killed", "channel_close"),
+    "GameObject_Deadeye_E_Trap_C": ("killed", "channel_close"),
+    "GameObject_Deadeye_E_Teleporter_Tether_C": ("killed", "channel_close"),
+    "GameObject_Gumshoe_4_TripWire_C": ("killed", "destroy_effect", "channel_close"),
+    "GameObject_Gumshoe_4_TripWire_SecondWire_C": ("killed", "destroy_effect", "channel_close"),
+    "Pawn_Gumshoe_E_PossessableCamera_C": ("killed", "channel_close"),
+    "GameObject_Gumshoe_Q_CageTrap_C": ("channel_close",),
+    "Pawn_Killjoy_Q_StealthAlarmbot_C": ("killed", "channel_close"),
+    "Pawn_Killjoy_E_Turret_C": ("killed", "channel_close"),
+    "Projectile_Killjoy_4_RemoteBees_MultiDetonate_C": ("killed", "channel_close"),
 }
 #: Every other class ends at its channel's close where that lies mid-round;
 #: a close at the cleanup, or none, leaves its end unknown after its last
 #: live marker. No class borrows another's markers.
 DEFAULT_END_MARKERS = ("channel_close",)
 #: The end markers, in the order a tie is named.
-END_MARKER_NAMES = ("disabled_at_owner_death", "killed", "destroy_effect", "channel_close",
-                    "round_cleanup")
+END_MARKER_NAMES = ("killed", "destroy_effect", "channel_close", "round_cleanup")
+#: The state marker: the actor's own Disabled effect at its owner's death.
+DISABLED_MARKER = "disabled_at_owner_death"
 
 
 def close_kind(close, next_start) -> str:
@@ -449,7 +450,7 @@ def close_kind(close, next_start) -> str:
 def child_end(cls: str, close, next_start, markers: dict, last_live) -> dict:
     """One child's end from its class's markers (`END_MARKERS`, else
     `DEFAULT_END_MARKERS`). `markers` maps a marker name to its earliest
-    replay ms (`disabled_at_owner_death`, `killed`, `destroy_effect`);
+    replay ms (`killed`, `destroy_effect`; a disable is a state, never an end);
     `close` is the channel's close and `last_live` the actor's last own row
     before its cleanup. Returns `t_end` (None where unknown), `end_marker`
     (`unknown` where none holds), `end_reason`, `t_live_until` (the end, or
@@ -476,7 +477,7 @@ def child_end(cls: str, close, next_start, markers: dict, last_live) -> dict:
 
 
 CHILD_END_COLUMNS = ("t_end_rep", "end_marker", "end_reason", "t_live_until_rep", "channel_close_ms",
-                     "channel_close_kind", "end_markers_seen")
+                     "channel_close_kind", "end_markers_seen", "t_disabled_rep", "disabled_marker")
 
 
 def child_end_columns(match, root, rp, E: dict, EV: dict, rounds: list[dict]) -> dict:
@@ -484,7 +485,9 @@ def child_end_columns(match, root, rp, E: dict, EV: dict, rounds: list[dict]) ->
     (`CHILD_END_COLUMNS`): the markers read from the replay (its own Disabled
     and Destroy effects, its owner's deaths, the damage calls that killed it,
     its own field rows), the end, the marker that set it, why an end is
-    unknown, the last live marker, and the channel's close with its kind."""
+    unknown, the last live marker, the channel's close with its kind, and the
+    disable at the owner's death (`t_disabled_rep`, `DISABLED_MARKER`), on
+    every class that shows it: a state change, never an end."""
     import pyarrow.parquet as pq
     n = len(E["entity_id"])
     out = {c: [None] * n for c in CHILD_END_COLUMNS}
@@ -539,9 +542,13 @@ def child_end_columns(match, root, rp, E: dict, EV: dict, rounds: list[dict]) ->
                and any(abs(x - d) <= DISABLE_AT_DEATH_MS for d in od)]
         kl = [x for x in killed.get(g, []) if t0 <= x <= stop]
         de = [x for x in destroyed.get(g, []) if t0 <= x <= stop]
-        mk = {"disabled_at_owner_death": min(dis) if dis else None, "killed": min(kl) if kl else None,
-              "destroy_effect": min(de) if de else None}
+        mk = {"killed": min(kl) if kl else None, "destroy_effect": min(de) if de else None}
         end = child_end(str(E["class"][k]), close, nxt, mk, last)
+        t_dis = min(dis) if dis else None
+        if t_dis is not None and end["t_end"] is not None and t_dis > end["t_end"]:
+            t_dis = None
+        out["t_disabled_rep"][k] = t_dis
+        out["disabled_marker"][k] = DISABLED_MARKER if t_dis is not None else None
         out["t_end_rep"][k] = end["t_end"]
         out["end_marker"][k] = end["end_marker"]
         out["end_reason"][k] = end["end_reason"]
@@ -549,6 +556,7 @@ def child_end_columns(match, root, rp, E: dict, EV: dict, rounds: list[dict]) ->
         out["channel_close_ms"][k] = close
         out["channel_close_kind"][k] = end["channel_close_kind"]
         out["end_markers_seen"][k] = _json({**{m: v for m, v in mk.items() if v is not None},
+                                            **({DISABLED_MARKER: t_dis} if t_dis is not None else {}),
                                             **({"owner_death": od[0]} if od else {}),
                                             "last_own_row": last})
     return out
@@ -760,6 +768,7 @@ def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
     E["t_close_cap"] = [None if a is None or t is None else t + a for t in E["t_close_rep"]]
     E["t_end_cap"] = [None if a is None or t is None else t + a for t in E["t_end_rep"]]
     E["t_live_until_cap"] = [None if a is None or t is None else t + a for t in E["t_live_until_rep"]]
+    E["t_disabled_cap"] = [None if a is None or t is None else t + a for t in E["t_disabled_rep"]]
     if mf is not None:
         sx = np.array([np.nan if v is None else v for v in E["spawn_x"]], float)
         sy = np.array([np.nan if v is None else v for v in E["spawn_y"]], float)

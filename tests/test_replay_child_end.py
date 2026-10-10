@@ -10,26 +10,32 @@ from reticle import replay_layer as rl
 
 NEXT = 100_000.0              # the next round's start
 CLEANUP = NEXT - 150.0        # a channel close at the round's cleanup
-NONE = {"disabled_at_owner_death": None, "killed": None, "destroy_effect": None}
+NONE = {"killed": None, "destroy_effect": None}
+PERSIST = ["GameObject_Deadeye_E_Trap_C", "GameObject_Deadeye_E_Teleporter_Tether_C",
+           "GameObject_Gumshoe_4_TripWire_C", "GameObject_Gumshoe_4_TripWire_SecondWire_C",
+           "Pawn_Gumshoe_E_PossessableCamera_C", "GameObject_Gumshoe_Q_CageTrap_C",
+           "Pawn_Killjoy_Q_StealthAlarmbot_C", "Pawn_Killjoy_E_Turret_C",
+           "Projectile_Killjoy_4_RemoteBees_MultiDetonate_C"]
 
 
 def end(cls, close, markers=None, last=5_000.0):
     return rl.child_end(cls, close, NEXT, {**NONE, **(markers or {})}, last)
 
 
-@pytest.mark.parametrize("cls", ["GameObject_Deadeye_E_Trap_C", "GameObject_Deadeye_E_Teleporter_Tether_C",
-                                 "GameObject_Gumshoe_4_TripWire_C",
-                                 "GameObject_Gumshoe_4_TripWire_SecondWire_C",
-                                 "Pawn_Gumshoe_E_PossessableCamera_C"])
-def test_disabled_at_owner_death_ends_the_four_drawn_classes(cls):
+@pytest.mark.parametrize("cls", PERSIST)
+def test_persisting_utility_lasts_to_the_cleanup_close(cls):
+    # disabled at the owner's death, the object stays drawn, dimmer: the
+    # cleanup close is its end, and a disable never is
     e = end(cls, CLEANUP, {"disabled_at_owner_death": 40_000.0})
-    assert (e["t_end"], e["end_marker"], e["channel_close_kind"]) == (40_000.0, "disabled_at_owner_death",
+    assert (e["t_end"], e["end_marker"], e["channel_close_kind"]) == (CLEANUP, "round_cleanup",
                                                                       "round_cleanup")
 
 
-def test_trademark_cleanup_close_with_no_marker_is_the_objects_end():
-    e = end("GameObject_Deadeye_E_Trap_C", CLEANUP)
-    assert (e["t_end"], e["end_marker"]) == (CLEANUP, "round_cleanup")
+@pytest.mark.parametrize("cls", PERSIST)
+def test_persisting_utility_that_never_closes_has_an_unknown_end(cls):
+    e = end(cls, None, last=7_000.0)
+    assert e["t_end"] is None and e["t_live_until"] == 7_000.0
+    assert "no end marker of the class fired" in e["end_reason"]
 
 
 def test_rendezvous_kill_ends_before_a_later_close():
@@ -48,9 +54,8 @@ def test_spycam_mid_round_close_ends_it():
 
 
 def test_a_class_never_borrows_another_class_marker():
-    # Cypher's Cage shows a Disabled effect at its owner's death too, but the
-    # class's ends were never verified: the marker is ignored
-    e = end("GameObject_Gumshoe_Q_CageTrap_C", CLEANUP, {"disabled_at_owner_death": 40_000.0})
+    # a kill marker on a class whose ends were never surveyed is ignored
+    e = end("GameObject_Iris_E_Smoke_C", CLEANUP, {"killed": 40_000.0})
     assert e["end_marker"] == "unknown" and e["t_end"] is None
 
 
@@ -90,3 +95,21 @@ def test_close_kind():
     assert rl.close_kind(NEXT + 10.0, NEXT) == "round_cleanup"
     assert rl.close_kind(NEXT - 1_000.0, NEXT) == "mid_round"
     assert rl.close_kind(np.nan, NEXT) == "never"
+
+
+def test_disable_is_scored_as_its_own_question():
+    pairs = [({"disabled_ms": 10_300.0}, {"disabled_ms": 10_000.0}),
+             ({"disabled_ms": None}, {"disabled_ms": 20_000.0}),
+             ({"disabled_ms": 5_000.0}, {"disabled_ms": None}),
+             ({"disabled_ms": None}, {"disabled_ms": None})]
+    dq, arr = acc.disabled_question(pairs)
+    assert (dq["truth"], dq["marked"], dq["recall"], dq["marked_without_truth"]) == (2, 1, 0.5, 1)
+    assert dq["time_error"]["median_ms"] == 300.0
+    assert acc._pool_disabled([arr, arr])["truth"] == 4
+
+
+def test_truth_instance_carries_its_actors_first_disable():
+    actors = [{"ability": "Trapwire", "open_ms": 1_000.0, "close_ms": 9_000.0, "disabled_ms": 6_000.0},
+              {"ability": "Trapwire", "open_ms": 1_000.0, "close_ms": 9_000.0, "disabled_ms": 5_000.0}]
+    inst = acc.ability_truth_instances([{"t_ms": 900.0, "ability": "Trapwire", "slot": 1}], actors, [], [])
+    assert inst[0]["disabled_ms"] == 5_000.0 and inst[0]["end_ms"] == 9_000.0

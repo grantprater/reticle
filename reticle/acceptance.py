@@ -1521,7 +1521,9 @@ def ability_truth_instances(casts: list[dict], actors: list[dict], deaths_ms, ba
             cause = "owner_death" if near_d.size else "round_end" if near_b.size else "other"
         out.append({"t_ms": t, "ability": ab if c["ability"] else None, "raw": c["ability"],
                     "slot": c.get("slot"), "end_ms": end, "end_cause": cause, "actors": len(mine),
-                    "end_unknown": unknown})
+                    "end_unknown": unknown,
+                    "disabled_ms": min((float(a["disabled_ms"]) for a in mine
+                                        if a.get("disabled_ms") is not None), default=None)})
     return out
 
 
@@ -1565,6 +1567,30 @@ def _ms_summary(v) -> dict:
         return {"n": 0}
     return {"n": int(v.size), "median_ms": round(float(np.median(v)), 1),
             "abs_p90_ms": round(float(np.percentile(np.abs(v), 90)), 1)}
+
+
+def disabled_question(pairs) -> tuple[dict, dict]:
+    """The disable at the owner's death as its own question, apart from the
+    end cause: over (find, truth) pairs, each with `disabled_ms` (None where
+    none), how many truth disables the find marks, the marked time's error,
+    and finds marked disabled where the truth holds no disable. A disable is
+    a state, never an end [domain:abilities/deployed-utility-disabled-drawn-dimmer]."""
+    truth = [(f, t) for f, t in pairs if t.get("disabled_ms") is not None]
+    marked = [(f, t) for f, t in truth if f.get("disabled_ms") is not None]
+    extra = sum(1 for f, t in pairs if t.get("disabled_ms") is None and f.get("disabled_ms") is not None)
+    err = [float(f["disabled_ms"]) - float(t["disabled_ms"]) for f, t in marked]
+    return ({"truth": len(truth), "marked": len(marked),
+             "recall": round(len(marked) / len(truth), 4) if truth else None,
+             "time_error": _ms_summary(err), "marked_without_truth": extra},
+            {"dis_truth": len(truth), "dis_marked": len(marked), "dis_err": err, "dis_extra": extra})
+
+
+def _pool_disabled(got) -> dict:
+    n = sum(g.get("dis_truth", 0) for g in got)
+    m = sum(g.get("dis_marked", 0) for g in got)
+    return {"truth": n, "marked": m, "recall": round(m / n, 4) if n else None,
+            "time_error": _ms_summary([x for g in got for x in g.get("dis_err", [])]),
+            "marked_without_truth": sum(g.get("dis_extra", 0) for g in got)}
 
 
 def score_ability_lane(finds: list[dict], truth: list[dict], others: list[dict], round_starts,
@@ -1658,9 +1684,11 @@ def score_ability_lane(finds: list[dict], truth: list[dict], others: list[dict],
                "end_cause": dict(sorted(conf.items())),
                "end_cause_agreement": round(sum(agree) / len(agree), 4) if agree else None,
                "end_cause_n": len(agree), "end_unknown_n": unknown_n}
+        dq, darr = disabled_question([(finds[tj[j]], mapped[j]) for j in hit])
+        doc["disabled"] = dq
         return doc, {"num": num, "den": den, "fnum": fnum, "fden": fden,
                      "agree": sum(agree), "agree_n": len(agree), "open_err": open_err,
-                     "end_err": end_err, "end_unknown": unknown_n}
+                     "end_err": end_err, "end_unknown": unknown_n, **darr}
 
     classes = sorted({f["ability"] for f in finds} | {tr["ability"] for tr in mapped})
     per, arrays = {}, {}
@@ -1804,9 +1832,11 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
                "end_cause": dict(sorted(conf.items())),
                "end_cause_agreement": round(sum(agree) / len(agree), 4) if agree else None,
                "end_cause_n": len(agree), "end_unknown_n": unknown_n}
+        dq, darr = disabled_question([(nodes[pair[j]], actors[j]) for j in hit])
+        doc["disabled"] = dq
         return doc, {"num": num, "den": den, "fnum": fnum, "fden": fden, "agree": sum(agree),
                      "agree_n": len(agree), "open_err": open_err, "end_err": end_err,
-                     "end_unknown": unknown_n}
+                     "end_unknown": unknown_n, **darr}
 
     keys = sorted({(n["side"], n["cls"]) for n in nodes} | {(a["side"], a["cls"]) for a in actors})
     out, arrays = {}, {}
@@ -1847,7 +1877,8 @@ def pool_ability_lane(arrays: list[dict]) -> dict:
                                       if fden and use else None),
                     "open_error": _ms_summary(oe), "end_error": _ms_summary(ee),
                     "end_cause_agreement": round(ag / agn, 4) if agn else None, "end_cause_n": agn,
-                    "end_unknown_n": sum(int(g.get("end_unknown", 0)) for g in got)}
+                    "end_unknown_n": sum(int(g.get("end_unknown", 0)) for g in got),
+                    "disabled": _pool_disabled(got)}
     return out
 
 
