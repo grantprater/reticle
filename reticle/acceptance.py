@@ -1510,14 +1510,20 @@ def ability_truth_instances(casts: list[dict], actors: list[dict], deaths_ms, ba
         hi = int(np.searchsorted(at, min(t + gate_ms, stop), side="right"))
         mine = act.get(ab, [])[lo:hi]
         closes = [float(a["close_ms"]) for a in mine if a.get("close_ms") is not None]
-        end = max(closes) if closes else None
+        # an actor whose end the replay leaves unknown (`replay_layer.child_end`)
+        # leaves the instance's end unknown: it may outlast every known close
+        unknown = any(a.get("end_unknown") for a in mine)
+        end = max(closes) if closes and not unknown else None
         cause = None
         if end is not None:
             near_d = deaths[(deaths >= t) & (np.abs(deaths - end) <= tol_ms)]
             near_b = bars[np.abs(bars - end) <= tol_ms]
             cause = "owner_death" if near_d.size else "round_end" if near_b.size else "other"
         out.append({"t_ms": t, "ability": ab if c["ability"] else None, "raw": c["ability"],
-                    "slot": c.get("slot"), "end_ms": end, "end_cause": cause, "actors": len(mine)})
+                    "slot": c.get("slot"), "end_ms": end, "end_cause": cause, "actors": len(mine),
+                    "end_unknown": unknown,
+                    "disabled_ms": min((float(a["disabled_ms"]) for a in mine
+                                        if a.get("disabled_ms") is not None), default=None)})
     return out
 
 
@@ -1561,6 +1567,30 @@ def _ms_summary(v) -> dict:
         return {"n": 0}
     return {"n": int(v.size), "median_ms": round(float(np.median(v)), 1),
             "abs_p90_ms": round(float(np.percentile(np.abs(v), 90)), 1)}
+
+
+def disabled_question(pairs) -> tuple[dict, dict]:
+    """The disable at the owner's death as its own question, apart from the
+    end cause: over (find, truth) pairs, each with `disabled_ms` (None where
+    none), how many truth disables the find marks, the marked time's error,
+    and finds marked disabled where the truth holds no disable. A disable is
+    a state, never an end [domain:abilities/deployed-utility-disabled-drawn-dimmer]."""
+    truth = [(f, t) for f, t in pairs if t.get("disabled_ms") is not None]
+    marked = [(f, t) for f, t in truth if f.get("disabled_ms") is not None]
+    extra = sum(1 for f, t in pairs if t.get("disabled_ms") is None and f.get("disabled_ms") is not None)
+    err = [float(f["disabled_ms"]) - float(t["disabled_ms"]) for f, t in marked]
+    return ({"truth": len(truth), "marked": len(marked),
+             "recall": round(len(marked) / len(truth), 4) if truth else None,
+             "time_error": _ms_summary(err), "marked_without_truth": extra},
+            {"dis_truth": len(truth), "dis_marked": len(marked), "dis_err": err, "dis_extra": extra})
+
+
+def _pool_disabled(got) -> dict:
+    n = sum(g.get("dis_truth", 0) for g in got)
+    m = sum(g.get("dis_marked", 0) for g in got)
+    return {"truth": n, "marked": m, "recall": round(m / n, 4) if n else None,
+            "time_error": _ms_summary([x for g in got for x in g.get("dis_err", [])]),
+            "marked_without_truth": sum(g.get("dis_extra", 0) for g in got)}
 
 
 def score_ability_lane(finds: list[dict], truth: list[dict], others: list[dict], round_starts,
@@ -1629,11 +1659,13 @@ def score_ability_lane(finds: list[dict], truth: list[dict], others: list[dict],
         num, den = per_round(hit, mapped), per_round(ts, mapped)
         fnum, fden = per_round(false, finds), per_round(fs, finds)
         open_err = [finds[tj[j]]["open_hi"] - mapped[j]["t_ms"] for j in hit]
-        end_err, agree, conf = [], [], Counter()
+        end_err, agree, conf, unknown_n = [], [], Counter(), 0
         for j in hit:
             f, tr = finds[tj[j]], mapped[j]
             if tr["end_ms"] is None:
-                conf[f"{f['end_basis']}|no_truth_actor"] += 1
+                # an unknown truth end scores no end time or cause; it counts apart
+                conf[f"{f['end_basis']}|{'end_unknown' if tr.get('end_unknown') else 'no_truth_actor'}"] += 1
+                unknown_n += bool(tr.get("end_unknown"))
                 continue
             end_err.append(f["end_hi"] - tr["end_ms"])
             conf[f"{f['end_basis']}|{tr['end_cause']}"] += 1
@@ -1651,10 +1683,12 @@ def score_ability_lane(finds: list[dict], truth: list[dict], others: list[dict],
                "open_error": _ms_summary(open_err), "end_error": _ms_summary(end_err),
                "end_cause": dict(sorted(conf.items())),
                "end_cause_agreement": round(sum(agree) / len(agree), 4) if agree else None,
-               "end_cause_n": len(agree)}
+               "end_cause_n": len(agree), "end_unknown_n": unknown_n}
+        dq, darr = disabled_question([(finds[tj[j]], mapped[j]) for j in hit])
+        doc["disabled"] = dq
         return doc, {"num": num, "den": den, "fnum": fnum, "fden": fden,
                      "agree": sum(agree), "agree_n": len(agree), "open_err": open_err,
-                     "end_err": end_err}
+                     "end_err": end_err, "end_unknown": unknown_n, **darr}
 
     classes = sorted({f["ability"] for f in finds} | {tr["ability"] for tr in mapped})
     per, arrays = {}, {}
@@ -1772,12 +1806,14 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
         hit = [j for j in ts if j in pair]
         paired_nodes = set(pair.values())
         lone = [i for i in ns if i not in paired_nodes]
-        open_err, end_err, agree, conf = [], [], [], Counter()
+        open_err, end_err, agree, conf, unknown_n = [], [], [], Counter(), 0
         for j in hit:
             n, a = nodes[pair[j]], actors[j]
             open_err.append(n["open_hi"] - a["open_ms"])
             if a["close_ms"] is None:
-                conf[f"{n['end_basis']}|no_truth_close"] += 1
+                # an unknown truth end scores no end time or cause; it counts apart
+                conf[f"{n['end_basis']}|{'end_unknown' if a.get('end_unknown') else 'no_truth_close'}"] += 1
+                unknown_n += bool(a.get("end_unknown"))
                 continue
             end_err.append(n["end_hi"] - a["close_ms"])
             conf[f"{n['end_basis']}|{a['end_cause']}"] += 1
@@ -1795,9 +1831,12 @@ def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
                "open_error": _ms_summary(open_err), "end_error": _ms_summary(end_err),
                "end_cause": dict(sorted(conf.items())),
                "end_cause_agreement": round(sum(agree) / len(agree), 4) if agree else None,
-               "end_cause_n": len(agree)}
+               "end_cause_n": len(agree), "end_unknown_n": unknown_n}
+        dq, darr = disabled_question([(nodes[pair[j]], actors[j]) for j in hit])
+        doc["disabled"] = dq
         return doc, {"num": num, "den": den, "fnum": fnum, "fden": fden, "agree": sum(agree),
-                     "agree_n": len(agree), "open_err": open_err, "end_err": end_err}
+                     "agree_n": len(agree), "open_err": open_err, "end_err": end_err,
+                     "end_unknown": unknown_n, **darr}
 
     keys = sorted({(n["side"], n["cls"]) for n in nodes} | {(a["side"], a["cls"]) for a in actors})
     out, arrays = {}, {}
@@ -1837,7 +1876,9 @@ def pool_ability_lane(arrays: list[dict]) -> dict:
                     "false_open_ci": (boot_pooled([(g["fnum"], g["fden"]) for g in use])
                                       if fden and use else None),
                     "open_error": _ms_summary(oe), "end_error": _ms_summary(ee),
-                    "end_cause_agreement": round(ag / agn, 4) if agn else None, "end_cause_n": agn}
+                    "end_cause_agreement": round(ag / agn, 4) if agn else None, "end_cause_n": agn,
+                    "end_unknown_n": sum(int(g.get("end_unknown", 0)) for g in got),
+                    "disabled": _pool_disabled(got)}
     return out
 
 

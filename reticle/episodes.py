@@ -164,7 +164,11 @@ class ChildTable:
     (the actor class), `role`, `agent`, `subject` and `team` of the owner,
     `side_rel` (to the capturing player), `ability`, `tray_key`, `mapped`,
     `unmapped_reason`, `round` (the layer's 0-based round), `t_open`,
-    `t_close` (NaN where the layer saw no close), `close_basis`, `spawn_x`,
+    `t_close` (the channel's close, NaN where the layer saw none),
+    `close_basis`, `t_end` (the end its class's markers set, NaN where
+    unknown; `replay_layer.child_end`), `end_marker`, `t_live_until` (the
+    last live marker), `t_disabled` (the disable at the owner's death, a
+    state, never an end), `spawn_x`,
     `spawn_y` and `n_ticks`. The ticks are flat arrays sorted by child and
     time; a child with one tick (its spawn) is static.
 
@@ -234,6 +238,8 @@ def children_from_layer(L, max_gap_ms: float) -> ChildTable:
             "mapped": col("mapped"), "unmapped_reason": col("unmapped_reason"),
             "round": col("round", num=True), "t_open": col("t_open_rep", num=True),
             "t_close": col("t_close_rep", num=True), "close_basis": col("close_basis"),
+            "t_end": col("t_end_rep", num=True), "end_marker": col("end_marker"),
+            "t_live_until": col("t_live_until_rep", num=True), "t_disabled": col("t_disabled_rep", num=True),
             "spawn_x": col("spawn_x", num=True), "spawn_y": col("spawn_y", num=True), "n_ticks": n_ticks}
     return ChildTable(cols, tick_c, T["t_rep"][keep], T["x"][keep], T["y"][keep], max_gap_ms)
 
