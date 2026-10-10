@@ -469,7 +469,13 @@ ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-eff
 #: view's reason otherwise (`_drawing_lost`).
 #: 0.4.1 (2026-10-09): a moving drawing's place is carried along its last
 #: velocity through the loss (`MOVING_PX`, `team_vision.point_at`).
-ABILITY_CHILD_VERSION = "ability-child-0.4.1"
+#: 0.5.0 (2026-10-09): owner death disables, by each ability's own fact
+#: (player, 2026-10-09; `abilities/*-disabled-at-owner-death`): the node
+#: keeps its key, stays open to its real end and `depends_on` the death
+#: verdict; a drawing lost within `DISABLE_LOSS_MS` of that death ends
+#: nothing (`_loss_at_disable`); a disc track the verify continued through
+#: the dim drawing witnesses the disabled state (`disabled_drawing`).
+ABILITY_CHILD_VERSION = "ability-child-0.5.0"
 #: ability-effect-0.1.0 (2026-10-09): the player's ability kills and assists,
 #: and any effect an ability's own `effects` fact names.
 #: 0.2.0 (2026-10-09): every slot's; a spawned object's own effects hang
@@ -513,6 +519,17 @@ OBJECT_COLUMNS = ("parent", "lifecycle_class", "lifetime_s", "owner_death", "end
 DRAWING_LOSS_RULE = "abilities/drawing-loss-in-view-ends-object"
 #: Why a lost drawing out of view leaves its node open.
 DRAWING_LOST_OUT_OF_VIEW = "drawing_lost_out_of_view"
+#: Why a drawing lost at its owner's death leaves a node its facts disable
+#: open: the drawing dimmed, and the verify missed it (`_loss_at_disable`).
+DRAWING_LOST_AT_DISABLE = "drawing_lost_at_disable"
+#: A drawing lost at the owner's death: the replay plays the Disabled effect
+#: within 100 ms of the death, so the drawing dims between the last fix and
+#: the next glyph step; the death verdict lags the death by up to one step
+#: of the killfeed reader (2 Hz, `killfeed` hz). The verdict therefore lies
+#: from one glyph step before the last fix to one glyph step plus one
+#: killfeed step after it. Chosen from the two readers' rates, not fitted.
+KILLFEED_STEP_MS = 500.0
+DISABLE_LOSS_MS = (GLYPH_STEP_MS, GLYPH_STEP_MS + KILLFEED_STEP_MS)
 #: The disc round a drawing's last fix the vision is read over: the fit
 #: error (`minimap.FIT_ERR_PX`).
 VIEW_DISC_PX = FIT_ERR_PX
@@ -825,6 +842,25 @@ def _drawing_lost(c: dict, g: dict, xy: tuple | None, vision, gver, v: tuple | N
                              "evidence": ev}
 
 
+def _loss_at_disable(c: dict) -> None:
+    """Undo a drawing loss's end where the node's own facts disable it at
+    its owner's death and that death's verdict falls in `DISABLE_LOSS_MS`
+    about the loss's last fix: the drawing dims at the death and stays while the object exists
+    (player, 2026-10-09) [domain:abilities/deadlock-sonic-sensor-disabled-at-owner-death]
+    and its siblings, so the loss is the verify missing the dim drawing
+    [domain:minimap/dim-devices-defeat-the-residual]. The node stays open to
+    its real end; the loss keeps its record with `DRAWING_LOST_AT_DISABLE`."""
+    dl, od = c.get("drawing_loss"), c.get("owner_death")
+    if not dl or not dl["ends"] or not od or od["rule"] != "disabled":
+        return
+    lag = float(od["t_ms"]) - float(dl["t_ms"])
+    if not -DISABLE_LOSS_MS[0] <= lag <= DISABLE_LOSS_MS[1]:
+        return
+    c["drawing_loss"] = {**dl, "ends": False, "reason": DRAWING_LOST_AT_DISABLE,
+                         "death_id": od["death_id"]}
+    c["observed_end"] = None
+
+
 def _okey(owner: dict | None):
     return owner["key"] if owner else None
 
@@ -1054,7 +1090,10 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
     Owner death: the player's from the kit's owner_death transition paired to
     the death verdict, every other slot's from the death owner's resolved
     verdict on its agent; each node then disables, ends or persists as its own
-    facts say. The charge bound: opens per round and slot beyond the kit's
+    facts say. A disabled node keeps its key, stays open to its real end,
+    and `depends_on` the death verdict; its drawing's loss at that death ends
+    nothing (`_loss_at_disable`), and a track continued through the dim
+    drawing witnesses the state (`disabled_drawing`). The charge bound: opens per round and slot beyond the kit's
     `max_charges` are flagged `over_bound`, never dropped.
 
     No name is decided here: a child's agent is the arbiter's verdict on its
@@ -1407,6 +1446,7 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
                        texture=(r.get("state") or {}).get("texture"))
         glyph = {"entity_id": r["entity_id"], "birth_ms": t, "last_ms": float(r.get("last_ms") or t),
                  "end": (discs.get(r["entity_id"]) or {}).get("end"),
+                 "disabled_ms": (discs.get(r["entity_id"]) or {}).get("disabled_ms"),
                  "texture": (r.get("state") or {}).get("texture")}
         if len(teams) != 1:
             if not teams:
@@ -1589,6 +1629,9 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
                 life = life_of(c)
                 c["owner_death"] = {**death, "rule": life["owner_death"],
                                     "fact": life["owner_death_fact"], "reason": life["owner_death_reason"]}
+                if life["owner_death"] == "disabled" and death["death_id"]:
+                    # The disabled state rests on the death owner's verdict.
+                    c["depends"].append(f"identity:{death['death_id']}")
                 if c.get("exists") == "possible" and life["owner_death"] == "destroyed" \
                         and td < c["open"]["hi_ms"]:
                     # Its own facts destroy it at the owner's death: if it
@@ -1661,6 +1704,20 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
         for o in rows_:
             make(o)
     apply_deaths(objects, lambda n: n["life"])
+    # A drawing lost at its owner's death, on a node its own facts disable
+    # there: the drawing dims and stays (player, 2026-10-09), so the loss is
+    # the verify missing the dim drawing [domain:minimap/dim-devices-defeat-the-residual],
+    # never the object's end.
+    for c in instances + objects:
+        _loss_at_disable(c)
+    # A track the verify continued through the dim drawing witnesses the
+    # node's disabled state where it turned.
+    for c in instances + objects:
+        g = next((g for g in c["glyphs"] if g.get("disabled_ms") is not None), None)
+        if g is not None:
+            c["disabled_drawing"] = {"t_ms": g["disabled_ms"], "evidence": _evidence(
+                "ability_disc_track", g["entity_id"], stamps["ability_disc_track"], g["disabled_ms"])}
+            c["witnesses"].append({"witness": "glyph_disabled_dim", **c["disabled_drawing"]["evidence"]})
 
     # Ends: observed first, else the earliest predicted cause, never past the barrier.
     def end_of(c, life):
@@ -1755,8 +1812,12 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             "not_read: no fit, disc or glyph track joined; the owner slot's belief at the cast "
             "is not stored",
             "alternatives": c.get("alternatives") or [],
-            "disabled": ({"t_ms": odth["t_ms"], "death_id": odth["death_id"], "evidence": odth["evidence"]}
+            "disabled": ({"t_ms": odth["t_ms"], "death_id": odth["death_id"], "evidence": odth["evidence"],
+                          "fact": odth["fact"],
+                          "depends_on": [f"identity:{odth['death_id']}"] if odth["death_id"] else [],
+                          "drawing": c.get("disabled_drawing")}
                          if odth and odth["rule"] == "disabled" else None),
+            "disabled_drawing": c.get("disabled_drawing"),
             "owner_death": odth,
             "owner_death_reason": ("the owner did not die while it lived" if odth is None
                                    else odth["reason"]),
@@ -1819,6 +1880,10 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             "by_end": dict(Counter(c["end"]["basis"] for c in inst_rows)),
             "over_bound": sum(c["over_bound"] for c in inst_rows),
             "disabled": sum(c["disabled"] is not None for c in children),
+            "disabled_by_node": dict(Counter(c["node"] for c in children if c["disabled"] is not None)),
+            "disabled_drawing": sum(c["disabled_drawing"] is not None for c in children),
+            "lost_at_disable": sum((c.get("drawing_loss") or {}).get("reason") == DRAWING_LOST_AT_DISABLE
+                                   for c in children),
             "unbound": sum(c["owner_slot"] is None for c in inst_rows),
             "refused": dict(refused),
             "candidate_reasons": dict(Counter(f"{x['witness']}:{x['reason']}" for x in candidates)),

@@ -74,7 +74,7 @@ def _vision(lit=None, uncast=False, frames=None):
 
 
 def _build(monkeypatch, streams: dict, allies=None, enemies=None, tree=None, kits=None,
-           vision=None) -> dict:
+           vision=None, facts=None) -> dict:
     """`build_abilities` over synthetic stored rows: the player is Sova in
     ally slot 0; `allies` and `enemies` name the other slots' agents;
     `vision` is the team's stored vision (none by default)."""
@@ -96,7 +96,7 @@ def _build(monkeypatch, streams: dict, allies=None, enemies=None, tree=None, kit
     vis = vision if vision is not None else _vision()
     monkeypatch.setattr(ss, "_stored_vision", lambda root, sid: vis)
     monkeypatch.setattr(ss, "_kit_of", lambda agent, root: dict((kits or {}).get(agent, {})))
-    return ss.build_abilities(SID, facts=_facts())
+    return ss.build_abilities(SID, facts={**_facts(), **(facts or {})})
 
 
 def _children(B):
@@ -127,7 +127,9 @@ def test_child_opens_joins_a_spawned_object_an_effect_and_owner_death_disables(m
     ch = {c["slot"]: c for c in _children(B)}
     e = ch["E"]
     assert e["child_id"] == f"{SID}:child:R1:1" and e["round"] == 1
-    assert e["parent"] == f"{SID}:ally:slot:0" and e["depends_on"] == [f"identity:{SID}:ally:slot:0"]
+    # the disabled state rests on the death owner's verdict
+    assert e["parent"] == f"{SID}:ally:slot:0" and e["depends_on"] == [f"identity:{SID}:ally:slot:0",
+                                                                      "identity:d-me"]
     assert e["agent"] == "Sova"
     assert [w["witness"] for w in e["witnesses"]] == ["player_tray_cast", "shape_fit"]
     assert e["position"]["source"] == "ability_shape"
@@ -250,7 +252,7 @@ def _track(eid, end, xy, fixes=None):
             "fix": {"cx": [p[0] for p in fx], "cy": [p[1] for p in fx]}}
 
 
-def _cypher_build(monkeypatch, extra=None, vision=None):
+def _cypher_build(monkeypatch, extra=None, vision=None, facts=None):
     tree = {("cypher", "E"): [_obj(CAMERA, "ability", "persists", ["destroyed", "round_end"],
                                    ["TX_UI_Minimap_Cypher_E_Default"]),
                               _obj(DART, CAMERA, "destroyed", ["owner_death", "round_end"])]}
@@ -263,7 +265,7 @@ def _cypher_build(monkeypatch, extra=None, vision=None):
         "death_identity": [_resolved("identity:d-cy", "Cypher")],
         **(extra or {})}
     return _build(monkeypatch, streams, allies=["Cypher", None, None, None], tree=tree,
-                  kits={"Cypher": CYPHER_KIT}, vision=vision)
+                  kits={"Cypher": CYPHER_KIT}, vision=vision, facts=facts)
 
 
 def test_spycam_camera_and_dart_are_two_nodes_and_the_dart_ends_at_owner_death(monkeypatch):
@@ -535,3 +537,102 @@ def test_claim_channels_come_from_the_channel_rows():
         else:
             assert ch == row["witness"]
     assert ss.claim_channel("no_such_witness") is None
+
+
+# --- owner death disables (player, 2026-10-09)
+
+def _disabled_facts() -> dict:
+    """The camera's own fact: owner death disables it."""
+    f = Fact(domain="abilities", id="cypher-spycam-camera-disabled-at-owner-death", claim="c",
+             kind="lifecycle", known="player", since="2026-10-09",
+             subject=f"cypher:spycam/{CAMERA.lower()}", owner_death="disabled")
+    return {f.key: f}
+
+
+def test_owner_death_disables_a_fact_class_and_it_stays_open_to_the_barrier(monkeypatch):
+    B = _cypher_build(monkeypatch, facts=_disabled_facts())
+    cam = next(o for o in _objects(B) if o["object"] == CAMERA)
+    # Cypher dies at 30 s: the camera keeps its key and turns disabled there.
+    assert cam["owner_death"]["rule"] == "disabled"
+    assert cam["owner_death"]["fact"] == "abilities/cypher-spycam-camera-disabled-at-owner-death"
+    assert cam["disabled"]["t_ms"] == 30_000.0 and cam["disabled"]["death_id"] == "d-cy"
+    assert cam["disabled"]["depends_on"] == ["identity:d-cy"]
+    assert "identity:d-cy" in cam["depends_on"]
+    # It stays open to its real end, the round barrier, never the death.
+    assert cam["end"]["basis"] == "round_barrier" and cam["end"]["hi_ms"] == 105_000.0
+    head = next(r for r in B["child_rows"] if r["kind"] == "coverage")
+    assert head["ability_child_version"] == ss.ABILITY_CHILD_VERSION == "ability-child-0.5.0"
+    assert head["disabled_by_node"] == {"object": 1}
+
+
+def test_a_class_with_no_owner_death_fact_is_unchanged(monkeypatch):
+    tree = {("cypher", "E"): [_obj(CAMERA, "ability", None, ["destroyed", "round_end"],
+                                   ["TX_UI_Minimap_Cypher_E_Default"])]}
+    tree[("cypher", "E")][0]["cells"]["owner_death"] = (None, None, f"no-fact:cypher:E:{CAMERA}:owner_death")
+    B = _build(monkeypatch, {
+        "ability_glyph_name": [_glyph("g1", 10_000, 60_000)],
+        "ability_glyph_identity": [_resolved("identity:g1", "Cypher")],
+        "ability_disc_track": [_track("g1", "frame_unread:not_live", (10.0, 10.0))],
+        "death": [{"kind": "death_verdict", "death_id": "d-cy", "t_ms": 30_000.0, "victim": "Cypher",
+                   "side": "ally"}],
+        "death_identity": [_resolved("identity:d-cy", "Cypher")]},
+        allies=["Cypher", None, None, None], tree=tree, kits={"Cypher": CYPHER_KIT})
+    for node in _children(B) + _objects(B):
+        assert node["disabled"] is None
+        assert node["owner_death"]["rule"] is None
+        assert node["owner_death_reason"].startswith("no-fact:cypher:E")
+        assert "identity:d-cy" not in node["depends_on"]
+        assert node["end"]["basis"] == "round_barrier"
+
+
+def _lost_at(monkeypatch, last_ms, facts):
+    """A camera drawing lost in view at `last_ms`; Cypher dies at 30 s."""
+    return _cypher_build(monkeypatch, {
+        "ability_glyph_name": [_glyph("g1", 10_000, last_ms)],
+        "ability_glyph_identity": [_resolved("identity:g1", "Cypher")],
+        "ability_disc_track": [_track("g1", "verify_lost", (10.0, 10.0))]},
+        vision=_vision(lit=(0, 50, 0, 50)), facts=facts)
+
+
+def test_a_drawing_lost_at_the_disabling_death_ends_nothing(monkeypatch):
+    B = _lost_at(monkeypatch, 29_800, _disabled_facts())
+    cam = next(o for o in _objects(B) if o["object"] == CAMERA)
+    dl = cam["drawing_loss"]
+    assert dl["view"]["status"] == "in_view" and not dl["ends"]
+    assert dl["reason"] == ss.DRAWING_LOST_AT_DISABLE and dl["death_id"] == "d-cy"
+    assert cam["disabled"]["t_ms"] == 30_000.0
+    assert cam["end"]["basis"] == "round_barrier"
+    head = next(r for r in B["child_rows"] if r["kind"] == "coverage")
+    assert head["lost_at_disable"] == 1
+
+
+def test_a_drawing_lost_far_from_the_death_still_ends_its_node(monkeypatch):
+    # Lost at 40 s, ten seconds after the death: the object is gone.
+    B = _lost_at(monkeypatch, 40_000, _disabled_facts())
+    cam = next(o for o in _objects(B) if o["object"] == CAMERA)
+    assert cam["drawing_loss"]["ends"] and cam["end"]["basis"] == "observed_end"
+    assert cam["disabled"]["t_ms"] == 30_000.0
+    # Without the fact, a loss at the death ends the node as before.
+    B = _lost_at(monkeypatch, 29_800, None)
+    cam = next(o for o in _objects(B) if o["object"] == CAMERA)
+    assert cam["drawing_loss"]["ends"] and cam["end"]["basis"] == "observed_end"
+
+
+def test_a_track_held_through_the_dim_drawing_witnesses_the_disabled_state(monkeypatch):
+    track = {**_track("g1", "frame_unread:not_live", (10.0, 10.0)), "disabled_ms": 30_500.0}
+    B = _cypher_build(monkeypatch, {"ability_disc_track": [track]}, facts=_disabled_facts())
+    cam = next(o for o in _objects(B) if o["object"] == CAMERA)
+    assert cam["disabled"]["drawing"]["t_ms"] == 30_500.0
+    assert cam["disabled_drawing"]["evidence"]["stream"] == "ability_disc_track"
+    assert "glyph_disabled_dim" in [w["witness"] for w in cam["witnesses"]]
+    assert cam["end"]["basis"] == "round_barrier"
+
+
+@pytest.mark.parametrize("last_ms, kept", [(29_000, True), (30_400, True), (28_400, False), (30_600, False)])
+def test_the_disable_window_follows_the_glyph_and_killfeed_steps(monkeypatch, last_ms, kept):
+    # the death verdict (30 s) lies from one glyph step before the last fix
+    # to one glyph step plus one killfeed step after it
+    B = _lost_at(monkeypatch, last_ms, _disabled_facts())
+    cam = next(o for o in _objects(B) if o["object"] == CAMERA)
+    assert (cam["drawing_loss"]["reason"] == ss.DRAWING_LOST_AT_DISABLE) is kept
+    assert (cam["end"]["basis"] == "round_barrier") is kept

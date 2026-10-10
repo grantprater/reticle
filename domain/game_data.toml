@@ -5366,3 +5366,41 @@ measured meaning.
 """
 values = { life = { cloak_buff_timer_length_s = 10.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+
+[stealthing-trap-disabled-minimap-opacity]
+claim = """
+The game files of build 13.06 give the stealthing-trap base class, whose
+child is Deadlock's Sonic Sensor, a disabled minimap icon opacity of 0.5: a
+disabled sensor's minimap drawing is the live drawing at half opacity over
+the map, the same texture in the same colour.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-09"
+subject = "deadlock:sonic sensor"
+source = """
+reference/game-files/release-13.06-shipping-18-5590001/game-data/ShooterGame/
+Content/Abilities/GameObject_StealthingTrap_Base.json,
+Default__GameObject_StealthingTrap_Base_C.DisabledMinimapIconOpacity = 0.5
+(a DoubleProperty); GameObject_StealthingTrap_SoundSensor (ability-states,
+Cable/S0/Ability_Q) derives from it and overrides no opacity. A search of
+every exported json for a disabled, inactive or deactivated opacity, alpha,
+colour or tint found this value and none on the other classes: Chamber's,
+Cypher's and Killjoy's devices carry none, and their `InActive` minimap
+textures are the default drawings (the same dark disc and white glyph as
+the live drawing; `Active` is the triggered red one), not dimmed variants
+"""
+use = """
+the disabled-drawing path of the dark-icon verify (`ability_icons`,
+`DISABLED_OPACITY`): a tracked disc whose live score fails is rescored as
+its own last live drawing at this opacity over the baked map
+"""
+exceptions = """
+The field's name is the designers' word; the blueprint that applies it is
+not in the export, so whether the engine dims the icon alone or its area too
+is unread. It agrees in direction with [domain:minimap/device-dim-on-deactivation]
+(dim sensors' patch contrast 122-175 against live 231-241). One other class
+derives from the base, Nox's flash trap; no other ability is covered.
+"""
+values = { other = { disabled_minimap_icon_opacity = 0.5 } }
+see = ["minimap/device-dim-on-deactivation", "abilities/deadlock-sonic-sensor-disabled-at-owner-death", "abilities/ability-rules-are-unique"]

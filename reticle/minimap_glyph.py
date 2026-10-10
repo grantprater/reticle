@@ -921,6 +921,11 @@ class AbilityGlyphReader:
                     "static_corr": None if np.isnan(corr[i]) else round(float(corr[i]), 4),
                     "map_shown": None if np.isnan(shown[i]) else round(float(shown[i]), 4),
                     "portrait": cover if isinstance(cover, str) else cover[i]}
+            if c.get("state") == "disabled":
+                # The proposer held this disc through its disabled drawing:
+                # the same glyph, dimmer (`ability_icons.verify_disabled`).
+                # Masked Pearson is blind to the opacity, so it scores as any.
+                base.update(state="disabled", disabled_dim=c.get("disabled_dim"))
             if gate[i] is not None:
                 self.rows.append({**base, "set": "context", "reason": gate[i], "window": None,
                                   "birth": False, "rests_on": rests, "scores": None})
