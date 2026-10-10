@@ -8176,3 +8176,408 @@ states only the camera's drawing; Spycam's tracking dart and every other
 ability are outside it
 """
 see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
+
+[chamber-trademark-disabled-at-owner-death]
+claim = """
+Chamber's Trademark stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "chamber:trademark"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[chamber-trademark-trap-disabled-at-owner-death]
+claim = """
+Chamber's Trademark trap (GameObject_Deadeye_E_Trap) stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "chamber:trademark/gameobject_deadeye_e_trap"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The trap object alone; the slow field it spawns is outside it. The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[chamber-rendezvous-disabled-at-owner-death]
+claim = """
+Chamber's Rendezvous stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "chamber:rendezvous"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[cypher-trapwire-disabled-at-owner-death]
+claim = """
+Cypher's Trapwire stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:trapwire"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[cypher-trapwire-wire-disabled-at-owner-death]
+claim = """
+Cypher's Trapwire wire (GameObject_Gumshoe_4_TripWire) stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:trapwire/gameobject_gumshoe_4_tripwire"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[cypher-trapwire-second-wire-disabled-at-owner-death]
+claim = """
+Cypher's Trapwire second wire (GameObject_Gumshoe_4_TripWire_SecondWire) stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:trapwire/gameobject_gumshoe_4_tripwire_secondwire"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[cypher-spycam-disabled-at-owner-death]
+claim = """
+Cypher's Spycam stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:spycam"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[cypher-spycam-camera-disabled-at-owner-death]
+claim = """
+Cypher's Spycam camera (Pawn_Gumshoe_E_PossessableCamera) stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:spycam/pawn_gumshoe_e_possessablecamera"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The camera alone; its tracking dart is destroyed at Cypher's death [domain:abilities/cypher-tracking-dart-ends-on-owner-death]. The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[cypher-cage-disabled-at-owner-death]
+claim = """
+Cypher's Cyber Cage stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:cyber cage"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[cypher-cage-trap-disabled-at-owner-death]
+claim = """
+Cypher's Cyber Cage trap (GameObject_Gumshoe_Q_CageTrap) stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:cyber cage/gameobject_gumshoe_q_cagetrap"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The placed cage alone; the smoke zone it raises when activated has a lifetime and is outside it. The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[deadlock-sonic-sensor-disabled-at-owner-death]
+claim = """
+Deadlock's Sonic Sensor stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "deadlock:sonic sensor"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The player named Deadlock's utility without a list; the Sonic Sensor is her deployed utility with no expiration (Barrier Mesh has a lifetime, the GravNet net is destroyed at her death by its game file), so only it is recorded. The game files give the dim drawing's opacity, 0.5 [domain:game_data/stealthing-trap-disabled-minimap-opacity].
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[deadlock-sonic-sensor-object-disabled-at-owner-death]
+claim = """
+Deadlock's Sonic Sensor object (GameObject_StealthingTrap_SoundSensor) stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "deadlock:sonic sensor/gameobject_stealthingtrap_soundsensor"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The sensor alone; the concussion fissure it spawns is outside it. The game files give the dim drawing's opacity, 0.5 [domain:game_data/stealthing-trap-disabled-minimap-opacity].
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[killjoy-alarmbot-disabled-at-owner-death]
+claim = """
+Killjoy's Alarmbot stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "killjoy:alarmbot"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[killjoy-turret-disabled-at-owner-death]
+claim = """
+Killjoy's Turret stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "killjoy:turret"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]
+
+[killjoy-nanoswarm-disabled-at-owner-death]
+claim = """
+Killjoy's Nanoswarm stays in the world when its owner dies, disabled: the same object keeps
+its place and its owner, and its minimap drawing stays, dimmer, until the
+object's own end (destroyed, recalled, or the round's end).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "killjoy:nanoswarm"
+source = """
+the player in chat, 2026-10-09: "Deployed utility with no expiration stays in
+the world when its owner dies. It stays drawn on the minimap, disabled", naming
+Chamber's (Trademark, Rendezvous), Cypher's (Trapwire, Spycam, Cage),
+Deadlock's and Killjoy's (Alarmbot, Turret, Nanoswarm) utility; corrected the
+same day: the drawings get dimmer and never vanish
+"""
+use = """
+the ability child owner (`slot_state.build_abilities`) sets this node's state
+to `disabled` at its owner's death verdict and keeps it open to its real end
+"""
+exceptions = """
+The game files hold no disabled opacity and no dimmed texture for this drawing (searched 2026-10-09); how much dimmer it draws is unmeasured.
+"""
+owner_death = "disabled"
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation", "abilities/ability-rules-are-unique"]

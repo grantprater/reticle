@@ -935,8 +935,10 @@ def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None)
     - `frames`: arrays over the stream's frame rows, `t_ms` and `reason`
       ('' where read).
     - `verify`: arrays over the stored `ability_icon` verify rows, `t_ms` (the
-      sample that verified), `of` (the disc's index in the sample before) and
-      `lost` (its `score` None); None where no proposer stream is given.
+      sample that verified), `of` (the disc's index in the sample before),
+      `lost` (neither its live score nor its disabled drawing holds it) and,
+      optionally, `disabled` (its disabled drawing holds it,
+      `ability_icons.held_disabled`); None where no proposer stream is given.
 
     Each track stores its path length, its displacement and speed over its
     first second and its lifetime, in crop px and in base px (px over the
@@ -946,7 +948,10 @@ def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None)
     verify's `score` is None), `verify_held_unbound`, `frame_unread:<reason>`
     (the next sample is unread: not live, widget not drawn, the round over),
     `no_verify_row` or `stream_end`. A step past JUMP_REACH_BASE x scale is a
-    stored surprise (`jump_past_reach`), never a split.
+    stored surprise (`jump_past_reach`), never a split. A track turns
+    disabled without a break: `disabled_ms` is the first fix the verify
+    reached through the disabled drawing (the owner's death dims a device,
+    player 2026-10-09), else None.
 
     Returns {"track": per disc row, its track's index; "tracks": one dict per
     track, in birth order}."""
@@ -1036,6 +1041,25 @@ def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None)
         hit = (vkey[kv] == want) & (end == "no_verify_row")
         end[hit] = np.where(vlost[kv[hit]], "verify_lost", "verify_held_unbound")
 
+    # The fix each track first reached through the disabled drawing: the
+    # verify row of a step is keyed by the step's later sample and the
+    # earlier fix's index.
+    dis_at = np.full(ncomp, np.nan)
+    if verify is not None and "disabled" in verify and len(verify["t_ms"]) and n > 1:
+        dkey = np.asarray(verify["t_ms"], float) * 64.0 + np.asarray(verify["of"], float)
+        dflag = np.asarray(verify["disabled"], bool)
+        do = np.argsort(dkey, kind="stable")
+        dkey, dflag = dkey[do], dflag[do]
+        step_key = t[so][1:] * 64.0 + ii[so][:-1]
+        kd = np.clip(np.searchsorted(dkey, step_key), 0, len(dkey) - 1)
+        via = same & (dkey[kd] == step_key) & dflag[kd]
+        if via.any():
+            p = np.flatnonzero(via) + 1
+            seg = seg_of[p]
+            first = np.full(ncomp, np.inf)
+            np.minimum.at(first, seg, t[so][p])
+            dis_at = np.where(np.isfinite(first), first, np.nan)
+
     cut = starts[1:]
     f_t, f_i, f_x, f_y = (np.split(a[so], cut) for a in (t, ii, cx, cy))
     f_r, f_s, f_d = (np.split(a[so], cut) for a in (why, scale, ids))
@@ -1059,6 +1083,7 @@ def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None)
                              "speed_base_per_s": None if not np.isfinite(speed[c])
                              else round(float(speed[c]), 3)},
             "onset": str(onset[c]), "end": str(end[c]),
+            "disabled_ms": None if not np.isfinite(dis_at[c]) else float(dis_at[c]),
             "jumps": jumps, "surprises": ["jump_past_reach"] if jumps else [],
             "fix": {"t_ms": f_t[c].tolist(), "i": f_i[c].tolist(), "cx": f_x[c].tolist(),
                     "cy": f_y[c].tolist(), "reason": [r or None for r in f_r[c].tolist()],

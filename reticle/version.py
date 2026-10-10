@@ -777,7 +777,12 @@ ABILITY_GATE_VERSION = "ability-gate-0.2.0"
 # or a stored field changes.
 # 0.3.0 (2026-09-30): radii, rim, reach and verify window are base values under
 # the transform (`geometry.map_scale`), no longer shares of the crop's width.
-ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
+# 0.4.0 (2026-10-09): the disabled drawing. A tracked disc whose live verify
+# fails is rescored as its last live drawing at the game files' disabled
+# opacity over the baked map (`verify_disabled`, field `disabled_dim`, cut
+# once at DISABLED_DIM_MIN); a disc held so joins the sample's candidates
+# with `state` "disabled", and `verify_lost` counts only discs neither holds.
+ABILITY_ICON_VERSION = "icon-proposer-0.4.0"
 # The minimap glyph reader (`minimap_glyph`, `ability_glyph` rows): each
 # proposed ability disc's masked-Pearson score against the game's minimap
 # textures of the lineup's kits, under the stage 1 rotation policy, with the
@@ -805,13 +810,19 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # (0.4.0 refused four opaque icons whose footprint part fell on the white
 # glyph); the cut stays 0.73. The per-disc gate decision moves to
 # `minimap_glyph.disc_gates`; the head counts footprint size mismatches.
-ABILITY_GLYPH_VERSION = "ability-glyph-0.5.0"
+# 0.6.0 (2026-10-09): continuation follows the proposer's verify through the
+# disabled drawing (`ability_icons.held`); a disc the proposer held so
+# carries `state` "disabled" and its `disabled_dim` score.
+ABILITY_GLYPH_VERSION = "ability-glyph-0.6.0"
 # The minimap ability-disc tracks (`adjudication.ability.disc_tracks`,
 # `ability_disc_track` rows): the stored `ability_glyph` disc rows joined by
 # the proposer's verify (each row's `rests_on`), with each track's path length,
 # first-second speed, lifetime, end reason and stored jumps. Bump when the
 # join, an end reason, the jump reach or a stored field changes.
-ABILITY_DISC_TRACK_VERSION = "ability-disc-track-0.1.0"
+# 0.2.0 (2026-10-09): a verify row held through the disabled drawing
+# (`ability_icons.held_disabled`) continues a track, never ends it; a track
+# stores `disabled_ms`, the first fix it reached that way, else null.
+ABILITY_DISC_TRACK_VERSION = "ability-disc-track-0.2.0"
 # The glyph verdict (`adjudication.ability_glyph`, `ability_glyph_name` rows and
 # `ability_glyph_identity` events): per track, the pooled glyph scores over the
 # clean frames, the cut from the null table, the per-ability rules and the

@@ -41,6 +41,28 @@ sample as well, so the verify rows let the tracked schedule be replayed from
 storage and audited against the full search (section 4, audits) with no
 second pass.
 
+The disabled drawing (`icon-proposer-0.4.0`). A deployed device whose owner
+dies stays drawn, dimmer (player, 2026-10-09)
+[domain:minimap/device-dim-on-deactivation]; the game files give the one
+dimming they hold as an opacity, 0.5
+[domain:game_data/stealthing-trap-disabled-minimap-opacity]. A dim disc is
+mid-grey on grey floor, so the dark-share verify loses it
+[domain:minimap/dim-devices-defeat-the-residual]. Where a tracked disc's
+live verify fails, `verify_disabled` rescores its place as its own last
+live drawing composited over the baked map at that opacity: per pixel of
+the disc, the drawing's departure from the base map, I - B, is a(L - B) + c
+for the last live luma L, with a one of three hypotheses, live (1),
+disabled (`DISABLED_OPACITY`) or gone (0), and c a free offset for the
+map's lighting. Each hypothesis's residual under the free fit's noise gives
+a posterior; `disabled_dim` is the disabled one's, a soft score cut once,
+at `DISABLED_DIM_MIN`, where the verify decides continuation
+(`verified_continuations`). A disc held this way joins the sample's
+candidates with `state` "disabled", so the next sample verifies it again,
+against the same last live drawing. The base map is the geometry's baked
+static [domain:capture/session-pixels-are-not-the-map]; the last live
+drawing is the same object's own pixels one fix earlier, never a mined
+template. A device first seen dim has no live drawing and is not read.
+
 Not for. Teal rings and beams (`ability_shapes`, `ability_scan`); smokes
 (`minimap_dark`); tracks, kinds and names (`adjudication.ability`, the
 arbiter).
@@ -81,6 +103,18 @@ MAX_CANDIDATES = 40
 #: are one disc: the full search suppresses the weaker, and a verified disc
 #: binds to the candidate it overlaps (`verified_continuations`).
 OVERLAP = 0.8
+#: The disabled drawing's opacity, the game files' one value
+#: [domain:game_data/stealthing-trap-disabled-minimap-opacity].
+DISABLED_OPACITY = 0.5
+#: The hypotheses `verify_disabled` weighs, as opacities of the last live
+#: drawing: live, disabled, gone.
+DIM_HYPOTHESES = (1.0, DISABLED_OPACITY, 0.0)
+#: The one cut on `disabled_dim`: the disabled hypothesis holds the majority
+#: of the posterior.
+DISABLED_DIM_MIN = 0.5
+#: The least residual noise (grey levels) the posterior assumes: the
+#: capture's 8-bit quantisation, so a perfect fit never divides by zero.
+DIM_NOISE_MIN = 1.0
 
 
 class IconTerms:
@@ -191,20 +225,94 @@ def verify_icons(img: np.ndarray, terms: IconTerms, tracks: list[dict], half: in
             if core[k] > best[0]:
                 best = (float(core[k]), int(cx0 + k[1] + x0), int(cy0 + k[0] + y0), r)
         sc, x, y, r = best
-        out.append({"cx": x, "cy": y, "r": r, "score": sc if sc >= min_score else None})
+        out.append({"cx": x, "cy": y, "r": r, "score": sc if sc >= min_score else None,
+                    "best": sc if x is not None else None})
     return out
+
+
+def live_ref(gray: np.ndarray, base: np.ndarray, cx: float, cy: float, r: float,
+             terms: IconTerms) -> dict | None:
+    """A disc's live drawing as `verify_disabled` compares it: per pixel
+    within its rim (r + the rim's outer reach), the luma's departure from the
+    baked map, L - B, with the pixels' offsets from the centre. None where
+    the disc lies off the crop."""
+    R = float(r) + terms.rim[1]
+    n = int(np.ceil(R))
+    yy, xx = np.mgrid[-n:n + 1, -n:n + 1]
+    keep = np.hypot(xx, yy) <= R
+    dy, dx = yy[keep], xx[keep]
+    ys, xs = int(round(cy)) + dy, int(round(cx)) + dx
+    h, w = gray.shape[:2]
+    if ys.min() < 0 or xs.min() < 0 or ys.max() >= h or xs.max() >= w:
+        return None
+    return {"dy": dy, "dx": dx, "d": gray[ys, xs].astype(np.float64) - base[ys, xs]}
+
+
+def verify_disabled(gray: np.ndarray, base: np.ndarray, ref: dict | None, cx: float, cy: float,
+                    half: int) -> dict | None:
+    """The disabled drawing's score at a tracked disc whose live verify
+    failed: at each centre within `half` px of (`cx`, `cy`), the luma's
+    departure from the baked map, I - B, fitted as a(L - B) + c over the
+    last live drawing `ref` (`live_ref`). The centre with the least free-fit
+    residual is read. Each opacity of `DIM_HYPOTHESES` (live, disabled,
+    gone) scores its residual (its own best c) under the free fit's noise;
+    the posterior, flat prior, is soft, and `disabled_dim` is the disabled
+    hypothesis's share. Returns `{cx, cy, disabled_dim, opacity, posterior}`,
+    or None where the reference is flat or the place lies off the crop."""
+    if ref is None:
+        return None
+    lv = ref["d"]
+    if lv.size < 3 or float(np.var(lv)) < DIM_NOISE_MIN ** 2:
+        return None
+    h, w = gray.shape[:2]
+    sh = np.arange(-int(half), int(half) + 1)
+    sy, sx = np.meshgrid(sh, sh, indexing="ij")
+    sy, sx = sy.ravel(), sx.ravel()
+    ys = int(round(cy)) + sy[:, None] + ref["dy"][None, :]
+    xs = int(round(cx)) + sx[:, None] + ref["dx"][None, :]
+    ok = (ys.min(1) >= 0) & (xs.min(1) >= 0) & (ys.max(1) < h) & (xs.max(1) < w)
+    if not ok.any():
+        return None
+    ys, xs, sy, sx = ys[ok], xs[ok], sy[ok], sx[ok]
+    x = gray[ys, xs].astype(np.float64) - base[ys, xs]                      # (S, P)
+    lc = lv - lv.mean()
+    xc = x - x.mean(1, keepdims=True)
+    a = (xc @ lc) / float(lc @ lc)                                          # (S,)
+    sse_free = ((xc - a[:, None] * lc[None, :]) ** 2).sum(1)
+    k = int(np.argmin(sse_free))
+    p = lv.size
+    var = max(float(sse_free[k]) / max(p - 2, 1), DIM_NOISE_MIN ** 2)
+    hyp = np.asarray(DIM_HYPOTHESES, float)
+    sse = ((xc[k][None, :] - hyp[:, None] * lc[None, :]) ** 2).sum(1)
+    ll = -sse / (2.0 * var)
+    post = np.exp(ll - ll.max())
+    post /= post.sum()
+    return {"cx": int(round(cx)) + int(sx[k]), "cy": int(round(cy)) + int(sy[k]),
+            "disabled_dim": float(post[1]), "opacity": float(a[k]),
+            "posterior": {"live": float(post[0]), "disabled": float(post[1]), "gone": float(post[2])}}
+
+
+def held_disabled(v: dict) -> bool:
+    """Whether a stored verify row holds its disc through the disabled
+    drawing: the live score failed and `disabled_dim` passes the one cut."""
+    return v.get("score") is None and (v.get("disabled_dim") or 0.0) >= DISABLED_DIM_MIN
+
+
+def held(v: dict) -> bool:
+    """Whether a stored verify row continues its disc, live or disabled."""
+    return v.get("score") is not None or held_disabled(v)
 
 
 def verified_continuations(verify: dict | None, candidates: list[dict] | None) -> dict[int, int]:
     """{this sample's candidate index: the previous sample's candidate index
     it continues}, from one stored `ability_icon` frame row: each verify row
-    whose score holds (`verify_icons`) binds to the candidate of the same
+    that holds (`held`: its live score, or its disabled drawing) binds to the candidate of the same
     sample it overlaps (OVERLAP, the full search's own suppression rule),
     one to one, nearest first (`scipy.optimize.linear_sum_assignment`). A
     lost verify (`score` None) continues nothing; a candidate no verify binds
     is new to this sample. Pure over the stored row, so a reader of the
     stream asks this rather than linking discs by a reach of its own."""
-    rows = [v for v in ((verify or {}).get("rows") or ()) if v.get("score") is not None]
+    rows = [v for v in ((verify or {}).get("rows") or ()) if held(v)]
     cands = candidates or []
     if not rows or not cands:
         return {}
@@ -278,18 +386,49 @@ class AbilityIconReader:
             cands = propose_icons(crop, terms)[:MAX_CANDIDATES]
         prev = self._prev
         ver = None
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
         if prev is not None:
             with usage_step("verify"):
-                ver = {"of_t_ms": prev["t_ms"],
-                       "rows": [{"of": i, "cx": v["cx"], "cy": v["cy"], "r": v["r"],
-                                 "score": _rounded(v["score"])}
-                                for i, v in enumerate(verify_icons(crop, terms,
-                                                                   prev["candidates"]))]}
+                rows = []
+                for i, v in enumerate(verify_icons(crop, terms, prev["candidates"])):
+                    vr = {"of": i, "cx": v["cx"], "cy": v["cy"], "r": v["r"],
+                          "score": _rounded(v["score"])}
+                    if v["score"] is None:
+                        dim = self._disabled(gray, prev, i, terms)
+                        vr["disabled_dim"] = None if dim is None else _rounded(dim["disabled_dim"])
+                        vr["opacity"] = None if dim is None else _rounded(dim["opacity"], 3)
+                        pc = prev["candidates"][i]
+                        if dim is not None and held_disabled(vr) and not any(
+                                np.hypot(dim["cx"] - c["cx"], dim["cy"] - c["cy"])
+                                < OVERLAP * (pc["r"] + c["r"]) for c in cands):
+                            vr["cx"], vr["cy"], vr["r"] = dim["cx"], dim["cy"], pc["r"]
+                            # The held disc joins this sample's candidates, so the
+                            # glyph reader scores it and the next verify reads it.
+                            cands.append({"cx": dim["cx"], "cy": dim["cy"], "r": pc["r"],
+                                          "score": v["best"], "rim_teal": None, "rim_red": None,
+                                          "glyph_white": None, "state": "disabled",
+                                          "disabled_dim": dim["disabled_dim"],
+                                          "opacity": dim["opacity"], "_ref": dim["ref"]})
+                    rows.append(vr)
+                ver = {"of_t_ms": prev["t_ms"], "rows": rows}
         out = [{"cx": c["cx"], "cy": c["cy"], "r": c["r"], "score": _rounded(c["score"]),
                 "rim_teal": _rounded(c["rim_teal"], 3), "rim_red": _rounded(c["rim_red"], 3),
-                "glyph_white": _rounded(c["glyph_white"], 3)} for c in cands]
+                "glyph_white": _rounded(c["glyph_white"], 3),
+                **({"state": "disabled", "disabled_dim": _rounded(c["disabled_dim"]),
+                    "opacity": _rounded(c["opacity"], 3)} if c.get("state") == "disabled" else {})}
+               for c in cands]
         self.rows.append({**row, "reason": None, "candidates": out, "verify": ver})
-        self._prev = {"t_ms": row["t_ms"], "candidates": cands}
+        self._prev = {"t_ms": row["t_ms"], "candidates": cands, "gray": gray}
+
+    def _disabled(self, gray, prev: dict, i: int, terms: IconTerms) -> dict | None:
+        """`verify_disabled` at the previous sample's candidate `i`, against
+        its last live drawing: its own where it was live, else the one it
+        carries from the sample it turned disabled."""
+        pc = prev["candidates"][i]
+        ref = pc.get("_ref") if pc.get("state") == "disabled" else \
+            live_ref(prev["gray"], self.sgray, pc["cx"], pc["cy"], pc["r"], terms)
+        dim = verify_disabled(gray, self.sgray, ref, pc["cx"], pc["cy"], terms.verify_half)
+        return None if dim is None else {**dim, "ref": ref}
 
     def events(self, session_id: str, geometry_key: str | None) -> list[dict]:
         common = {"session_id": session_id, "source": "minimap", "geometry_key": geometry_key,
@@ -306,8 +445,15 @@ class AbilityIconReader:
                 "map_scale": None if self.ms is None else self.ms.provenance(),
                 "slab": "minimap.slab_mask(geometry reference static)",
                 "candidates": sum(len(r["candidates"] or ()) for r in self.rows),
-                "verify_lost": sum(sum(v["score"] is None for v in r["verify"]["rows"])
-                                   for r in self.rows if r["verify"])}
+                "verify_lost": sum(sum(not held(v) for v in r["verify"]["rows"])
+                                   for r in self.rows if r["verify"]),
+                "verify_held_disabled": sum(sum(held_disabled(v) for v in r["verify"]["rows"])
+                                            for r in self.rows if r["verify"]),
+                "disabled": {"opacity": DISABLED_OPACITY,
+                             "opacity_fact": "game_data/stealthing-trap-disabled-minimap-opacity",
+                             "hypotheses": list(DIM_HYPOTHESES), "cut": DISABLED_DIM_MIN,
+                             "noise_min": DIM_NOISE_MIN,
+                             "base": "geometry reference static, grey (ctx.sgray)"}}
         clip = getattr(self, "spans_clip", None)
         if clip is not None:
             head["spans_clip"] = clip

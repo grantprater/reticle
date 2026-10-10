@@ -454,14 +454,18 @@ def load_glyph_rows(path, keys: list[str]) -> dict:
 
 def load_icon_verify(path) -> dict | None:
     """The stored `ability_icon` verify rows as columns: `t_ms` (the sample
-    that verified), `of` and `lost`. None where no stream is stored."""
+    that verified), `of`, `lost` (neither the live score nor the disabled
+    drawing holds it, `ability_icons.held`) and `disabled` (the disabled
+    drawing holds it, `ability_icons.held_disabled`). None where no stream
+    is stored."""
+    from ..ability_icons import DISABLED_DIM_MIN
     import pyarrow as pa
     import pyarrow.compute as pc
     import pyarrow.json as pj
     path = Path(path)
     if not path.is_file():
         return None
-    vrow = pa.struct([("of", pa.int64()), ("score", pa.float64())])
+    vrow = pa.struct([("of", pa.int64()), ("score", pa.float64()), ("disabled_dim", pa.float64())])
     schema = pa.schema([("kind", pa.string()), ("t_ms", pa.float64()),
                         ("verify", pa.struct([("of_t_ms", pa.float64()),
                                               ("rows", pa.list_(vrow))]))])
@@ -472,9 +476,12 @@ def load_icon_verify(path) -> dict | None:
     rows = t.column("verify").combine_chunks().field("rows")
     offs = np.asarray(rows.offsets.to_numpy(), np.int64)
     flat = rows.values
+    live = np.asarray(flat.field("score").is_valid().to_numpy(zero_copy_only=False), bool)
+    dim = np.asarray(flat.field("disabled_dim").fill_null(0.0).to_numpy(zero_copy_only=False), float)
+    disabled = ~live & (dim >= DISABLED_DIM_MIN)
     return {"t_ms": np.repeat(t.column("t_ms").to_numpy(zero_copy_only=False), np.diff(offs)),
             "of": np.asarray(flat.field("of").to_numpy(zero_copy_only=False), np.int64),
-            "lost": ~np.asarray(flat.field("score").is_valid().to_numpy(zero_copy_only=False), bool)}
+            "lost": ~live & ~disabled, "disabled": disabled}
 
 
 # ------------------------------------------------------------------ the verdict
