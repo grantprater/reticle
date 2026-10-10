@@ -5247,27 +5247,37 @@ see = ["abilities/clove-smokes-after-death", "rounds/resurrection-mechanics",
 
 [chamber-rendezvous-persists-after-death]
 claim = """
-Chamber's Rendezvous lasts the round once deployed and persists after
-Chamber dies, deactivated.
+Chamber's Rendezvous persists after Chamber dies, disabled: the object stays
+in the world and its minimap drawing stays, drawn dimmer.
 """
 kind = "lifecycle"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-09"
 subject = "chamber:rendezvous"
-source = "the player, 2026-09-30 (chat)"
+owner_death = "disabled"
+source = """
+first stated by the player on 2026-09-30 (chat) as persisting after
+Chamber's death; the player's answer of 2026-10-09 that deployed utility
+with no expiration stays in the world and on the minimap after its owner
+dies, disabled and drawn dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]; the replay marker
+survey of 2026-10-09 on the development matches (cadaadeb2d8b, 066741deafe5,
+9912c382130b; replay-layer 0.3.1, `replay_layer.child_end_columns`) agrees:
+20 of 20 owner deaths inside this class's actors' lives show the actor's own
+Disabled effect within 100 ms, and the actor stays in the replay to the
+round's cleanup (GameObject_Deadeye_E_Teleporter_Tether)
+"""
 use = """
-a Rendezvous seen after Chamber's death is the same entity, deactivated
-[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
-owner
+a Rendezvous seen after Chamber's death is the same entity, disabled, never
+a new cast; it keeps its owner. Its owner's death is a state change of the
+child (`disabled`), never its end; a drawing lost at that death is a
+reader's miss of the dimmed drawing.
 """
-exceptions = """
-the player named five persisting abilities as mostly sentinel utility, so
-the persisting set may be incomplete. How the deactivated Rendezvous draws on
-the minimap is unmeasured; the radius is said to show also once deactivated
-[domain:abilities/chamber-rendezvous-minimap-white-radius]
-"""
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
-       "abilities/chamber-rendezvous-minimap-white-radius", "abilities/ability-rules-are-unique"]
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/chamber-rendezvous-minimap-white-radius",
+       "abilities/chamber-rendezvous-drawing-lasts-with-object",
+       "abilities/ability-rules-are-unique"]
 
 [chamber-rendezvous-teleports]
 claim = """
@@ -5293,141 +5303,235 @@ see = ["abilities/chamber-rendezvous-persists-after-death", "abilities/movement-
 
 [chamber-trademark-persists-after-death]
 claim = """
-Chamber's Trademark lasts the round once deployed and persists after Chamber
-dies, deactivated.
+Chamber's Trademark persists after Chamber dies, disabled: the object stays
+in the world and its minimap drawing stays, drawn dimmer.
 """
 kind = "lifecycle"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-09"
 subject = "chamber:trademark"
-source = "the player, 2026-09-30 (chat)"
+owner_death = "disabled"
+source = """
+first stated by the player on 2026-09-30 (chat) as persisting after
+Chamber's death; the player's answer of 2026-10-09 that deployed utility
+with no expiration stays in the world and on the minimap after its owner
+dies, disabled and drawn dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]; the replay marker
+survey of 2026-10-09 on the development matches (cadaadeb2d8b, 066741deafe5,
+9912c382130b; replay-layer 0.3.1, `replay_layer.child_end_columns`) agrees:
+20 of 20 owner deaths inside this class's actors' lives show the actor's own
+Disabled effect within 100 ms, and the actor stays in the replay to the
+round's cleanup (GameObject_Deadeye_E_Trap)
+"""
 use = """
-a Trademark seen after Chamber's death is the same entity, deactivated
-[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
-owner
+a Trademark seen after Chamber's death is the same entity, disabled, never a
+new cast; it keeps its owner. Its owner's death is a state change of the
+child (`disabled`), never its end; a drawing lost at that death is a
+reader's miss of the dimmed drawing.
 """
-exceptions = """
-the player named five persisting abilities as mostly sentinel utility, so
-the persisting set may be incomplete. Whether the deactivated Trademark keeps
-its circle [domain:abilities/chamber-trademark-minimap-white-area] is
-unmeasured
-"""
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
-       "abilities/chamber-trademark-minimap-white-area", "abilities/ability-rules-are-unique"]
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/chamber-trademark-minimap-white-area",
+       "abilities/chamber-trademark-drawing-lasts-with-object",
+       "abilities/ability-rules-are-unique"]
 
 [killjoy-turret-persists-after-death]
 claim = """
-Killjoy's Turret lasts the round once deployed and persists after Killjoy
-dies, deactivated.
+Killjoy's Turret persists after Killjoy dies, disabled: the object stays in
+the world and its minimap drawing stays, drawn dimmer.
 """
 kind = "lifecycle"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-09"
 subject = "killjoy:turret"
-source = "the player, 2026-09-30 (chat)"
+owner_death = "disabled"
+source = """
+first stated by the player on 2026-09-30 (chat) as persisting after
+Killjoy's death; the player's answer of 2026-10-09 that deployed utility
+with no expiration stays in the world and on the minimap after its owner
+dies, disabled and drawn dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]; the replay marker
+survey of 2026-10-09 on the development matches (cadaadeb2d8b, 066741deafe5,
+9912c382130b; replay-layer 0.3.1, `replay_layer.child_end_columns`) agrees:
+7 of 7 owner deaths inside this class's actors' lives show the actor's own
+Disabled effect within 100 ms, and the actor stays in the replay to the
+round's cleanup (Pawn_Killjoy_E_Turret)
+"""
 use = """
-a Turret seen after Killjoy's death is the same entity, deactivated
-[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
-owner
+a Turret seen after Killjoy's death is the same entity, disabled, never a
+new cast; it keeps its owner. Its owner's death is a state change of the
+child (`disabled`), never its end; a drawing lost at that death is a
+reader's miss of the dimmed drawing.
 """
-exceptions = """
-the player named five persisting abilities as mostly sentinel utility, so
-the persisting set may be incomplete. The deactivated Turret's minimap
-drawing is unmeasured
-"""
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
        "abilities/ability-rules-are-unique"]
 
 [killjoy-alarmbot-persists-after-death]
 claim = """
-Killjoy's Alarmbot lasts the round once deployed and persists after Killjoy
-dies, deactivated.
+Killjoy's Alarmbot persists after Killjoy dies, disabled: the object stays
+in the world and its minimap drawing stays, drawn dimmer.
 """
 kind = "lifecycle"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-09"
 subject = "killjoy:alarmbot"
-source = "the player, 2026-09-30 (chat)"
+owner_death = "disabled"
+source = """
+first stated by the player on 2026-09-30 (chat) as persisting after
+Killjoy's death; the player's answer of 2026-10-09 that deployed utility
+with no expiration stays in the world and on the minimap after its owner
+dies, disabled and drawn dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]; the replay marker
+survey of 2026-10-09 on the development matches (cadaadeb2d8b, 066741deafe5,
+9912c382130b; replay-layer 0.3.1, `replay_layer.child_end_columns`) agrees:
+12 of 13 owner deaths inside this class's actors' lives show the actor's own
+Disabled effect within 100 ms, and the actor stays in the replay to the
+round's cleanup (Pawn_Killjoy_Q_StealthAlarmbot)
+"""
 use = """
-an Alarmbot seen after Killjoy's death is the same entity, deactivated
-[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
-owner
+a Alarmbot seen after Killjoy's death is the same entity, disabled, never a
+new cast; it keeps its owner. Its owner's death is a state change of the
+child (`disabled`), never its end; a drawing lost at that death is a
+reader's miss of the dimmed drawing.
 """
-exceptions = """
-the player named five persisting abilities as mostly sentinel utility, so
-the persisting set may be incomplete. The deactivated Alarmbot's disc
-[domain:abilities/killjoy-alarmbot] is unmeasured
-"""
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
        "abilities/killjoy-alarmbot", "abilities/ability-rules-are-unique"]
 
 [killjoy-nanoswarm-persists-after-death]
 claim = """
-Killjoy's Nanoswarm lasts the round once deployed and persists after Killjoy
-dies, deactivated.
+Killjoy's Nanoswarm persists after Killjoy dies, disabled: the object stays
+in the world and its minimap drawing stays, drawn dimmer.
 """
 kind = "lifecycle"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-09"
 subject = "killjoy:nanoswarm"
-source = "the player, 2026-09-30 (chat)"
+owner_death = "disabled"
+source = """
+first stated by the player on 2026-09-30 (chat) as persisting after
+Killjoy's death; the player's answer of 2026-10-09 that deployed utility
+with no expiration stays in the world and on the minimap after its owner
+dies, disabled and drawn dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]; the replay marker
+survey of 2026-10-09 on the development matches (cadaadeb2d8b, 066741deafe5,
+9912c382130b; replay-layer 0.3.1, `replay_layer.child_end_columns`) agrees:
+14 of 14 owner deaths inside this class's actors' lives show the actor's own
+Disabled effect within 100 ms, and the actor stays in the replay to the
+round's cleanup (Projectile_Killjoy_4_RemoteBees_MultiDetonate)
+"""
 use = """
-a Nanoswarm seen after Killjoy's death is the same entity, deactivated
-[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
-owner
+a Nanoswarm seen after Killjoy's death is the same entity, disabled, never a
+new cast; it keeps its owner. Its owner's death is a state change of the
+child (`disabled`), never its end; a drawing lost at that death is a
+reader's miss of the dimmed drawing.
 """
-exceptions = """
-the player named five persisting abilities as mostly sentinel utility, so
-the persisting set may be incomplete. The deactivated Nanoswarm's icon
-[domain:abilities/killjoy-nanoswarm-minimap-icon] is unmeasured
-"""
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
        "abilities/killjoy-nanoswarm-minimap-icon", "abilities/ability-rules-are-unique"]
 
 [cypher-trapwire-persists-after-death]
 claim = """
-Cypher's Trapwire persists after Cypher dies.
+Cypher's Trapwire persists after Cypher dies, disabled: the object stays in
+the world and its minimap drawing stays, drawn dimmer.
 """
 kind = "lifecycle"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-09"
 subject = "cypher:trapwire"
-source = "the player, 2026-09-30 (chat)"
+owner_death = "disabled"
+source = """
+first stated by the player on 2026-09-30 (chat) as persisting after Cypher's
+death; the player's answer of 2026-10-09 that deployed utility with no
+expiration stays in the world and on the minimap after its owner dies,
+disabled and drawn dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]; the replay marker
+survey of 2026-10-09 on the development matches (cadaadeb2d8b, 066741deafe5,
+9912c382130b; replay-layer 0.3.1, `replay_layer.child_end_columns`) agrees:
+39 of 39 per wire owner deaths inside this class's actors' lives show the
+actor's own Disabled effect within 100 ms, and the actor stays in the replay
+to the round's cleanup (GameObject_Gumshoe_4_TripWire and its SecondWire)
+"""
 use = """
-A Trapwire seen after Cypher's death is the same entity, never a new cast
-[domain:abilities/no-cast-while-dead]; it keeps its owner
+a Trapwire seen after Cypher's death is the same entity, disabled, never a
+new cast; it keeps its owner. Its owner's death is a state change of the
+child (`disabled`), never its end; a drawing lost at that death is a
+reader's miss of the dimmed drawing.
 """
-exceptions = """
-the player confirmed eight such abilities together; the persisting set may
-still be incomplete. Whether it persists deactivated, drawn dim
-[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
-its minimap drawing after the death.
-"""
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-trapwire", "abilities/ability-rules-are-unique"]
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/cypher-trapwire", "abilities/cypher-trapwire-drawing-lasts-with-object",
+       "abilities/ability-rules-are-unique"]
 
 [cypher-spycam-persists-after-death]
 claim = """
-Cypher's Spycam persists after Cypher dies.
+Cypher's Spycam persists after Cypher dies, disabled: the object stays in
+the world and its minimap drawing stays, drawn dimmer.
 """
 kind = "lifecycle"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-09"
 subject = "cypher:spycam/pawn_gumshoe_e_possessablecamera"
-source = "the player, 2026-09-30 (chat)"
-use = """
-A Spycam seen after Cypher's death is the same entity, never a new cast
-[domain:abilities/no-cast-while-dead]; it keeps its owner
+owner_death = "disabled"
+source = """
+first stated by the player on 2026-09-30 (chat) as persisting after Cypher's
+death; the player's answer of 2026-10-09 that deployed utility with no
+expiration stays in the world and on the minimap after its owner dies,
+disabled and drawn dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]; the replay marker
+survey of 2026-10-09 on the development matches (cadaadeb2d8b, 066741deafe5,
+9912c382130b; replay-layer 0.3.1, `replay_layer.child_end_columns`) agrees:
+20 of 20 owner deaths inside this class's actors' lives show the actor's own
+Disabled effect within 100 ms, and the actor stays in the replay to the
+round's cleanup (Pawn_Gumshoe_E_PossessableCamera)
 """
-exceptions = """
-the player confirmed eight such abilities together; the persisting set may
-still be incomplete. Whether it persists deactivated, drawn dim
-[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
-its minimap drawing after the death. The fact concerns the camera pawn
-(Pawn_Gumshoe_E_PossessableCamera) alone, its subject narrowed on 2026-10-09:
-the tracking dart the camera fires ends at Cypher's death
+use = """
+a Spycam seen after Cypher's death is the same entity, disabled, never a new
+cast; it keeps its owner. Its owner's death is a state change of the child
+(`disabled`), never its end; a drawing lost at that death is a reader's miss
+of the dimmed drawing. The fact concerns the camera pawn
+(Pawn_Gumshoe_E_PossessableCamera) alone: the tracking dart the camera fires
+ends at Cypher's death
 [domain:abilities/cypher-tracking-dart-ends-on-owner-death].
 """
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique", "abilities/cypher-tracking-dart-ends-on-owner-death"]
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/cypher-spycam-dart-reveal",
+       "abilities/cypher-tracking-dart-ends-on-owner-death",
+       "abilities/cypher-spycam-camera-drawing-lasts-with-object",
+       "abilities/ability-rules-are-unique"]
+
+[cypher-cyber-cage-persists-after-death]
+claim = """
+Cypher's Cyber Cage persists after Cypher dies, disabled: the object stays
+in the world and its minimap drawing stays, drawn dimmer.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:cyber cage"
+owner_death = "disabled"
+source = """
+the player's answer of 2026-10-09 that deployed utility with no expiration
+stays in the world and on the minimap after its owner dies, disabled and
+drawn dimmer [domain:abilities/deployed-utility-disabled-drawn-dimmer]; the
+replay marker survey of 2026-10-09 on the development matches (cadaadeb2d8b,
+066741deafe5, 9912c382130b; replay-layer 0.3.1,
+`replay_layer.child_end_columns`) agrees: 14 of 14 owner deaths inside this
+class's actors' lives show the actor's own Disabled effect within 100 ms,
+and the actor stays in the replay to the round's cleanup
+(GameObject_Gumshoe_Q_CageTrap)
+"""
+use = """
+a Cyber Cage seen after Cypher's death is the same entity, disabled, never a
+new cast; it keeps its owner. Its owner's death is a state change of the
+child (`disabled`), never its end; a drawing lost at that death is a
+reader's miss of the dimmed drawing.
+"""
+see = ["abilities/deployed-utility-disabled-drawn-dimmer", "abilities/deployed-ability-ends",
+       "minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/ability-rules-are-unique"]
 
 [cypher-tracking-dart-ends-on-owner-death]
 claim = """
@@ -7777,7 +7881,9 @@ lifetime it lasts until the enemy destroys it or the round ends. With an
 explicit lifetime it ends at expiry, and some such abilities can also be
 destroyed by the enemy before then; Miks's heal and concuss throwables are
 two. When its owner dies, a deployed ability is disabled: the same object
-stays, in a disabled state. Round end ends every one. All of this holds for
+stays, in a disabled state, and stays drawn on the minimap, dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer]. Round end ends
+every one. All of this holds for
 enemy devices as for the team's. Which causes apply to one ability is that
 ability's own fact.
 """
@@ -7797,6 +7903,44 @@ see = ["rounds/no-ability-crosses-round-barrier", "abilities/device-destroyed-so
        "abilities/deployed-pickup-returns-charge", "minimap/device-dim-on-deactivation",
        "abilities/killjoy-turret-recall-cooldown", "abilities/cypher-spycam-pickup-cooldown",
        "abilities/deadlock-sonic-sensor-persists-after-death",
+       "abilities/ability-rules-are-unique"]
+
+[deployed-utility-disabled-drawn-dimmer]
+claim = """
+Deployed utility with no expiration stays in the world after its owner dies,
+disabled. Its minimap drawing stays, drawn dimmer. This holds for Chamber's
+Trademark and Rendezvous, Cypher's Trapwire, Spycam and Cyber Cage,
+Killjoy's Alarmbot, Turret and Nanoswarm, and Deadlock's utility.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "abilities:deployed"
+source = """
+the player's answer of 2026-10-09, asked after the replay layer read the
+replay's Disabled effect at the owner's death as an end; the replay marker
+survey of the development matches (replay-layer 0.3.1) agrees for the eight
+classes it reads: the actor's own Disabled effect at each owner death, and
+the actor stays in the replay to the round's cleanup
+"""
+use = """
+the owner's death is a state change of such a child (`disabled`), never its
+end; its end is a destruction, a recall or the round's end. A drawing lost at
+the owner's death is a reader's miss of the dimmed drawing
+(`reticle acceptance false-loss`, cause `reader_missed_dimmed_drawing`)
+"""
+exceptions = """
+which agents' utility has no expiration is named per ability; the dimmed
+drawing's appearance is measured per ability
+[domain:minimap/device-dim-on-deactivation]
+"""
+see = ["abilities/deployed-ability-ends", "minimap/device-dim-on-deactivation",
+       "abilities/deadlock-sonic-sensor-persists-after-death",
+       "abilities/cypher-cyber-cage-persists-after-death",
+       "abilities/chamber-rendezvous-drawing-lasts-with-object",
+       "abilities/chamber-trademark-drawing-lasts-with-object",
+       "abilities/cypher-trapwire-drawing-lasts-with-object",
+       "abilities/cypher-spycam-camera-drawing-lasts-with-object",
        "abilities/ability-rules-are-unique"]
 
 [astra-astral-form-any-time]
@@ -8105,8 +8249,10 @@ disappear while the object exists, asked after the false-loss diagnostic
 (`reticle acceptance false-loss`)
 """
 use = """
-a lost Rendezvous drawing is the anchor's end; a replay child that outlives
-it is a replay-side error to check before the reader
+a lost drawing is the anchor's end only where the anchor is gone; after its
+owner's death the anchor stays, disabled, and its drawing stays, dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer], so a drawing lost
+then is a reader's miss of the dimmed drawing, never the anchor's end
 """
 exceptions = "states only this object's drawing; no other ability's"
 see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
@@ -8126,8 +8272,11 @@ disappear while the object exists, asked after the false-loss diagnostic
 (`reticle acceptance false-loss`)
 """
 use = """
-a lost Trapwire drawing is the trapwire's end; a replay child that outlives
-it is a replay-side error to check before the reader
+a lost drawing is the trapwire's end only where the trapwire is gone; after
+its owner's death the trapwire stays, disabled, and its drawing stays,
+dimmer [domain:abilities/deployed-utility-disabled-drawn-dimmer], so a
+drawing lost then is a reader's miss of the dimmed drawing, never the
+trapwire's end
 """
 exceptions = "states only this object's drawing; no other ability's"
 see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
@@ -8147,8 +8296,10 @@ disappear while the object exists, asked after the false-loss diagnostic
 (`reticle acceptance false-loss`)
 """
 use = """
-a lost Trademark drawing is the trap's end; a replay child that outlives it
-is a replay-side error to check before the reader
+a lost drawing is the trap's end only where the trap is gone; after its
+owner's death the trap stays, disabled, and its drawing stays, dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer], so a drawing lost
+then is a reader's miss of the dimmed drawing, never the trap's end
 """
 exceptions = "states only this object's drawing; no other ability's"
 see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
@@ -8168,8 +8319,10 @@ disappear while the object exists, asked after the false-loss diagnostic
 (`reticle acceptance false-loss`)
 """
 use = """
-a lost camera drawing is the camera's end; a replay child that outlives it
-is a replay-side error to check before the reader
+a lost drawing is the camera's end only where the camera is gone; after its
+owner's death the camera stays, disabled, and its drawing stays, dimmer
+[domain:abilities/deployed-utility-disabled-drawn-dimmer], so a drawing lost
+then is a reader's miss of the dimmed drawing, never the camera's end
 """
 exceptions = """
 states only the camera's drawing; Spycam's tracking dart and every other
