@@ -129,6 +129,23 @@ class DiscTracks(unittest.TestCase):
         tr = disc_tracks(SID, g["context"], g["frames"], verify)["tracks"]
         self.assertEqual([t["end"] for t in tr], ["verify_lost", "verify_held_unbound"])
 
+    def test_a_track_turns_disabled_without_a_break(self):
+        # four fixes; the steps into 1000 and 1500 were held by the disabled
+        # drawing (`ability_icons.held_disabled`), then the disc is lost
+        spec = placed(0, 4, {})
+        frames = [(0, ""), (500, ""), (1000, ""), (1500, ""), (2000, "")]
+        g = glyph(spec, frames)
+        verify = {"t_ms": np.array([500.0, 1000.0, 1500.0, 2000.0]), "of": np.array([0, 0, 0, 0]),
+                  "lost": np.array([False, False, False, True]),
+                  "disabled": np.array([False, True, True, False])}
+        (tr,) = disc_tracks(SID, g["context"], g["frames"], verify)["tracks"]
+        self.assertEqual(tr["fixes"], 4)
+        self.assertEqual(tr["disabled_ms"], 1000.0)
+        self.assertEqual(tr["end"], "verify_lost")
+        verify.pop("disabled")
+        (tr,) = disc_tracks(SID, g["context"], g["frames"], verify)["tracks"]
+        self.assertIsNone(tr["disabled_ms"])
+
     def test_a_gated_sample_never_splits_a_track(self):
         spec = placed(0, 4, {})
         spec[2] = (1000, 0, 500, "map_shown", {}, (50.0, 50.0))

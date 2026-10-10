@@ -626,3 +626,13 @@ def test_a_track_held_through_the_dim_drawing_witnesses_the_disabled_state(monke
     assert cam["disabled_drawing"]["evidence"]["stream"] == "ability_disc_track"
     assert "glyph_disabled_dim" in [w["witness"] for w in cam["witnesses"]]
     assert cam["end"]["basis"] == "round_barrier"
+
+
+@pytest.mark.parametrize("last_ms, kept", [(29_000, True), (30_400, True), (28_400, False), (30_600, False)])
+def test_the_disable_window_follows_the_glyph_and_killfeed_steps(monkeypatch, last_ms, kept):
+    # the death verdict (30 s) lies from one glyph step before the last fix
+    # to one glyph step plus one killfeed step after it
+    B = _lost_at(monkeypatch, last_ms, _disabled_facts())
+    cam = next(o for o in _objects(B) if o["object"] == CAMERA)
+    assert (cam["drawing_loss"]["reason"] == ss.DRAWING_LOST_AT_DISABLE) is kept
+    assert (cam["end"]["basis"] == "round_barrier") is kept

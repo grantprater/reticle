@@ -522,11 +522,14 @@ DRAWING_LOST_OUT_OF_VIEW = "drawing_lost_out_of_view"
 #: Why a drawing lost at its owner's death leaves a node its facts disable
 #: open: the drawing dimmed, and the verify missed it (`_loss_at_disable`).
 DRAWING_LOST_AT_DISABLE = "drawing_lost_at_disable"
-#: A drawing loss this near the owner's death verdict is the death's
-#: dimming: one glyph step either side, the reader's sampling period, since
-#: the replay plays the Disabled effect within 100 ms of the death. Chosen,
-#: not fitted.
-DISABLE_LOSS_MS = GLYPH_STEP_MS
+#: A drawing lost at the owner's death: the replay plays the Disabled effect
+#: within 100 ms of the death, so the drawing dims between the last fix and
+#: the next glyph step; the death verdict lags the death by up to one step
+#: of the killfeed reader (2 Hz, `killfeed` hz). The verdict therefore lies
+#: from one glyph step before the last fix to one glyph step plus one
+#: killfeed step after it. Chosen from the two readers' rates, not fitted.
+KILLFEED_STEP_MS = 500.0
+DISABLE_LOSS_MS = (GLYPH_STEP_MS, GLYPH_STEP_MS + KILLFEED_STEP_MS)
 #: The disc round a drawing's last fix the vision is read over: the fit
 #: error (`minimap.FIT_ERR_PX`).
 VIEW_DISC_PX = FIT_ERR_PX
@@ -841,8 +844,8 @@ def _drawing_lost(c: dict, g: dict, xy: tuple | None, vision, gver, v: tuple | N
 
 def _loss_at_disable(c: dict) -> None:
     """Undo a drawing loss's end where the node's own facts disable it at
-    its owner's death and that death falls within `DISABLE_LOSS_MS` of the
-    loss: the drawing dims at the death and stays while the object exists
+    its owner's death and that death's verdict falls in `DISABLE_LOSS_MS`
+    about the loss's last fix: the drawing dims at the death and stays while the object exists
     (player, 2026-10-09) [domain:abilities/deadlock-sonic-sensor-disabled-at-owner-death]
     and its siblings, so the loss is the verify missing the dim drawing
     [domain:minimap/dim-devices-defeat-the-residual]. The node stays open to
@@ -850,7 +853,8 @@ def _loss_at_disable(c: dict) -> None:
     dl, od = c.get("drawing_loss"), c.get("owner_death")
     if not dl or not dl["ends"] or not od or od["rule"] != "disabled":
         return
-    if abs(float(od["t_ms"]) - float(dl["t_ms"])) > DISABLE_LOSS_MS:
+    lag = float(od["t_ms"]) - float(dl["t_ms"])
+    if not -DISABLE_LOSS_MS[0] <= lag <= DISABLE_LOSS_MS[1]:
         return
     c["drawing_loss"] = {**dl, "ends": False, "reason": DRAWING_LOST_AT_DISABLE,
                          "death_id": od["death_id"]}

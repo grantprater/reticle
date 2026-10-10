@@ -891,12 +891,22 @@ def _count(it) -> dict:
     return dict(sorted(out.items()))
 
 
+#: Older `ability_glyph` versions the verdict reads as the current one, each
+#: with why its rows adjudicate the same. 0.6.0 adds only the disabled
+#: continuation (a disc the proposer held through its dimmed drawing); 0.5.0
+#: rows hold no such disc, and their scores, gates and continuations are
+#: 0.6.0's on the same frames.
+ADJUDICABLE_GLYPH_VERSIONS = {
+    "ability-glyph-0.5.0": "no disabled disc; 0.6.0 changes nothing else the verdict reads"}
+
+
 def stale_reason(head: dict) -> str | None:
     """Why a stored `ability_glyph` stream cannot be adjudicated, or None:
     the verdict applies the null table at the code's version to stored scores,
-    which holds only where the reader scored under the same bank and tables."""
+    which holds only where the reader scored under the same bank and tables
+    (an older version in `ADJUDICABLE_GLYPH_VERSIONS` scored the same)."""
     from ..minimap_glyph import GLYPH_BANK_STAMP
-    if head.get("ability_glyph_version") != ABILITY_GLYPH_VERSION:
+    if head.get("ability_glyph_version") != ABILITY_GLYPH_VERSION             and head.get("ability_glyph_version") not in ADJUDICABLE_GLYPH_VERSIONS:
         return f"ability_glyph is {head.get('ability_glyph_version')}, current {ABILITY_GLYPH_VERSION}"
     if head.get("glyph_bank") != GLYPH_BANK_STAMP:
         return f"ability_glyph was scored on {head.get('glyph_bank')}, current {GLYPH_BANK_STAMP}"
