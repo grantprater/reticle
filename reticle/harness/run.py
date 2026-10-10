@@ -3509,6 +3509,18 @@ def _ability_truth(sid: str) -> dict:
     cen = ra.actor_census(rp.match, ex)
     smap = ra.slot_map(cen)
     folder_name = {(r["code"], r["folder"]): r["ability"] for r in cen["classes"] if r.get("folder")}
+    # each actor's end is the replay layer's (`replay_layer.child_end`), never
+    # its channel's close: a disabled object's channel stays open to the cleanup
+    from reticle import replay_layer as rl
+    st_l = rl.status(rp.match, STORE)
+    if st_l["state"] != "current":
+        return {"refused": f"replay layer {st_l['state']} ({', '.join(st_l['moved'])}): "
+                           f"reticle replay-layer {sid}"}
+    LE = rl.Layer(rp.match, STORE).entities
+    end_of = {int(g): (None if t is None or not np.isfinite(t) else float(t), m,
+                       None if u is None or not np.isfinite(u) else float(u))
+              for g, t, m, u, kd in zip(LE["guid"], LE["t_end_rep"], LE["end_marker"],
+                                       LE["t_live_until_rep"], LE["kind"]) if kd == "child"}
     code_of, actors = {}, []
     for r in cen["classes"]:
         if not r.get("code") or not r["mapped"]:
@@ -3518,10 +3530,13 @@ def _ability_truth(sid: str) -> dict:
             if s is None:
                 continue
             code_of.setdefault(s, r["code"])
+            t_end, marker, live = end_of.get(int(i["guid"]), (None, "unknown", None))
             actors.append({"ability": r["ability"], "class": r["class"], "subject": s,
                            "agent": agent.get(s), "side": side_of(s),
                            "open_ms": float(i["open_ms"]) + a,
-                           "close_ms": None if i["close_ms"] is None else float(i["close_ms"]) + a})
+                           "close_ms": None if t_end is None else t_end + a, "end_marker": marker,
+                           "end_unknown": t_end is None,
+                           "live_until_ms": None if live is None else live + a})
     casts = []
     for c in ex.casts()["casts"]:
         if c["t_ms"] is None:
@@ -3683,7 +3698,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
                   f"recall {a['recall']} {a['recall_ci']}, false opens {a['false_opens']} "
                   f"{a['false_open_ci']}, outcomes {a['outcomes']}, open err {a['open_error']}, "
                   f"end err {a['end_error']}, end cause {a['end_cause_agreement']} "
-                  f"(n {a['end_cause_n']})", flush=True)
+                  f"(n {a['end_cause_n']}, end unknown {a['end_unknown_n']})", flush=True)
         if side == "all":
             nodes, classes = _object_finds(sid)
             acts = []
@@ -3692,7 +3707,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
                 if cls not in classes:
                     continue
                 acts.append({"cls": cls, "side": x["side"], "agent": x["agent"], "open_ms": x["open_ms"],
-                             "close_ms": x["close_ms"],
+                             "close_ms": x["close_ms"], "end_unknown": x["end_unknown"],
                              "end_cause": acc.truth_end_cause(x["close_ms"],
                                                               truth["deaths_by_subject"].get(x["subject"], []),
                                                               bars, x["open_ms"])})
@@ -3703,7 +3718,8 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
             w, pb = od["all"], od["possible"]["all"]
             print(f"{sid} [objects]: truth {w['truth']}, witnessed nodes {w['finds']}, recall "
                   f"{w['recall']} {w['recall_ci']}, false opens {w['false_open_share']}, cause "
-                  f"{w['end_cause_agreement']}; possible nodes {pb['finds']}, recall {pb['recall']}",
+                  f"{w['end_cause_agreement']} (end unknown {w['end_unknown_n']}); possible nodes "
+                  f"{pb['finds']}, recall {pb['recall']}",
                   flush=True)
         docs[sid] = doc
         (out_dir / f"{sid}.json").write_text(json.dumps(tr.label(doc, [sid]), indent=1, default=str), encoding="utf-8")
@@ -3719,7 +3735,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
                                                     indent=1, default=str), encoding="utf-8")
     print(f"\npooled over {len(docs)} sessions")
     head = (f"{'side':8s} {'class':34s} {'truth':>5s} {'finds':>5s} {'pair':>4s} {'recall':>7s} "
-            f"{'recall CI':>16s} {'false':>6s} {'false CI':>16s} {'open med':>8s} {'end med':>8s} {'cause':>6s}")
+            f"{'recall CI':>16s} {'false':>6s} {'false CI':>16s} {'open med':>8s} {'end med':>8s} {'cause':>6s} {'unk':>4s}")
     print(head)
     for sd, blocks in list(pooled.items()) + ([("objects", pooled_obj)] if pooled_obj else []) \
             + ([("possible", pooled_poss)] if pooled_poss else []):
@@ -3727,7 +3743,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
             print(f"{sd:8s} {cls[:34]:34s} {b['truth']:5d} {b['finds']:5d} {b['paired']:4d} "
                   f"{str(b['recall']):>7s} {str(b['recall_ci']):>16s} {str(b['false_open_share']):>6s} "
                   f"{str(b['false_open_ci']):>16s} {str(b['open_error'].get('median_ms')):>8s} "
-                  f"{str(b['end_error'].get('median_ms')):>8s} {str(b['end_cause_agreement']):>6s}")
+                  f"{str(b['end_error'].get('median_ms')):>8s} {str(b['end_cause_agreement']):>6s} {b.get('end_unknown_n', 0):4d}")
     if record:
         from .extras import record as rec
         scopes = [(sid, {sd: {**d["classes"], "_all": d["all"]} for sd, d in doc["sides"].items()}
@@ -3746,7 +3762,7 @@ def run_ability_lane(sessions: list[str], tag: str, side: str, record: bool,
                     nm = _metric_name(cls) if side != "all" and sd == "self" else \
                         f"{sd}_{_metric_name(cls)}"
                     for k in ("truth", "finds", "paired", "recall", "false_opens", "false_open_share",
-                              "end_cause_agreement"):
+                              "end_cause_agreement", "end_unknown_n"):
                         vals[f"{nm}_{k}"] = b.get(k)
                     vals[f"{nm}_open_err_median_ms"] = b["open_error"].get("median_ms")
                     vals[f"{nm}_end_err_median_ms"] = b["end_error"].get("median_ms")
@@ -3913,8 +3929,8 @@ FALSE_LOSS_OWNER = {
     "verify_dip": "adjudication.ability.disc_tracks (continuity: the full search still finds the disc)",
     "moved_out_of_window": "ability_icons (the verify's search window) or disc_tracks' reach",
     "refound_later": "adjudication.ability.disc_tracks (continuity: a loss must persist)",
-    "replay_overrun": "replay_layer (an actor's close is its channel's, at the round's cleanup or "
-                      "never, not its object's end)",
+    "replay_overrun": "replay_layer (child_end: no end marker of the class fired before the "
+                      "cleanup close, so the layer kept it)",
     "other": "unassigned",
 }
 
@@ -3945,7 +3961,10 @@ def run_false_loss(sessions: list[str], tag: str, record: bool) -> int:
     child under the track's last fix (`acceptance.join_entities`, the
     class-aware join `truth_under` uses) is asked whether it still lives
     `FALSE_LOSS_AFTER_MS` after the loss sample; a loss whose child lives on
-    is false. Only a child of the node's own agent judges a loss; a
+    is false. The child lives to the end the replay layer sets
+    (`replay_layer.child_end`), never to its channel's close; where that end
+    is unknown and its last live marker precedes the loss, the loss is
+    counted `end_unknown`, unjudged. Only a child of the node's own agent judges a loss; a
     neighbour's child or an unbound node is counted apart. Each false loss takes the first cause of `FALSE_LOSS_CAUSES`
     that the stored streams near it show: the in-view diagnostic's truth
     (`point_seen`) disagrees with the estimate; a teammate, the self icon,
@@ -4029,8 +4048,26 @@ def run_false_loss(sessions: list[str], tag: str, record: bool) -> int:
             L["truth_close_rep"] = None if not np.isfinite(C["t_close"][j]) else float(C["t_close"][j])
             L["truth_life_hi_rep"] = hi
             L["t_rep_loss"] = float(t_rep_loss[i])
-            L["false"] = bool(hi > t_rep_loss[i] + FALSE_LOSS_AFTER_MS)
-            L["truth_close_after_loss_ms"] = round(hi - t_rep_loss[i], 1)
+            # the child's end is the replay layer's (`replay_layer.child_end`),
+            # never its channel's close; the join's tail past the close carries over
+            base = C["t_close"][j]
+            tail = hi - base if np.isfinite(base) else acc.LIFE_TAIL_MS
+            t_end, live = C["t_end"][j], C["t_live_until"][j]
+            L["truth_end_marker"] = C["end_marker"][j]
+            L["truth_end_rep"] = None if not np.isfinite(t_end) else float(t_end)
+            L["truth_live_until_rep"] = None if not np.isfinite(live) else float(live)
+            if np.isfinite(t_end):
+                L["false"] = bool(t_end + tail > t_rep_loss[i] + FALSE_LOSS_AFTER_MS)
+                L["truth_close_after_loss_ms"] = round(t_end + tail - t_rep_loss[i], 1)
+            elif np.isfinite(live) and live > t_rep_loss[i] + FALSE_LOSS_AFTER_MS:
+                # unknown end, but a live marker after the loss: still false
+                L["false"] = True
+                L["truth_close_after_loss_ms"] = round(live - t_rep_loss[i], 1)
+            else:
+                # unknown end, last live before the loss: neither true nor false
+                L.update(false=None, end_unknown=True, truth_close_after_loss_ms=None)
+                items.append(L)
+                continue
             # truth view through the window, as the in-view diagnostic asks it
             L["truth_view"] = view_truth(M, to_cm, L.pop("view_row"))
             # where the replay's own close lies: at the round's cleanup, never,
@@ -4098,7 +4135,7 @@ def run_false_loss(sessions: list[str], tag: str, record: bool) -> int:
                     cause = "moved_out_of_window"
                 elif gaps is not None:
                     cause = "refound_later"
-                elif L["replay_close"] != "mid_round":
+                elif L["truth_end_marker"] == "round_cleanup":
                     cause = "replay_overrun"
                 else:
                     cause = "other"
@@ -4154,9 +4191,14 @@ def false_loss_summary(items: list[dict]) -> dict:
         causes = Counter(x["cause"] for x in judged if x["false"])
         gap = lambda f: dict(Counter(str(x.get("refind_samples")) for x in judged if x["false"] == f))
         return {"n": len(xs), "judged": len(judged),
-                "no_child_under": sum(1 for x in xs if x.get("false") is None),
-                "another_entitys_child": sum(1 for x in xs if x.get("false") is not None
+                "no_child_under": sum(1 for x in xs if x.get("truth") == "no_child_under"),
+                "another_entitys_child": sum(1 for x in xs if x.get("truth") != "no_child_under"
                                              and not x.get("own_child")),
+                # the node's own child, its end unknown and its last live
+                # marker before the loss (`replay_layer.child_end`): unjudged
+                "end_unknown": sum(1 for x in xs if x.get("end_unknown") and x.get("own_child")),
+                "end_unknown_classes": dict(Counter(x["truth_class"] for x in xs
+                                                    if x.get("end_unknown") and x.get("own_child"))),
                 "false": nf, "false_share": round(nf / len(judged), 4) if judged else None,
                 "false_share_ci": ci,
                 "causes": dict(causes.most_common()),

@@ -62,7 +62,7 @@ from .replay_source import (MAX_GAP_MS, MINIMAP_LAG_MS, REPLAY_SOURCE_VERSION, S
 from .dev_set import FROZEN_HELD_OUT_REPLAY
 from .store import DEFAULT_STORE
 
-REPLAY_LAYER_VERSION = "replay-layer-0.2.0"
+REPLAY_LAYER_VERSION = "replay-layer-0.3.0"
 #: The frozen held-out match's replay (`dev_set`; docs/EXTERNAL_GROUND_TRUTH.md, "a match that scores a
 #: fitted reader or model is held out from its fit"): built, never summarised.
 HELD_OUT = FROZEN_HELD_OUT_REPLAY
@@ -396,6 +396,164 @@ def alive_mask(lives: list[dict], subject: str, t) -> np.ndarray:
     return out
 
 
+# ----------------------------------------------------------------- child ends
+
+#: A channel that closes this soon before the next round's start, or later,
+#: closes at the round's cleanup, not at its object's end.
+CLEANUP_CLOSE_MS = 250.0
+#: An actor's own `*Disabled*` continuous effect this near its owner's death
+#: is that death's disable.
+DISABLE_AT_DEATH_MS = 100.0
+#: Per class, the replay markers that end the object, read class by class
+#: on the development matches (2026-10-09; docs/REPLAY_LAYER.md, "Child
+#: ends"). These four classes draw on the minimap as long as the object lasts
+#: [domain:abilities/chamber-trademark-drawing-lasts-with-object]
+#: [domain:abilities/chamber-rendezvous-drawing-lasts-with-object]
+#: [domain:abilities/cypher-trapwire-drawing-lasts-with-object]
+#: [domain:abilities/cypher-spycam-camera-drawing-lasts-with-object];
+#: each owner death inside an actor's life shows that actor's own Disabled
+#: effect within `DISABLE_AT_DEATH_MS`, the drawing losses the false-loss
+#: diagnostic called replay overruns fall at that disable, and a kill, a
+#: destroy effect or a recall closes the channel mid-round. The end is the
+#: earliest marker listed; a channel that closes at the round's cleanup with
+#: none of them before it closes with the object (`round_cleanup`).
+END_MARKERS = {
+    "GameObject_Deadeye_E_Trap_C": ("disabled_at_owner_death", "killed", "channel_close"),
+    "GameObject_Deadeye_E_Teleporter_Tether_C": ("disabled_at_owner_death", "killed", "channel_close"),
+    "GameObject_Gumshoe_4_TripWire_C": ("disabled_at_owner_death", "killed", "destroy_effect",
+                                        "channel_close"),
+    "GameObject_Gumshoe_4_TripWire_SecondWire_C": ("disabled_at_owner_death", "killed", "destroy_effect",
+                                                   "channel_close"),
+    "Pawn_Gumshoe_E_PossessableCamera_C": ("disabled_at_owner_death", "killed", "channel_close"),
+}
+#: Every other class ends at its channel's close where that lies mid-round;
+#: a close at the cleanup, or none, leaves its end unknown after its last
+#: live marker. No class borrows another's markers.
+DEFAULT_END_MARKERS = ("channel_close",)
+#: The end markers, in the order a tie is named.
+END_MARKER_NAMES = ("disabled_at_owner_death", "killed", "destroy_effect", "channel_close",
+                    "round_cleanup")
+
+
+def close_kind(close, next_start) -> str:
+    """Where a channel's close lies: `never`, `round_cleanup` (within
+    `CLEANUP_CLOSE_MS` before the next round's start, or after it), else
+    `mid_round`."""
+    if close is None or not np.isfinite(close):
+        return "never"
+    if next_start is not None and np.isfinite(next_start) and close >= next_start - CLEANUP_CLOSE_MS:
+        return "round_cleanup"
+    return "mid_round"
+
+
+def child_end(cls: str, close, next_start, markers: dict, last_live) -> dict:
+    """One child's end from its class's markers (`END_MARKERS`, else
+    `DEFAULT_END_MARKERS`). `markers` maps a marker name to its earliest
+    replay ms (`disabled_at_owner_death`, `killed`, `destroy_effect`);
+    `close` is the channel's close and `last_live` the actor's last own row
+    before its cleanup. Returns `t_end` (None where unknown), `end_marker`
+    (`unknown` where none holds), `end_reason`, `t_live_until` (the end, or
+    the last live marker where the end is unknown) and `channel_close_kind`."""
+    ck = close_kind(close, next_start)
+    allowed = END_MARKERS.get(cls, DEFAULT_END_MARKERS)
+    have = {k: float(v) for k, v in markers.items() if k in allowed and v is not None}
+    if "channel_close" in allowed and ck == "mid_round":
+        have["channel_close"] = float(close)
+    if have:
+        t = min(have.values())
+        name = next(n for n in END_MARKER_NAMES if have.get(n) == t)
+        return {"t_end": t, "end_marker": name, "end_reason": None, "t_live_until": t,
+                "channel_close_kind": ck}
+    if cls in END_MARKERS and ck == "round_cleanup":
+        return {"t_end": float(close), "end_marker": "round_cleanup",
+                "end_reason": "no marker of the class before the cleanup close: the object lasted",
+                "t_live_until": float(close), "channel_close_kind": ck}
+    why = "channel never closes" if ck == "never" else "channel closes only at the round's cleanup"
+    why += ("; no end marker of the class fired" if cls in END_MARKERS
+            else "; the class has no surveyed end marker")
+    return {"t_end": None, "end_marker": "unknown", "end_reason": why,
+            "t_live_until": None if last_live is None else float(last_live), "channel_close_kind": ck}
+
+
+CHILD_END_COLUMNS = ("t_end_rep", "end_marker", "end_reason", "t_live_until_rep", "channel_close_ms",
+                     "channel_close_kind", "end_markers_seen")
+
+
+def child_end_columns(match, root, rp, E: dict, EV: dict, rounds: list[dict]) -> dict:
+    """Each child entity's end (`child_end`) as entity columns
+    (`CHILD_END_COLUMNS`): the markers read from the replay (its own Disabled
+    and Destroy effects, its owner's deaths, the damage calls that killed it,
+    its own field rows), the end, the marker that set it, why an end is
+    unknown, the last live marker, and the channel's close with its kind."""
+    import pyarrow.parquet as pq
+    n = len(E["entity_id"])
+    out = {c: [None] * n for c in CHILD_END_COLUMNS}
+    kids = [k for k in range(n) if E["kind"][k] == "child"]
+    if not kids:
+        return out
+    guids = sorted({int(E["guid"][k]) for k in kids})
+    paths = _net_guid_paths(match, root)
+    F = _read_fields(match, root, prefixes=("MulticastPlayContinuousEffect.", "MulticastPlayOneShotEffect."),
+                     guids=guids)
+    disabled, destroyed = defaultdict(list), defaultdict(list)
+    for rpc in ("MulticastPlayContinuousEffect", "MulticastPlayOneShotEffect"):
+        C = rpc_calls(F, rpc)
+        if C is None or "EffectContainer" not in C["fields"]:
+            continue
+        for t, g, c in zip(C["t"], C["g"], C["fields"]["EffectContainer"]):
+            leaf = _leaf(paths.get(int(c))) if c else ""
+            if rpc == "MulticastPlayContinuousEffect" and "Disabled" in leaf:
+                disabled[int(g)].append(float(t))
+            elif rpc == "MulticastPlayOneShotEffect" and "Destroy" in leaf:
+                destroyed[int(g)].append(float(t))
+    killed = defaultdict(list)
+    for kind, t, g2, det in zip(EV["kind"], EV["t_rep"], EV["guid2"], EV["detail"]):
+        if kind == "damage" and g2 is not None and json.loads(det).get("killed"):
+            killed[int(g2)].append(float(t))
+    deaths = defaultdict(list)
+    for e in rp.group("characterDeath"):
+        if e.get("victim"):
+            deaths[e["victim"]].append(float(e["t"]))
+    # every own row of the children, sorted by actor, for the last live marker
+    t = pq.read_table(parsed_dir(match, root) / "export" / "fields.parquet",
+                      columns=["time_ms", "actor_net_guid"], filters=[("actor_net_guid", "in", guids)])
+    rt = t["time_ms"].to_numpy().astype(np.float64)
+    rg = t["actor_net_guid"].to_numpy().astype(np.int64)
+    o = np.lexsort((rt, rg))
+    rg, rt = rg[o], rt[o]
+    starts = np.asarray([R["t_start"] for R in rounds], float)
+    nexts = np.asarray([R["t_next_start"] for R in rounds], float)
+    for k in kids:
+        g, t0, c = int(E["guid"][k]), float(E["t_open_rep"][k]), E["t_close_rep"][k]
+        close = None if c is None or not np.isfinite(c) else float(c)
+        r = int(np.searchsorted(starts, t0, side="right") - 1) if starts.size else -1
+        nxt = float(nexts[r]) if r >= 0 else np.nan
+        stop = close if close is not None else (nxt if np.isfinite(nxt) else np.inf)
+        hi = min(stop, nxt - CLEANUP_CLOSE_MS) if np.isfinite(nxt) else stop
+        a, b = np.searchsorted(rg, [g, g + 1])
+        tt = rt[a:b]
+        tt = tt[(tt >= t0) & (tt < hi)]
+        last = float(tt[-1]) if tt.size else t0
+        od = [d for d in deaths.get(E["subject"][k], []) if t0 < d <= stop]
+        dis = [x for x in disabled.get(g, []) if t0 <= x <= stop
+               and any(abs(x - d) <= DISABLE_AT_DEATH_MS for d in od)]
+        kl = [x for x in killed.get(g, []) if t0 <= x <= stop]
+        de = [x for x in destroyed.get(g, []) if t0 <= x <= stop]
+        mk = {"disabled_at_owner_death": min(dis) if dis else None, "killed": min(kl) if kl else None,
+              "destroy_effect": min(de) if de else None}
+        end = child_end(str(E["class"][k]), close, nxt, mk, last)
+        out["t_end_rep"][k] = end["t_end"]
+        out["end_marker"][k] = end["end_marker"]
+        out["end_reason"][k] = end["end_reason"]
+        out["t_live_until_rep"][k] = end["t_live_until"]
+        out["channel_close_ms"][k] = close
+        out["channel_close_kind"][k] = end["channel_close_kind"]
+        out["end_markers_seen"][k] = _json({**{m: v for m, v in mk.items() if v is not None},
+                                            **({"owner_death": od[0]} if od else {}),
+                                            "last_own_row": last})
+    return out
+
+
 # ----------------------------------------------------------------- build
 
 def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
@@ -567,6 +725,9 @@ def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
                 value_num=L["round"], value_str=L["open_basis"], detail=L["evidence"],
                 provenance="lives_table: a second death, or his held gun's or knife's "
                            "damage after his death")
+    # -- each child's end from its class's markers; `t_close_rep` stays the
+    # channel's close, which `channel_close_ms` repeats beside the end
+    E.update(child_end_columns(match, root, rp, E, EV, rounds))
 
     # -- ticks: players at the server tick
     for s in subs:
@@ -597,6 +758,8 @@ def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
     # child spawn px and capture times
     E["t_open_cap"] = [None if a is None or t is None else t + a for t in E["t_open_rep"]]
     E["t_close_cap"] = [None if a is None or t is None else t + a for t in E["t_close_rep"]]
+    E["t_end_cap"] = [None if a is None or t is None else t + a for t in E["t_end_rep"]]
+    E["t_live_until_cap"] = [None if a is None or t is None else t + a for t in E["t_live_until_rep"]]
     if mf is not None:
         sx = np.array([np.nan if v is None else v for v in E["spawn_x"]], float)
         sy = np.array([np.nan if v is None else v for v in E["spawn_y"]], float)
@@ -1061,6 +1224,10 @@ def layer_summary(match, root, d, E, EV, ex, cen, agent, rs) -> dict:
            "life_s_by_ability": {k: sample_stats(v, 2) for k, v in sorted(life.items())},
            "casts_vs_children": cast_crosscheck(E, EV, cen, agent),
            "undecoded_children": sum(1 for k in kids if E["undecoded"][k] != "[]")}
+    ends = defaultdict(Counter)
+    for k in kids:
+        ends[E["class"][k]][E["end_marker"][k]] += 1
+    out["end_markers_by_class"] = {c: dict(v) for c, v in sorted(ends.items())}
     kinds = Counter(EV["kind"])
     out["events"] = dict(kinds)
     eff = Counter(_leaf(v) for k, v in zip(EV["kind"], EV["value_str"]) if k == "effect")
@@ -1290,7 +1457,10 @@ class Layer:
                     for i in range(R["round"].size)]
         if kind == "children":
             E = self.tables["entities"]
-            return [{"e": int(k), "ability": E["ability"][k], "t_rep": (E["t_open_rep"][k], E["t_close_rep"][k])}
+            end = E.get("t_end_rep")
+            return [{"e": int(k), "ability": E["ability"][k], "t_rep": (E["t_open_rep"][k], E["t_close_rep"][k]),
+                     "t_end_rep": None if end is None else end[k],
+                     "end_marker": None if end is None else E["end_marker"][k]}
                     for k in np.flatnonzero(E["kind"] == "child")]
         raise ValueError(kind)
 

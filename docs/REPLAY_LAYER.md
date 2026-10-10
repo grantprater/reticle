@@ -82,7 +82,35 @@ its head carries no summary, and no command prints its contents.
   and folder opened at the same replay ms: a trapwire's two anchors),
   `t_open_rep`/`t_close_rep`/`t_open_cap`/`t_close_cap`, `close_basis`,
   `round`, `spawn_x`/`y`/`z`/`yaw`, `spawn_px`/`py`, `undecoded` (JSON list of
-  `group:field` payloads vrfkit left undecoded on the actor).
+  `group:field` payloads vrfkit left undecoded on the actor). `t_close_rep`
+  is the actor channel's close; the object's end is `t_end_rep`/`t_end_cap`
+  (see "Child ends"), with `end_marker`, `end_reason`,
+  `t_live_until_rep`/`_cap`, `channel_close_ms` (the channel's close again,
+  replay ms), `channel_close_kind` and `end_markers_seen` (JSON).
+
+### Child ends
+
+An actor's channel often outlives its object: a deployable disabled at its
+owner's death stays open until the round's cleanup, 100-250 ms before the
+next round starts, or never closes. Since replay-layer 0.3.0 each child's end
+is the earliest marker its class admits (`replay_layer.END_MARKERS`), read
+class by class on the development matches, never by analogy:
+
+- `disabled_at_owner_death`: the actor's own `*Disabled*` continuous effect
+  within 100 ms of its owner's death;
+- `killed`: a damage call on the actor with `bDamageKilledTarget`;
+- `destroy_effect`: a one-shot `*Destroy*` effect on the actor;
+- `channel_close`: the channel's close, where it lies mid-round;
+- `round_cleanup`: a cleanup close with no earlier marker, only for the
+  classes whose markers were surveyed (Trademark, Rendezvous, Trapwire's two
+  wires, Spycam);
+- `unknown`: no marker holds; `t_end_rep` is null, `end_reason` says why and
+  `t_live_until_rep` holds the actor's last own row before its cleanup.
+
+Every other class ends at a mid-round channel close, else `unknown`. The
+2026-10-09 survey found the Disabled-at-death effect also on Cypher's Cage,
+Killjoy's Nanoswarm, Alarmbot and Turret; whether their objects or drawings
+end there is unverified, so they stay `unknown` after a cleanup close.
 
 `ticks` (the primary state table): `e`, `t_rep`, `t_cap`, `x`, `y`, `z`,
 `yaw`, `pitch`, `alive`, `px`, `py`, `facing_px`, `sample` (`movement` at the
